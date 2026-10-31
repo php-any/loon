@@ -90,4 +90,40 @@ check_middleware($forms->handle(new Loom\Request(['method' => 'HEAD', 'path' => 
 $forms->get('/error', function ($request) { throw new Loom\HttpError(422, 'Invalid'); });
 $result = $forms->handle(new Loom\Request(['method' => 'GET', 'path' => '/error']))->toArray();
 check_middleware($result['status'] === 422 && $result['headers']->{'x-object'} === 'yes');
+// Fluent options compose without mutating the application or reusable builders.
+$fluent = new Loom\Application();
+$base = $fluent->prefix('/api')->withMiddleware(trace_middleware('outer'));
+$inner = $base->prefix('/v1')->withMiddleware(trace_middleware('inner'), trace_middleware('route'));
+$inner->group(function ($routes) {
+    $routes->get('/items/{id}', function ($request) { return new Loom\Response($request->parameter('id')); }, 'fluent.item');
+});
+$base->get('/base', function ($request) { return new Loom\Response('base'); });
+$fluent->get('/plain', function ($request) { return new Loom\Response('plain'); });
+check_middleware($fluent->url('fluent.item', ['id' => '7']) === '/api/v1/items/7');
+foreach ([['/api/v1/items/7', ['outer:in', 'inner:in', 'route:in', 'route:out', 'inner:out', 'outer:out']], ['/api/base', ['outer:in', 'outer:out']], ['/plain', []], ['/missing', []]] as $case) {
+    $GLOBALS['trace'] = [];
+    $fluent->handle(new Loom\Request(['method' => 'GET', 'path' => $case[0]]));
+    check_middleware($GLOBALS['trace'] === $case[1]);
+}
+try { $inner->group(function ($routes) { throw new RuntimeException('stop'); }); }
+catch (RuntimeException $error) {}
+$fluent->get('/after', function ($request) { return new Loom\Response('after'); });
+$GLOBALS['trace'] = [];
+check_middleware($fluent->handle(new Loom\Request(['method' => 'GET', 'path' => '/after']))->toArray()['body'] === 'after');
+check_middleware($GLOBALS['trace'] === []);
+// Each HTTP helper and WebSocket shares the same scoped pipeline.
+foreach (['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as $verb) {
+    $base->$verb('/verbs', function ($request) { return new Loom\Response($request->method()); });
+    $GLOBALS['trace'] = [];
+    check_middleware($fluent->handle(new Loom\Request(['method' => strtoupper($verb), 'path' => '/api/verbs']))->toArray()['body'] === strtoupper($verb));
+    check_middleware($GLOBALS['trace'] === ['outer:in', 'outer:out']);
+}
+$fluent->withMiddleware(function ($request, $next) { return new Loom\Response('blocked', 403); })
+    ->websocket('/socket', 'NeverResolve');
+check_middleware($fluent->handle(new Loom\Request(['method' => 'GET', 'path' => '/socket']))->toArray()['status'] === 403);
+$thrown = false;
+try { $base->withMiddleware(42)->get('/invalid', 'NeverResolve'); }
+catch (LogicException $error) { $thrown = true; }
+check_middleware($thrown);
+check_middleware($fluent->handle(new Loom\Request(['method' => 'GET', 'path' => '/api/invalid']))->toArray()['status'] === 404);
 echo "loom_middleware_test: OK\n";

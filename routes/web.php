@@ -17,5 +17,5 @@ $app->route('GET', '/playground', PlaygroundController::class);
 $app->route('GET', '/guide', GuideController::class);
 $app->route('GET', '/api/isolation', IsolationProbeController::class);
 $app->route('GET', '/hello/{name}', HelloController::class);
-$app->route('POST', '/greetings', CreateGreetingController::class, '', [ParseJsonInput::class]);
+$app->withMiddleware(ParseJsonInput::class)->post('/greetings', CreateGreetingController::class);
 require __DIR__ . '/websocket.php';

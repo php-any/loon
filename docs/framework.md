@@ -100,15 +100,27 @@ $app->websocket('/ws/echo', [\App\WebSocket\Handlers\EchoHandler::class, 'echoMe
 
 ### HTTP 中间件
 
-`$app->middleware($middleware)` 按注册顺序添加全局中间件。`group($prefix, $register, $middleware = [])` 和 `route/get/post/patch/delete/websocket` 的最后一个可选参数支持中间件列表（路由参数位于名称之后）。原有调用方式保持兼容。
+推荐使用 `withMiddleware(...$middleware)` 与 `prefix($prefix)` 链式声明局部路由配置，再调用 `get/post/put/patch/delete/head/options/route/websocket` 注册单路由，或调用 `group($register)` 注册分组。多个中间件直接作为多个参数传入，无需为路由名称填写空字符串。
+
+```php
+$app->withMiddleware(ParseJsonInput::class)->post('/greetings', CreateGreetingController::class);
+$app->prefix('/api')->withMiddleware(RequireUser::class)->group(function ($routes) {
+    $routes->get('/profile', [ProfileController::class, 'show'], 'profile');
+    $routes->withMiddleware(ParseJsonInput::class)->post('/posts', [PostController::class, 'store']);
+});
+```
+
+每次 `prefix` / `withMiddleware` 返回独立的配置副本，可复用并派生新配置，不改变应用或兄弟路由；同一个配置上的连续路由注册共用该配置。分组回调接收应用对象，内部路由继承当前分组的前缀及中间件；退出分组或回调异常后恢复原有作用域。配置在调用注册方法时应用，构建但未使用的配置不影响请求。
+
+`$app->middleware($middleware)` 仍按注册顺序添加**全局**中间件。原有 `group($prefix, $register, $middleware = [])` 和路由末尾中间件参数保持兼容。
 
 ```php
 $app->middleware(function (\Loom\Request $request, callable $next): \Loom\Response {
     return $next($request)->withHeader('X-App', 'Loom');
 });
-$app->group('/api', function ($app) {
-    $app->get('/profile', [ProfileController::class, 'show'], 'profile', [RequireUser::class]);
-}, [AuditRequest::class]);
+$app->prefix('/api')->withMiddleware(AuditRequest::class, RequireUser::class)->group(function ($routes) {
+    $routes->get('/profile', [ProfileController::class, 'show'], 'profile');
+});
 
 class RequireUser implements \Loom\Middleware
 {

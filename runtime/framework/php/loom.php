@@ -231,6 +231,58 @@ interface WebSocketAction
     public function __invoke(Request $request, \Net\Websocket\Conn $connection): void;
 }
 
+// Immutable registration options: reusing a builder never changes sibling routes.
+final class RouteRegistrar
+{
+    private Application $app;
+    private string $prefix;
+    private array $middleware;
+    public function __construct(Application $app, string $prefix = '', array $middleware = [])
+    {
+        $this->app = $app;
+        $this->prefix = $prefix;
+        $this->middleware = $middleware;
+    }
+    public function prefix(string $prefix): self
+    {
+        $copy = clone $this;
+        $copy->prefix .= rtrim($prefix, '/');
+        return $copy;
+    }
+    public function withMiddleware(mixed ...$middleware): self
+    {
+        $copy = clone $this;
+        $copy->middleware = array_merge($this->middleware, $middleware);
+        return $copy;
+    }
+    public function group(callable $register): self
+    {
+        $this->app->group($this->prefix, $register, $this->middleware);
+        return $this;
+    }
+    public function route(string $method, string $path, mixed $action, string $name = ''): self
+    {
+        $this->group(function (Application $routes) use ($method, $path, $action, $name): void {
+            $routes->route($method, $path, $action, $name);
+        });
+        return $this;
+    }
+    public function get(string $path, mixed $action, string $name = ''): self { return $this->route('GET', $path, $action, $name); }
+    public function post(string $path, mixed $action, string $name = ''): self { return $this->route('POST', $path, $action, $name); }
+    public function put(string $path, mixed $action, string $name = ''): self { return $this->route('PUT', $path, $action, $name); }
+    public function patch(string $path, mixed $action, string $name = ''): self { return $this->route('PATCH', $path, $action, $name); }
+    public function delete(string $path, mixed $action, string $name = ''): self { return $this->route('DELETE', $path, $action, $name); }
+    public function head(string $path, mixed $action, string $name = ''): self { return $this->route('HEAD', $path, $action, $name); }
+    public function options(string $path, mixed $action, string $name = ''): self { return $this->route('OPTIONS', $path, $action, $name); }
+    public function websocket(string $path, mixed $action, string $name = ''): self
+    {
+        $this->group(function (Application $routes) use ($path, $action, $name): void {
+            $routes->websocket($path, $action, $name);
+        });
+        return $this;
+    }
+}
+
 final class Application
 {
     private Container $container;
@@ -241,6 +293,15 @@ final class Application
     private array $groupMiddleware = [];
     public function __construct() { $this->container = new Container(); }
     public function services(): Container { return $this->container; }
+    public function withMiddleware(mixed ...$middleware): RouteRegistrar
+    {
+        $this->validateMiddleware($middleware);
+        return new RouteRegistrar($this, '', $middleware);
+    }
+    public function prefix(string $prefix): RouteRegistrar
+    {
+        return new RouteRegistrar($this, rtrim($prefix, '/'));
+    }
     public function middleware(mixed $middleware): self
     {
         $this->validateMiddleware([$middleware]);
