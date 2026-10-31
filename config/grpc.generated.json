@@ -1,0 +1,16 @@
+{
+  "files": {
+    "proto/user.proto": {
+      "import_paths": [
+        "proto"
+      ],
+      "proto_file": "user.proto",
+      "routes": {
+        "/app.users.UserService/GetUser": [
+          "App\\Grpc\\Services\\App\\Users\\UserService",
+          "getUser"
+        ]
+      }
+    }
+  }
+}

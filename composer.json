@@ -1,0 +1,25 @@
+{
+    "name": "php-any/loom",
+    "description": "A PHP full-stack application framework powered by Origami.",
+    "type": "project",
+    "scripts": {
+        "start": [
+            "Composer\\Config::disableProcessTimeout",
+            "go -C runtime run ./cmd/loom --root .."
+        ],
+        "test": [
+            "Composer\\Config::disableProcessTimeout",
+            "go -C runtime test ./... -count=1 -timeout 120s"
+        ],
+        "build": "go -C runtime build -o ../build/ ./cmd/loom",
+        "loom": [
+            "Composer\\Config::disableProcessTimeout",
+            "go -C runtime run ./cmd/loom --root .."
+        ]
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    }
+}

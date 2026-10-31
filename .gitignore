@@ -1,0 +1,31 @@
+# Local Go workspace
+/runtime/go.work
+/runtime/go.work.sum
+
+# Runtime data
+/storage/*
+!/storage/.gitkeep
+*.log
+
+# Dependencies and build output
+/build/
+/vendor/
+node_modules/
+*.exe
+*.test
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+/auth.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
