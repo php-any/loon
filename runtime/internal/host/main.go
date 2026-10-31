@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -63,6 +64,9 @@ func Main() {
 		if args[0] == "command" {
 			args = args[1:]
 		}
+		if len(args) == 2 && args[0] == "help" && args[1] == "make:grpc" && *migration == "" {
+			os.Exit(runMakeGRPC(context.Background(), config.GRPC, []string{"--help"}, os.Stdout, os.Stderr))
+		}
 		if len(args) > 0 && args[0] == "make:grpc" && *migration == "" {
 			os.Exit(runMakeGRPC(context.Background(), config.GRPC, args[1:], os.Stdout, os.Stderr))
 		}
@@ -70,7 +74,11 @@ func Main() {
 			log.Print("用法：loom [宿主选项] command [命令名] [参数/选项]；不能与 --migrate 同时使用")
 			os.Exit(2)
 		}
-		os.Exit(runApplicationConsole(config.Console, *database, flag.Args()[1:], os.Stdout, os.Stderr))
+		code := runApplicationConsole(config.Console, *database, flag.Args()[1:], os.Stdout, os.Stderr)
+		if code == 0 && (len(args) == 0 || (len(args) == 1 && (args[0] == "list" || args[0] == "--help" || args[0] == "-h"))) {
+			fmt.Fprintln(os.Stdout, "  make:grpc <proto>  生成 gRPC 业务骨架并自动注册")
+		}
+		os.Exit(code)
 	}
 	if *migration != "" {
 		if *migration != "up" && *migration != "status" && *migration != "down" {

@@ -42,6 +42,8 @@ try {
     }
     go -C runtime run ./cmd/protocol-client --protocol=all --demo "--addr=$($config.grpc.address)" "--http-addr=$($config.address)" "--tcp-addr=$($config.tcp.address)" "--websocket-url=ws://$($config.address)/ws/greet"
     if ($LASTEXITCODE -ne 0) { throw '协议演示验证失败' }
+    go -C runtime run ./cmd/protocol-client --protocol=grpc "--addr=$($config.grpc.address)" --proto-file=user.proto --service=app.users.UserService --method=GetUser '--data={"id":1}' --gzip
+    if ($LASTEXITCODE -ne 0) { throw '生成的 UserService 演示验证失败' }
 } finally {
     # Stop only the process this invocation created; existing servers are untouched.
     if ($null -ne $demoProcess) {

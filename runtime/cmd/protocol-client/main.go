@@ -25,6 +25,7 @@ func main() {
 	protoDir := flag.String("proto-dir", "../proto", "protobuf import directory")
 	protoFile := flag.String("proto-file", "greeter.proto", "protobuf entry file")
 	method := flag.String("method", "SayHello", "method on loom.examples.Greeter")
+	service := flag.String("service", "loom.examples.Greeter", "fully qualified protobuf service name")
 	data := flag.String("data", "", "ProtoJSON request; defaults to name for SayHello")
 	compression := flag.Bool("gzip", false, "compress gRPC requests and responses")
 	demo := flag.Bool("demo", false, "run and verify all gRPC examples, errors and compression comparison")
@@ -51,7 +52,7 @@ func main() {
 			payload, _ := json.Marshal(*name)
 			*data = string(payload)
 		}
-		if err := runGRPC(*address, *protoDir, *protoFile, *method, *data, *compression, *demo); err != nil {
+		if err := runGRPC(*address, *protoDir, *protoFile, *service, *method, *data, *compression, *demo); err != nil {
 			log.Fatal(err)
 		}
 		return

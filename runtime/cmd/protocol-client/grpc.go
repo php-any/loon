@@ -60,7 +60,10 @@ func inspectProto(root, file string) error {
 	return nil
 }
 
-func runGRPC(address, root, file, method, data string, compressed, demo bool) error {
+func runGRPC(address, root, file, service, method, data string, compressed, demo bool) error {
+	if demo && service != "loom.examples.Greeter" {
+		return fmt.Errorf("--demo uses loom.examples.Greeter; use --method and --data for other services")
+	}
 	if address == "" {
 		address = "127.0.0.1:18089"
 	}
@@ -75,7 +78,7 @@ func runGRPC(address, root, file, method, data string, compressed, demo bool) er
 	}
 	defer conn.Close()
 	call := func(method, payload string, compressed bool, expected codes.Code, verbose bool) (int, int, error) {
-		descriptor, err := schema.Method("loom.examples.Greeter", method)
+		descriptor, err := schema.Method(service, method)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -91,7 +94,7 @@ func runGRPC(address, root, file, method, data string, compressed, demo bool) er
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		beforeSent, beforeReceived := metrics.snapshot()
-		err = conn.Invoke(ctx, "/loom.examples.Greeter/"+method, request, response, options...)
+		err = conn.Invoke(ctx, "/"+service+"/"+method, request, response, options...)
 		if status.Code(err) != expected {
 			return 0, 0, fmt.Errorf("%s: expected %s, got %v", method, expected, err)
 		}
@@ -106,7 +109,7 @@ func runGRPC(address, root, file, method, data string, compressed, demo bool) er
 			}
 			fmt.Println(string(raw))
 		}
-		if err == nil && method == "BatchGreet" {
+		if err == nil && service == "loom.examples.Greeter" && method == "BatchGreet" {
 			var input struct {
 				Names []string `json:"names"`
 			}

@@ -86,6 +86,14 @@ go -C runtime build -o ../build/loom.exe ./cmd/loom
 
 ## 多协议示例
 
+新增 gRPC 服务只需定义协议、生成骨架、填写业务方法：
+
+```powershell
+composer loom -- make:grpc proto/user.proto
+```
+
+命令自动维护协议和路由注册信息；业务方法直接返回结果，通过 `Loom\Grpc\RpcException` 表达业务错误。重复生成只更新基类和注册清单，保留已有业务文件。仓库包含可运行的 UserService 示例，完整演示脚本也会调用它。
+
 HTTP、WebSocket、TCP 和 gRPC 的入口按协议分目录，共享 `app/Services/GreetingService.php`。Go 宿主负责监听、协议解码与生命周期，PHP 负责应用行为。客户端、预期返回、错误示例及新增服务步骤见 [多协议开发指南](docs/protocols.md)。
 
 `./scripts/demo-protocols.ps1` 会启动使用独立数据库的演示宿主，运行全套示例并在结束时停止该进程。已有服务可加 `-UseRunningServer`。gRPC 在启动时解析 `.proto` 文件及 import，自动注册 unary RPC，通过 `routes/grpc.php` 分发到 PHP；支持反射和 gzip 压缩，无需生成 Go 消息代码。

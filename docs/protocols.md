@@ -1,5 +1,44 @@
 # 多协议应用与完整示例
 
+## 新增 RPC：生成后填写业务
+
+新服务不需要手动修改配置或路由。定义 `proto/user.proto` 后执行：
+
+```powershell
+composer loom -- make:grpc proto/user.proto
+# 不使用 Composer 时等价命令：
+go -C runtime run ./cmd/loom --root .. make:grpc proto/user.proto
+```
+
+仓库已包含完整 UserService 示例。生成器根据 protobuf package `app.users` 和 service `UserService` 创建：
+
+- `app/Grpc/Services/App/Users/UserService.php`：业务文件，首次含有可填写的方法骨架，以后绝不覆盖。
+- `app/Grpc/Generated/App/Users/UserServiceBase.php`：可重新生成的基类，提供协议中所有 RPC 的默认实现。
+- `config/grpc.generated.json`：生成器维护的协议和路由注册信息，启动时自动合并。
+
+只需在业务类的方法中直接返回响应字段：
+
+```php
+public function getUser(array $request)
+{
+    $id = $request['id'] ?? 0;
+    if ($id < 1) {
+        throw new \Loom\Grpc\RpcException('invalid_argument', 'id 必须大于 0');
+    }
+    return ['id' => $id, 'name' => '示例用户'];
+}
+```
+
+重启宿主后即可调用，无需编辑 `proto_files` 或 `routes/grpc.php`：
+
+```powershell
+go -C runtime run ./cmd/protocol-client --protocol=grpc --proto-file=user.proto --service=app.users.UserService --method=GetUser --data='{"id":1}' --gzip
+```
+
+修改协议后重复执行同一生成命令。已有业务文件逐字保留；新增方法出现在生成基类中，在业务类覆盖该方法即可。尚未实现的方法返回 `Unimplemented`，不会返回伪造的成功数据。删除 RPC 后注册信息同步删除，业务文件中已有方法仍保留。改变请求类型时需自行调整已有业务方法签名。请将生成基类和注册清单一起提交并部署。
+
+生成器拒绝非法 PHP 标识符、方法名冲突、项目外路径和覆盖非生成基类文件。proto package 映射为 PHP 子命名空间，避免不同服务包同名类相互覆盖。命令也支持 `command make:grpc` 和 `make:grpc --help`。
+
 ## 职责和目录
 
 `app/Http/Controllers` 处理 HTTP，`app/WebSocket/Handlers` 处理 WebSocket，`app/Tcp/Handlers` 处理 TCP 消息，`app/Grpc/Services` 实现 RPC 应用行为。它们调用 `app/Services` 中与协议无关的业务逻辑。`app/Grpc/Services/GreeterService` 是 RPC 入口，`app/Services/GreetingService` 是共享业务服务。
@@ -110,13 +149,13 @@ go -C runtime run ./cmd/protocol-client --protocol=proto
 
 `proto_files` 可以选择多个入口文件；只有入口文件中声明的服务被注册，导入的消息可供编码、解码及反射使用。重复加载同一入口不会重复注册。修改协议后重启宿主即可生效。当前执行模型是 unary；发现流式 RPC 时明确拒绝启动。
 
-新增 RPC 的完整路径是 `.proto` → 动态 Protobuf 请求 → `bootstrap/grpc.php` → `routes/grpc.php` → PHP Service → 动态 Protobuf 响应。PHP 收到：
+新增 RPC 的完整路径是 `.proto` → 动态 Protobuf 请求 → 框架 Dispatcher → 生成清单或手写路由 → PHP Service → 动态 Protobuf 响应。下面的信封只供框架入口使用，业务方法接收其中的 `request`：
 
 ```json
 {"method":"/loom.examples.Greeter/Greet","request":{"name":"Ada","times":3}}
 ```
 
-成功返回 `['data' => $response]`；业务失败返回 `['error' => ['code' => 'invalid_argument', 'message' => '...']]`。支持的业务错误码还有 `not_found`、`already_exists`、`permission_denied`、`unauthenticated`、`failed_precondition`、`unimplemented`。异常和不匹配协议的响应转换为 `Internal`。
+业务方法直接返回响应字段，框架负责内部 data/error 信封。业务失败抛出 `new \Loom\Grpc\RpcException('invalid_argument', '...')`；支持的业务错误码还有 `not_found`、`already_exists`、`permission_denied`、`unauthenticated`、`failed_precondition`、`unimplemented`。其他异常和不匹配协议的响应转换为 `Internal`。旧应用若手写 data/error 信封，应移除包装，改用直接返回和业务异常。
 
 参数遵循 ProtoJSON：字段使用 proto 原名，未设置的字段通常省略，64 位整数为十进制字符串，bytes 为 Base64，枚举通常为名称。示例 `times` 为 optional，可以区分省略（默认一次）和显式零（校验失败）。
 
@@ -164,10 +203,10 @@ go -C runtime run ./cmd/protocol-client --protocol=grpc --demo
 1. 在 `app/Services` 写与协议无关的业务方法，通过普通参数接收输入并返回数据。
 2. HTTP Controller 负责 HTTP 验证及状态码；TCP Handler 负责消息动作分发和业务错误；gRPC Service 实现对应 RPC 行为。
 3. TCP 新动作在 `GreetingHandler` 的分发处接入，业务复杂后拆成多个 Handler，并在 `bootstrap/tcp.php` 装配。
-4. 新 gRPC 服务先定义 `.proto` 并加入配置的 `proto_files`，然后在 `routes/grpc.php` 将完整 RPC 路径映射到 PHP 类和方法。服务类接收 ProtoJSON 解码后的参数，返回 data/error 信封。重启宿主后自动注册服务，无需改写 Go 描述符。
+4. 新 gRPC 服务定义 `.proto` 后运行 `make:grpc`，填写生成的业务类方法并重启宿主。协议与路由注册信息自动维护，业务方法直接返回数据。`routes/grpc.php` 仍可提供手写映射，并优先于生成清单，适用于已有服务。
 5. 通过 `loom.Config{Services: services}` 注入宿主共享资源；PHP 消息入口已加载 Loom 服务及 ORM API。不要把 HTTP Request、网络连接或 gRPC 上下文放入共享业务服务。
 
-当前支持 `.proto` 驱动的 unary RPC 注册、显式 PHP 方法映射、反射和 gzip。服务端流、客户端流、双向流、TLS、认证和服务发现需要另行接入。
+当前支持 `.proto` 驱动的 unary RPC 注册、业务骨架生成、自动 PHP 方法映射、业务异常、反射和 gzip。服务端流、客户端流、双向流、TLS、认证和服务发现需要另行接入。
 
 ## 验证
 

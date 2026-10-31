@@ -176,6 +176,24 @@ func generateGRPC(ctx context.Context, root, input string, config *protocolConfi
 		imports = append(imports, filepath.ToSlash(rel))
 		entry = filepath.Base(source)
 	}
+	// A same-named file in an earlier import root must not silently replace input.
+	expected, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	for _, dir := range imports {
+		base := dir
+		if !filepath.IsAbs(base) {
+			base = filepath.Join(root, base)
+		}
+		actual, e := os.Stat(filepath.Join(base, filepath.FromSlash(entry)))
+		if e == nil {
+			if !os.SameFile(expected, actual) {
+				return fmt.Errorf("ambiguous proto import %s; choose a unique path beneath an import root", entry)
+			}
+			break
+		}
+	}
 	resolved := make([]string, 0, len(imports))
 	for _, dir := range imports {
 		if filepath.IsAbs(dir) {
