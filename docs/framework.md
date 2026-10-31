@@ -120,6 +120,8 @@ class RequireUser implements \Loom\Middleware
 }
 ```
 
+应用已在 `app/Http/Middleware/` 接入真实中间件：`RequireStudioUser` 统一执行登录、CSRF 与 Origin 校验，将用户写入 `user` 请求属性；`ParseJsonInput` 校验 JSON 媒体类型和对象结构，将 `Loom\Input` 写入 `input` 属性。`routes/studio.php` 对受保护路由分组注册前者，对需要 JSON 的路由注册后者；注册、登录保持公开。`routes/web.php` 的 `/greetings` 也使用 JSON 中间件。控制器通过 `$request->attribute('user')` 和 `$request->attribute('input')` 读取结果，字段级业务校验仍由控制器负责。无需请求体的删除、重试等操作不强制解析 JSON。
+
 执行顺序为全局 → 外层分组 → 内层分组 → 路由 → 控制器，响应沿相反顺序返回。每层可调用 `$next($request)`，也可直接返回 `Response` 短路；后续中间件及控制器仅在实际执行时解析。支持闭包、可调用对象或数组，以及实现 `Loom\Middleware::handle` 的对象；类名通过应用容器延迟解析，可绑定显式依赖工厂。字符串表示容器服务类名，不表示函数名。
 
 全局中间件包围路由匹配，因此也处理 404/405；分组和路由中间件仅在方法及路径匹配后执行，可读取路由参数。HEAD 回退到 GET 时使用 GET 中间件，正文仍由宿主抑制。`Request::withAttribute()` 返回副本，`attribute($name, $default = null)` 读取请求内上下文，显式 null 不会替换成默认值。全局中间件执行前尚无路由参数。

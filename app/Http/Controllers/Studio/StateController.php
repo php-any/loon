@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Studio;
 use Loom\Action;
 use Loom\Request;
 use Loom\Response;
-use Loom\Auth;
 use Loom\Database;
 use App\Models\StudioTask;
 use App\Models\StudioProject;
@@ -15,7 +14,7 @@ final class StateController implements Action
 {
     public function __invoke(Request $request): Response
     {
-        $user = Auth::guard(); $id = $user['id'];
+        $user = $request->attribute('user'); $id = $user['id'];
         $tasks = StudioTask::query()->where('user_id', '=', $id);
         $projectId = $request->query('project')[0] ?? '';
         if ($projectId !== '') { $project = StudioProject::query()->where('id', '=', $projectId)->where('user_id', '=', $id)->firstOrFail(); $tasks = $project->tasks(); }

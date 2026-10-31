@@ -6,14 +6,13 @@ namespace App\Http\Controllers\Studio;
 use Loom\Action;
 use Loom\Request;
 use Loom\Response;
-use Loom\Auth;
 use Loom\Queue;
 
 final class DispatchReportController implements Action
 {
     public function __invoke(Request $request): Response
     {
-        $user = Auth::guard(); $input = $request->json()->only(['delay']);
+        $user = $request->attribute('user'); $input = $request->attribute('input')->only(['delay']);
         $id = Queue::dispatch('studio.digest', [], $user['id'], $input->integer('delay', 0, 30));
         return Response::json(['id' => $id], 202);
     }
