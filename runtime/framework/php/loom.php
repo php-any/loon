@@ -20,6 +20,7 @@ final class Request
 {
     private array $envelope;
     private array $parameters = [];
+    private array $attributes = [];
 
     public function __construct(array $envelope) { $this->envelope = $envelope; }
     public static function capture(): self { return new self(json_decode(request_envelope(), true, 512, JSON_THROW_ON_ERROR)); }
@@ -40,6 +41,16 @@ final class Request
     {
         $copy = clone $this;
         $copy->parameters = $parameters;
+        return $copy;
+    }
+    public function attribute(string $name, mixed $default = null): mixed
+    {
+        return array_key_exists($name, $this->attributes) ? $this->attributes[$name] : $default;
+    }
+    public function withAttribute(string $name, mixed $value): self
+    {
+        $copy = clone $this;
+        $copy->attributes[$name] = $value;
         return $copy;
     }
     public function json(): Input
@@ -167,6 +178,11 @@ final class Container
     }
 }
 
+interface Middleware
+{
+    public function handle(Request $request, callable $next): Response;
+}
+
 interface Action
 {
     public function __invoke(Request $request): Response;
@@ -221,8 +237,38 @@ final class Application
     private array $routes = [];
     private string $prefix = '';
     private array $named = [];
+    private array $middleware = [];
+    private array $groupMiddleware = [];
     public function __construct() { $this->container = new Container(); }
     public function services(): Container { return $this->container; }
+    public function middleware(mixed $middleware): self
+    {
+        $this->validateMiddleware([$middleware]);
+        $this->middleware[] = $middleware;
+        return $this;
+    }
+    private function validateMiddleware(array $middleware): void
+    {
+        foreach ($middleware as $entry) {
+            if ((!is_string($entry) || $entry === '') && !($entry instanceof Middleware) && !is_callable($entry)) {
+                throw new \LogicException('Expected middleware class, Middleware instance or callable');
+            }
+        }
+    }
+    private function pipeline(Request $request, array $middleware, callable $destination): Response
+    {
+        $next = $destination;
+        for ($index = count($middleware) - 1; $index >= 0; $index--) {
+            $entry = $middleware[$index];
+            $next = function (Request $request) use ($entry, $next): Response {
+                if (is_string($entry)) { $entry = $this->container->get($entry); }
+                if ($entry instanceof Middleware) { return $entry->handle($request, $next); }
+                if (!is_callable($entry)) { throw new \LogicException('Middleware must implement Middleware or be callable'); }
+                return $entry($request, $next);
+            };
+        }
+        return $next($request);
+    }
     private function validateAction(mixed $action): void
     {
         if (is_array($action)) {
@@ -247,7 +293,7 @@ final class Application
         if (!is_callable($action)) { throw new \LogicException('Route must resolve to a callable public controller method'); }
         return $action;
     }
-    public function websocket(string $path, mixed $action, string $name = ''): self
+    public function websocket(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
         $this->validateAction($action);
         return $this->get($path, function (Request $request) use ($action): Response {
@@ -256,17 +302,20 @@ final class Application
             try { $action($request, $connection); }
             finally { $connection->close(); }
             return new Response('', 204);
-        }, $name);
+        }, $name, $middleware);
     }
-    public function get(string $path, mixed $action, string $name = ''): self { return $this->route('GET', $path, $action, $name); }
-    public function post(string $path, mixed $action, string $name = ''): self { return $this->route('POST', $path, $action, $name); }
-    public function patch(string $path, mixed $action, string $name = ''): self { return $this->route('PATCH', $path, $action, $name); }
-    public function delete(string $path, mixed $action, string $name = ''): self { return $this->route('DELETE', $path, $action, $name); }
-    public function group(string $prefix, callable $register): self
+    public function get(string $path, mixed $action, string $name = '', array $middleware = []): self { return $this->route('GET', $path, $action, $name, $middleware); }
+    public function post(string $path, mixed $action, string $name = '', array $middleware = []): self { return $this->route('POST', $path, $action, $name, $middleware); }
+    public function patch(string $path, mixed $action, string $name = '', array $middleware = []): self { return $this->route('PATCH', $path, $action, $name, $middleware); }
+    public function delete(string $path, mixed $action, string $name = '', array $middleware = []): self { return $this->route('DELETE', $path, $action, $name, $middleware); }
+    public function group(string $prefix, callable $register, array $middleware = []): self
     {
+        $this->validateMiddleware($middleware);
+        $oldMiddleware = $this->groupMiddleware;
+        $this->groupMiddleware = array_merge($oldMiddleware, $middleware);
         $old = $this->prefix;
         $this->prefix .= rtrim($prefix, '/');
-        try { $register($this); } finally { $this->prefix = $old; }
+        try { $register($this); } finally { $this->prefix = $old; $this->groupMiddleware = $oldMiddleware; }
         return $this;
     }
     public function url(string $name, array $parameters = []): string
@@ -284,8 +333,9 @@ final class Application
         if ($parameters !== []) { throw new \LogicException('Unknown URL parameters'); }
         return implode('/', $parts);
     }
-    public function route(string $method, string $path, mixed $action, string $name = ''): self
+    public function route(string $method, string $path, mixed $action, string $name = '', array $middleware = []): self
     {
+        $this->validateMiddleware($middleware);
         $path = $this->prefix . $path;
         if ($name !== '' && isset($this->named[$name])) { throw new \LogicException('Duplicate route name: ' . $name); }
         $this->validateAction($action);
@@ -318,11 +368,21 @@ final class Application
             }
             if ($overlap) { throw new \LogicException('Ambiguous route: ' . $method . ' ' . $path); }
         }
-        $this->routes[] = ['method' => $method, 'parts' => $parts, 'shape' => $shape, 'action' => $action];
+        $this->routes[] = ['method' => $method, 'parts' => $parts, 'shape' => $shape, 'action' => $action, 'middleware' => array_merge($this->groupMiddleware, $middleware)];
         if ($name !== '') { $this->named[$name] = $path; }
         return $this;
     }
     public function handle(Request $request): Response
+    {
+        try {
+            return $this->pipeline($request, $this->middleware, function (Request $request): Response {
+                return $this->dispatch($request);
+            });
+        } catch (HttpError $error) {
+            return Response::problem($error->status, $error->getMessage(), $error->details);
+        }
+    }
+    private function dispatch(Request $request): Response
     {
         try {
             $allowed = [];
@@ -341,14 +401,16 @@ final class Application
                 if (!$matched) { continue; }
                 $allowed[] = $route['method'];
                 if ($route['method'] === 'GET') { $allowed[] = 'HEAD'; }
-                $matches[$route['method']] = ['action' => $route['action'], 'parameters' => $parameters];
+                $matches[$route['method']] = ['action' => $route['action'], 'parameters' => $parameters, 'middleware' => $route['middleware']];
             }
             $method = $request->method();
             if ($method === 'HEAD' && !isset($matches['HEAD'])) { $method = 'GET'; }
             if (isset($matches[$method])) {
                 $match = $matches[$method];
-                $action = $this->resolveAction($match['action']);
-                return $action($request->withParameters($match['parameters']));
+                return $this->pipeline($request->withParameters($match['parameters']), $match['middleware'], function (Request $request) use ($match): Response {
+                    $action = $this->resolveAction($match['action']);
+                    return $action($request);
+                });
             }
             if ($allowed !== []) {
                 return Response::problem(405, 'Method Not Allowed')->withHeader('Allow', implode(', ', array_unique($allowed)));

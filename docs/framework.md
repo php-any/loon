@@ -96,7 +96,35 @@ $app->post('/posts', [PostController::class, 'store']);
 $app->websocket('/ws/echo', [\App\WebSocket\Handlers\EchoHandler::class, 'echoMessage']);
 ```
 
-提供 `route`、`get/post/patch/delete`、嵌套 `group` 与命名 `url`。支持完整路径和单段 `{name}` 参数；URL 生成拒绝缺失、空值、斜杠和多余参数，逐段编码。大小写、尾斜杠均精确匹配；URL 路径采用 Go 解码后的 `URL.Path`。同方法可能匹配同一路径的路由在注册时拒绝。HEAD 优先使用显式 HEAD 路由，否则执行 GET，并在宿主抑制正文。404/405 使用 problem JSON，405 包含 Allow。分组只组织路径，不隐式安装认证。
+提供 `route`、`get/post/patch/delete`、嵌套 `group` 与命名 `url`。支持完整路径和单段 `{name}` 参数；URL 生成拒绝缺失、空值、斜杠和多余参数，逐段编码。大小写、尾斜杠均精确匹配；URL 路径采用 Go 解码后的 `URL.Path`。同方法可能匹配同一路径的路由在注册时拒绝。HEAD 优先使用显式 HEAD 路由，否则执行 GET，并在宿主抑制正文。404/405 使用 problem JSON，405 包含 Allow。分组组织路径并可显式配置中间件，不隐式安装认证。
+
+### HTTP 中间件
+
+`$app->middleware($middleware)` 按注册顺序添加全局中间件。`group($prefix, $register, $middleware = [])` 和 `route/get/post/patch/delete/websocket` 的最后一个可选参数支持中间件列表（路由参数位于名称之后）。原有调用方式保持兼容。
+
+```php
+$app->middleware(function (\Loom\Request $request, callable $next): \Loom\Response {
+    return $next($request)->withHeader('X-App', 'Loom');
+});
+$app->group('/api', function ($app) {
+    $app->get('/profile', [ProfileController::class, 'show'], 'profile', [RequireUser::class]);
+}, [AuditRequest::class]);
+
+class RequireUser implements \Loom\Middleware
+{
+    public function handle(\Loom\Request $request, callable $next): \Loom\Response
+    {
+        $user = \Loom\Auth::user();
+        return $next($request->withAttribute('user', $user));
+    }
+}
+```
+
+执行顺序为全局 → 外层分组 → 内层分组 → 路由 → 控制器，响应沿相反顺序返回。每层可调用 `$next($request)`，也可直接返回 `Response` 短路；后续中间件及控制器仅在实际执行时解析。支持闭包、可调用对象或数组，以及实现 `Loom\Middleware::handle` 的对象；类名通过应用容器延迟解析，可绑定显式依赖工厂。字符串表示容器服务类名，不表示函数名。
+
+全局中间件包围路由匹配，因此也处理 404/405；分组和路由中间件仅在方法及路径匹配后执行，可读取路由参数。HEAD 回退到 GET 时使用 GET 中间件，正文仍由宿主抑制。`Request::withAttribute()` 返回副本，`attribute($name, $default = null)` 读取请求内上下文，显式 null 不会替换成默认值。全局中间件执行前尚无路由参数。
+
+路由中的 `HttpError` 在路由分发边界转换为 problem 响应，全局中间件可继续处理该响应；全局中间件抛出的 `HttpError` 在应用外层转换。其他异常继续交给宿主处理。WebSocket 中间件在握手前运行，可拒绝升级；握手成功后的响应头修改不再影响已发送的握手。此管线仅覆盖 PHP HTTP 应用，不覆盖宿主静态资源、TCP 或 gRPC。
 
 容器使用显式 factory 绑定，未绑定的类尝试无参构造；服务在一个执行作用域内复用。重复绑定、依赖环和非对象结果均报错。暂不提供自动构造注入、进程级服务、属性扫描或启动期路由清单编译。
 
