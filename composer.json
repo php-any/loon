@@ -1,25 +1,30 @@
 {
     "name": "php-any/loom",
-    "description": "A PHP full-stack application framework powered by Origami.",
+    "description": "A general-purpose admin application built with Origami, with its own product website.",
     "type": "project",
     "scripts": {
         "start": [
             "Composer\\Config::disableProcessTimeout",
-            "go -C runtime run ./cmd/loom --root .."
+            "build/loom serve"
         ],
         "test": [
             "Composer\\Config::disableProcessTimeout",
-            "go -C runtime test ./... -count=1 -timeout 120s"
+            "build/loom tests/run.php"
         ],
-        "build": "go -C runtime build -o ../build/ ./cmd/loom",
         "loom": [
             "Composer\\Config::disableProcessTimeout",
-            "go -C runtime run ./cmd/loom --root .."
-        ]
+            "build/loom"
+        ],
+        "doctor": "build/loom doctor",
+        "build": "pwsh -NoProfile -File scripts/build.ps1",
+        "format:install": "@composer --working-dir=tools/php-cs-fixer install --no-interaction",
+        "format": "@php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential",
+        "format:check": "@php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential --dry-run --diff"
     },
     "autoload": {
         "psr-4": {
-            "App\\": "app/"
+            "App\\": "app/",
+            "Generated\\Grpc\\": "generated/grpc/"
         }
     }
 }

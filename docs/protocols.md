@@ -1,217 +1,82 @@
-# 多协议应用与完整示例
+# 协议与网络限额
 
-## 新增 RPC：生成后填写业务
+所有入口为 Origami 脚本。Loom 负责分帧、路由、业务异常映射、生成器和限额策略；Origami 提供可独立使用的通用网络 API，不包含 Loom 路由或业务操作。
 
-新服务不需要手动修改配置或路由。定义 `proto/user.proto` 后执行：
+## HTTP 与 WebSocket
 
-```powershell
-composer loom -- make:grpc proto/user.proto
-# 不使用 Composer 时等价命令：
-go -C runtime run ./cmd/loom --root .. make:grpc proto/user.proto
+`./build/loom.exe serve` 使用 `Net\Http\Server::configure()` 配置网络资源，再装配应用。默认最多 256 个已接收连接、128 个活动请求，请求体 1 MiB；Content-Length 超限直接返回 413，分块请求体也在脚本及超级全局变量解析前受限。请求槽满返回 503；连接槽满关闭新连接，连接计数包含空闲连接和升级后的 WebSocket。
+
+读头超时 5 秒，读请求和写响应超时各 10 秒，keep-alive 空闲超时 30 秒，请求上下文上限 10 秒；脚本另有 10 秒协作执行限制。`maxHeaderBytes` 默认 16 KiB，底层 Go HTTP 解析器会保留自身的小量读取余量，不应把它理解为逐字节 socket 缓冲上限。响应正文上限固定 4 MiB，静态文件读取前检查大小。
+
+`Loom\WebSocket::accept()` 校验升级头和同源 Origin，再调用 `Net\Websocket\upgrade()`。连接的 `configure()` 设置默认 1 MiB 消息上限、10 秒读写超时；请求取消会关闭连接。消息上限在完整消息分配前生效，写入也检查上限。业务处理结束后由脚本关闭连接。应用没有独立的回声或问候接口；WebSocket 传输与限额在 `tests/fixtures/network_limits.php` 和对应网络测试中验证。
+
+## TCP
+
+`./build/loom.exe tcp:serve` 使用 `Net\Tcp\Server`，默认地址 `127.0.0.1:18088`，可用 `LOOM_TCP_ADDRESS` 覆盖。`framework/bootstrap/tcp.php` 返回消息处理闭包；处理器位于 `app/Tcp/Handlers`。
+
+每行一个 JSON 对象，LF 分隔并接受 CRLF。支持拆包和多帧粘包；每次按剩余容量读取，帧超过 1 MiB（不含 LF，包含可选 CR）或 EOF 前没有完整行时关闭连接。无效 JSON 返回 `invalid_message`，允许继续发送下一行。响应每行不超过 4 MiB，每连接最多处理 100 条消息。
+
+默认连接上限 128，读写超时各 10 秒，连接总生命周期 60 秒。每个连接使用独立 RequestVM，顺序处理其中的消息；连接关闭释放配额。脚本 `finally` 关闭数据库及连接。
+
+```text
+{"action":"ping"}
+{"action":"release.snapshot","job":123,"token":"<短期任务凭证>"}
 ```
 
-仓库已包含完整 UserService 示例。生成器根据 protobuf package `app.users` 和 service `UserService` 创建：
+应用处理器为 `App\Tcp\Handlers\ReleaseSnapshotHandler`。`ping` 用于健康检查；`release.snapshot` 由发布摘要任务调用，校验任务凭证、租约状态和体验空间有效期后，通过任务模型读取验收统计。无效凭证返回 `invalid_or_expired_job_ticket`，未知动作返回 `unknown_action`。任务凭证由后台签发，不由页面手动配置。
 
-- `app/Grpc/Services/App/Users/UserService.php`：业务文件，首次含有可填写的方法骨架，以后绝不覆盖。
-- `app/Grpc/Generated/App/Users/UserServiceBase.php`：可重新生成的基类，提供协议中所有 RPC 的默认实现。
-- `config/grpc.generated.json`：生成器维护的协议和路由注册信息，启动时自动合并。
+## gRPC
 
-只需在业务类的方法中直接返回响应字段：
+`./build/loom.exe grpc:serve` 使用 `Net\Grpc\Schema` 和 `Net\Grpc\Server`，默认地址 `127.0.0.1:18089`，可用 `LOOM_GRPC_ADDRESS` 覆盖。真实 HTTP/2 与 Protobuf 传输支持 unary RPC、标准 proto imports、v1/v1alpha 反射、gzip、客户端取消和截止时间。
+
+标准库编译配置和生成清单中的 proto，并把每次调用交给独立 RequestVM。`Loom\GrpcServer` 使用 `Call::method()`、`requestJson()`、`respondJson()`、`fail()`；ProtoJSON 在 std 与脚本之间传递，网络上仍是 Protobuf。普通消息用关联数组，wrapper 等类型遵循 ProtoJSON 标量表示。`framework/bootstrap/grpc.php` 从当前容器解析 `Loom\Grpc\RouteProvider`，通过 `routes()` 取得显式方法映射，再由 `Loom\Grpc\Dispatcher` 完成业务分派与状态映射。`loom.php` 将该接口绑定到 `App\Grpc\ApplicationRoutes`，不再加载路由 PHP 文件；未绑定时仍可使用生成清单中的方法，显式映射优先于生成清单。自定义启动入口需要手写方法时须安装相同绑定。
+
+默认最多 128 个连接、每连接 32 个并发流、进程级 128 个活动调用。准入在消息解码前执行，超额为 RESOURCE_EXHAUSTED。入站消息上限 1 MiB、出站 4 MiB、header list 16 KiB；gzip 解压后的消息仍受上限约束。请求最长 10 秒，握手最长 5 秒，连接空闲 30 秒，最大连接年龄 5 分钟并保留 10 秒结束窗口。反射流也受调用配额和截止时间约束。
+
+`./build/loom.exe make:grpc proto/invoice.proto`（先按下方流程创建契约） 由脚本生成 `generated/grpc` 基类、首次创建业务类，并更新 `generated/grpc/routes.json`。重复生成保留业务实现；非生成基类、路径逃逸、符号冲突与不支持的 PHP 名称会被拒绝，写入前编译合并契约。
+
+### 协议开发流程
+
+```powershell
+./build/loom.exe make:proto Invoice --package=app.billing
+# 编辑 proto/invoice.proto，确定字段类型、编号及 RPC。
+./build/loom.exe proto:check
+./build/loom.exe make:grpc proto/invoice.proto --dry-run
+./build/loom.exe make:grpc proto/invoice.proto
+./build/loom.exe grpc:serve
+```
+
+`make:proto` 接受单个 PascalCase 名称，将文件名转换为 snake_case，默认包名为 `app`，拒绝路径、非法包名和覆盖已有文件。模板位于 `framework/resources/stubs/service.proto.stub`，创建 `<Name>Service`、`Get<Name>` RPC 与基础请求/响应消息。字段是起点，需要按业务定义，不会从模型或数据库自动推导协议。
+
+`proto:check` 递归检查 `proto/`，并包含配置和生成清单中注册的协议；可传入单个路径，例如 `proto:check proto/invoice.proto`。检查包括语法、imports、跨文件编译、生成类/方法名称冲突和不支持的 streaming RPC，失败返回非零退出码。检查与预览不会创建生成目录或改写文件。它不执行实现代码，也不比较历史协议版本；字段编号复用、删除字段等兼容性检查属于后续能力。
+
+`make:grpc --dry-run` 输出 CREATE、UPDATE、KEEP 文件清单。正式生成同样显示清单并保留已有业务文件；新 RPC 会更新生成基类，并提示需要在业务类中实现的方法。TODO 提示使用 `token_get_all` 静态读取业务类：未直接声明的方法、含 `unimplemented` 的占位方法会被提示，不执行 PHP 文件。继承或 trait 提供的实现需人工确认，提示不等于业务正确性验证，也不阻止生成。
+
+上例生成 `generated/grpc/Billing/InvoiceServiceBase.php`、`app/Grpc/Services/Billing/InvoiceService.php` 并更新 `generated/grpc/routes.json`。实现业务方法后运行完整测试。新增 RPC 时重复执行检查、预览与生成，再补充业务实现；不要编辑生成基类。
+
+当前应用服务只支持 unary RPC；含 streaming 方法的契约启动时明确报错。反射本身使用标准双向流。监听为明文回环地址，没有添加 TLS 终止或跨协议统一优雅停机编排；运行时截止时间是协作取消，不能强制终止任意忽略取消的第三方原生扩展。
+
+## 配置与验证
+
+`config/network.php` 返回的数组可添加 `http`、`websocket`、`tcp`、`grpc` 项覆盖默认值，完整字段见 `framework/src/Network/Network.php`。所有超时以毫秒计，所有大小以字节计，未知字段、非整数及非正值会被拒绝。例如：
 
 ```php
-public function getUser(array $request)
-{
-    $id = $request['id'] ?? 0;
-    if ($id < 1) {
-        throw new \Loom\Grpc\RpcException('invalid_argument', 'id 必须大于 0');
-    }
-    return ['id' => $id, 'name' => '示例用户'];
-}
+<?php
+return [
+    'tcp' => ['maxConnections' => 64, 'maxFrameBytes' => 65536],
+    'grpc' => ['maxCalls' => 32, 'requestTimeoutMs' => 5000],
+];
 ```
 
-重启宿主后即可调用，无需编辑 `proto_files` 或 `routes/grpc.php`：
+运行 `./build/loom.exe tests/run.php` 和 `tests/e2e/http.ps1`。真实协议测试：
 
 ```powershell
-go -C runtime run ./cmd/protocol-client --protocol=grpc --proto-file=user.proto --service=app.users.UserService --method=GetUser --data='{"id":1}' --gzip
+python -m venv .venv
+.venv/Scripts/python -m pip install -r tests/e2e/requirements.txt
+.venv/Scripts/python tests/e2e/protocols.py --origami build/loom.exe
+python tests/e2e/network_limits.py --origami build/loom.exe
 ```
 
-修改协议后重复执行同一生成命令。已有业务文件逐字保留；新增方法出现在生成基类中，在业务类覆盖该方法即可。尚未实现的方法返回 `Unimplemented`，不会返回伪造的成功数据。删除 RPC 后注册信息同步删除，业务文件中已有方法仍保留。改变请求类型时需自行调整已有业务方法签名。请将生成基类和注册清单一起提交并部署。
+测试使用随机回环端口和临时文件，结束时只停止自己启动的进程。网络限额探针不加载 Loom 或业务数据库；标准库还保留独立 Go 与 Origami 脚本回归，见运行时要求。
 
-生成器拒绝非法 PHP 标识符、方法名冲突、项目外路径和覆盖非生成基类文件。proto package 映射为 PHP 子命名空间，避免不同服务包同名类相互覆盖。命令也支持 `command make:grpc` 和 `make:grpc --help`。
-
-## 职责和目录
-
-`app/Http/Controllers` 处理 HTTP，`app/WebSocket/Handlers` 处理 WebSocket，`app/Tcp/Handlers` 处理 TCP 消息，`app/Grpc/Services` 实现 RPC 应用行为。它们调用 `app/Services` 中与协议无关的业务逻辑。`app/Grpc/Services/GreeterService` 是 RPC 入口，`app/Services/GreetingService` 是共享业务服务。
-
-监听器与服务器归 `runtime/internal/host` 装配，通用 PHP 消息执行及 TCP 分帧归 `runtime/framework`。PHP 类不启动端口监听。`bootstrap/*.php` 加载应用并装配入口，`routes/websocket.php` 单独注册 WebSocket 路由。
-
-每个 HTTP 请求、TCP 消息或 gRPC 调用使用独立的 RequestVM；同一 TCP 连接上的相邻消息也不会保留 PHP 全局状态。WebSocket 仍按连接分配作用域。业务持久状态应放数据库等显式存储。
-
-## 启动与配置
-
-先按 README 配置 Origami 路径并执行 `composer dump-autoload`，然后：
-
-```powershell
-composer start
-```
-
-默认 HTTP/WebSocket 监听 `127.0.0.1:18087`，TCP 监听 `127.0.0.1:18088`，gRPC 监听 `127.0.0.1:18089`。`config/loom.json` 中增加的配置为：
-
-```json
-{
-  "tcp": {"address": "127.0.0.1:18088", "entry": "bootstrap/tcp.php"},
-  "grpc": {
-    "address": "127.0.0.1:18089", "entry": "bootstrap/grpc.php",
-    "import_paths": ["proto"], "proto_files": ["greeter.proto"], "reflection": true
-  }
-}
-```
-
-这是配置片段，应保留原有 HTTP、Console、Jobs 和数据库字段。删除某一协议字段或设为 `null` 即可禁用该服务；提供对象时必须同时包含 `address` 和 `entry`，gRPC 还必须提供 `import_paths` 和 `proto_files`。Console 和迁移命令不会启动这些监听器。路径相对于应用根目录；`proto_files` 中的文件名相对于 import 目录。
-
-按 Ctrl+C 停止宿主时 TCP 连接关闭，gRPC 等待正在处理的请求结束，最多等待 15 秒后停止。示例使用本地明文连接，没有配置 TLS 或身份验证。
-
-## HTTP：带验证和依赖注入的业务调用
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18087/greetings -ContentType application/json -Body '{"name":"Ada","times":2}'
-```
-
-返回 HTTP 201，JSON 为 `{"message":"Hello, Ada","times":2}`。`times` 是示例结果中的参数，不代表重复发送响应。`CreateGreetingController` 使用现有 HTTP 输入验证，`bootstrap/http.php` 通过容器注入共享 `GreetingService`。原有页面、Studio API、登录、ORM、队列和计划任务示例继续保留。
-
-## WebSocket：Echo 和业务消息
-
-```powershell
-go -C runtime run ./cmd/protocol-client --protocol=websocket --name=Ada
-go -C runtime run ./cmd/protocol-client --protocol=websocket --addr=ws://127.0.0.1:18087/ws/echo --name=hello
-```
-
-第一条连接 `/ws/greet`，发送名字文本，接收 `{"message":"Hello, Ada","times":1}`；第二条连接 `/ws/echo`，接收原样的 `hello`。两个示例均处理一条消息后结束连接。名字为空或超过 100 字节时，GreetingHandler 返回 `{"error":"invalid_name"}`。连接限制和超时沿用 [WebSocket 文档](framework.md#websocket)。
-
-## TCP：长连接上的 JSON 行协议
-
-```powershell
-go -C runtime run ./cmd/protocol-client --protocol=tcp --name=Ada
-```
-
-客户端在同一个连接中依次发送三个以换行符结束的 JSON 对象：
-
-```json
-{"action":"ping"}
-{"action":"greet","name":"Ada"}
-{"action":"unknown"}
-```
-
-依次收到：
-
-```json
-{"ok":true,"result":{"pong":true}}
-{"ok":true,"result":{"message":"Hello, Ada","times":1}}
-{"ok":false,"error":"unknown_action"}
-```
-
-JSON 字段顺序不作保证。`greet` 的名字必须是非空字符串，去除两端空白前最多 100 字节；否则返回 `invalid_name`。无效 JSON、数组、null 等非对象输入返回 `invalid_message`，随后仍可继续发送下一条消息。框架执行异常返回 `internal_error`，详细信息写入宿主日志。
-
-宿主按换行分帧，处理 TCP 粘包和拆包；每帧正文最多 1 MiB，超过扫描上限会关闭连接。默认最多 64 个连接，超额连接直接关闭；空闲读取 60 秒超时、写入 10 秒超时。每条 PHP 消息执行最多 10 秒，返回正文最多 4 MiB。应用返回数据，不能直接输出或设置 HTTP 响应头。
-
-这是一种明确的 TCP 应用协议；如果业务使用二进制帧、长度前缀或连接握手，需要另外实现对应的 Go 协议适配器。
-
-## gRPC：真实 Protobuf unary RPC
-
-```powershell
-go -C runtime run ./cmd/protocol-client --protocol=grpc --name=Ada
-```
-
-输出 RPC 状态、传输正文长度及 `"Hello, Ada"`。RPC 全名为 `/loom.examples.Greeter/SayHello`，请求和响应使用标准 `google.protobuf.StringValue`。契约位于 `proto/greeter.proto`，宿主和客户端都在运行时解析文件，不需要 protoc 或生成应用 Go 代码。网络使用标准 Protobuf 编码，Go/PHP 边界使用 ProtoJSON。
-
-安装了 grpcurl 的环境也可以使用：
-
-```sh
-grpcurl -plaintext -import-path proto -proto greeter.proto -d '"Ada"' 127.0.0.1:18089 loom.examples.Greeter/SayHello
-```
-
-StringValue 的 Protobuf JSON 表示是字符串，故参数为 `"Ada"`。默认启用 v1/v1alpha 反射，也可以不传 `-proto` 查询服务：
-
-```sh
-grpcurl -plaintext 127.0.0.1:18089 list
-grpcurl -plaintext 127.0.0.1:18089 describe loom.examples.Greeter
-```
-
-设置 `reflection: false` 可关闭反射；使用 `-proto` 的调用方式仍然有效。
-
-## `.proto` 文件解析和动态注册
-
-```powershell
-go -C runtime run ./cmd/protocol-client --protocol=proto
-```
-
-显示 Greeter 的三个 RPC 及其请求、响应类型。编译器解析 `greeter.proto`、`common/greeting.proto` 和标准库 `google/protobuf/wrappers.proto`，完成语法、类型、字段和 import 检查。缺少文件、未定义类型、语法错误都会阻止启动，并返回文件位置相关诊断。
-
-`proto_files` 可以选择多个入口文件；只有入口文件中声明的服务被注册，导入的消息可供编码、解码及反射使用。重复加载同一入口不会重复注册。修改协议后重启宿主即可生效。当前执行模型是 unary；发现流式 RPC 时明确拒绝启动。
-
-新增 RPC 的完整路径是 `.proto` → 动态 Protobuf 请求 → 框架 Dispatcher → 生成清单或手写路由 → PHP Service → 动态 Protobuf 响应。下面的信封只供框架入口使用，业务方法接收其中的 `request`：
-
-```json
-{"method":"/loom.examples.Greeter/Greet","request":{"name":"Ada","times":3}}
-```
-
-业务方法直接返回响应字段，框架负责内部 data/error 信封。业务失败抛出 `new \Loom\Grpc\RpcException('invalid_argument', '...')`；支持的业务错误码还有 `not_found`、`already_exists`、`permission_denied`、`unauthenticated`、`failed_precondition`、`unimplemented`。其他异常和不匹配协议的响应转换为 `Internal`。旧应用若手写 data/error 信封，应移除包装，改用直接返回和业务异常。
-
-参数遵循 ProtoJSON：字段使用 proto 原名，未设置的字段通常省略，64 位整数为十进制字符串，bytes 为 Base64，枚举通常为名称。示例 `times` 为 optional，可以区分省略（默认一次）和显式零（校验失败）。
-
-## 自定义消息和 gzip 压缩
-
-```powershell
-# 嵌套 repeated 消息：生成三条问候
-go -C runtime run ./cmd/protocol-client --protocol=grpc --method=Greet --data='{"name":"Ada","times":3}' --gzip
-
-# 批量请求：输入 repeated string，返回 repeated Greeting 和 count
-go -C runtime run ./cmd/protocol-client --protocol=grpc --method=BatchGreet --data='{"names":["Ada","Grace","Linus"]}' --gzip
-
-# 业务错误：InvalidArgument，单次调用模式以非零退出码报告
-go -C runtime run ./cmd/protocol-client --protocol=grpc --method=Greet --data='{"name":"Ada","times":0}' --gzip
-```
-
-Greet 返回 `{"greetings":[{"name":"Ada","message":"Hello, Ada"}, ...]}`。BatchGreet 返回三条问候和 `"count":3`，支持 1–1000 个名字。两种方法都调用共享 GreetingService。空名字、超过 100 字节的名字、非法次数及空批次都返回业务错误。
-
-`--gzip` 启用标准 gRPC gzip 请求压缩，服务器按协商压缩响应；省略参数使用普通调用，两者可同时访问同一服务。输出的 `payload_bytes` 来自 gRPC 实际收发事件，统计压缩后的消息正文，不包含 HTTP/2 头和帧开销。小消息压缩后可能更大。
-
-输入大小限制针对解压后的消息仍然有效；测试验证超过 1 MiB 的原始消息即使高度可压缩也返回 `ResourceExhausted`。这项功能只针对 gRPC，不改变 TCP 或 WebSocket 的消息格式。
-
-## 一键完整演示
-
-```powershell
-./scripts/demo-protocols.ps1
-```
-
-脚本自动选择三个空闲回环端口，构建并启动独立演示宿主，使用 `storage/protocol-demo-随机ID/` 下的配置、演示数据库和日志，然后依次验证 HTTP、TCP、WebSocket、proto 解析、三个 RPC、错误响应及 gzip 对比。结束时停止本次创建的进程，日志与数据库保留供查看。原有配置和运行中的服务不变。先确保已按 README 完成运行时和 Composer 自动加载准备。宿主也支持 `--config` 指定其他配置文件。
-
-已有宿主运行时使用：
-
-```powershell
-./scripts/demo-protocols.ps1 -UseRunningServer
-# 或者只运行 gRPC 全套演示
-go -C runtime run ./cmd/protocol-client --protocol=grpc --demo
-```
-
-演示分别以普通模式和 gzip 模式发送相同的 500 条重复名字批次，核对返回数量，并验证请求和响应的压缩正文均小于原始正文。成功时打印 `PASS: proto imports, dynamic methods, PHP dispatch, validation and gzip round trip`。单独调用可以通过 `--addr` 改地址，通过 `--proto-dir`、`--proto-file` 选择契约。
-
-空名字或去除空白后超过 100 字节返回 `InvalidArgument`；未知 RPC 返回 `Unimplemented`；执行失败返回 `Internal`，客户端取消或执行期限到达使用对应 gRPC 状态，PHP 并发额度耗尽返回 `ResourceExhausted`。客户端默认设置 10 秒期限。服务器限制接收 1 MiB、发送 4 MiB、每连接最多 64 个并发流，PHP 执行器限制总并发调用为 64。
-
-## 扩展自己的业务
-
-1. 在 `app/Services` 写与协议无关的业务方法，通过普通参数接收输入并返回数据。
-2. HTTP Controller 负责 HTTP 验证及状态码；TCP Handler 负责消息动作分发和业务错误；gRPC Service 实现对应 RPC 行为。
-3. TCP 新动作在 `GreetingHandler` 的分发处接入，业务复杂后拆成多个 Handler，并在 `bootstrap/tcp.php` 装配。
-4. 新 gRPC 服务定义 `.proto` 后运行 `make:grpc`，填写生成的业务类方法并重启宿主。协议与路由注册信息自动维护，业务方法直接返回数据。`routes/grpc.php` 仍可提供手写映射，并优先于生成清单，适用于已有服务。
-5. 通过 `loom.Config{Services: services}` 注入宿主共享资源；PHP 消息入口已加载 Loom 服务及 ORM API。不要把 HTTP Request、网络连接或 gRPC 上下文放入共享业务服务。
-
-当前支持 `.proto` 驱动的 unary RPC 注册、业务骨架生成、自动 PHP 方法映射、业务异常、反射和 gzip。服务端流、客户端流、双向流、TLS、认证和服务发现需要另行接入。
-
-## 验证
-
-```powershell
-go -C runtime test ./... -count=1 -timeout 120s
-```
-
-测试使用临时端口，覆盖 TCP 同连接多消息与错误后恢复、关闭空闲连接、真实 gRPC 调用和状态码，以及消息 VM 隔离、取消、输入输出限制和禁止直接输出。HTTP/Studio 原有回归测试同时执行。
+生成基类使用 `Generated\Grpc` 命名空间，手写实现仍使用 `App\Grpc\Services`。当前 `grpc.package_prefix` 为 `app`，因此 proto 的 `app.users` 映射为代码中的 `Users`，RPC 路径不变。`generated/` 必须随部署交付并进入版本控制。

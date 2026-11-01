@@ -1,20 +1,35 @@
 <?php
+
 declare(strict_types=1);
 
 namespace App\Jobs;
 
 use Loom\Database;
+use App\Models\Projects\Task;
+use App\Models\Projects\Report;
 use Loom\Request;
 use Loom\Response;
 
+#[\Loom\Attributes\Job('studio.digest')]
 final class Digest
 {
+    private \Loom\Database $database;
+
+    public function __construct(\Loom\Database $database)
+    {
+        $this->database = $database;
+    }
+
     public function handle(Request $request): Response
     {
         $job = json_decode($request->body(), true, 64, JSON_THROW_ON_ERROR);
-        if ($job['kind'] !== 'studio.digest') { throw new \LogicException('Unknown job kind'); }
-        // 使用幂等插入，重试不会产生重复的业务记录。
-        Database::execute('INSERT INTO studio_reports(user_id,job_id,total,completed) SELECT ?,?,COUNT(*),COALESCE(SUM(completed),0) FROM studio_tasks WHERE user_id=? ON CONFLICT(job_id) DO NOTHING', [$job['owner'], $job['id'], $job['owner']]);
+        if ($job['kind'] !== 'studio.digest') {
+            throw new \LogicException('Unknown job kind');
+        }
+        $this->database->transaction(function () use ($job): void {
+            $counts = Task::using($this->database)->whereUserId($job['owner'])->aggregate(['total' => ['COUNT', '*'], 'completed' => ['SUM', 'completed']]);
+            Report::using($this->database)->insertOrIgnore(['user_id' => $job['owner'], 'job_id' => $job['id'], 'total' => (int)$counts['total'], 'completed' => (int)$counts['completed']], ['job_id']);
+        });
         return Response::json(['report' => 'ready', 'job' => $job['id']]);
     }
 }

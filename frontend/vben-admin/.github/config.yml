@@ -1,0 +1,36 @@
+# 禁止绕过模板创建议题
+blank_issues_enabled: false
+checkIssueTemplate: true
+checkPullRequestTemplate: true
+
+contact_links:
+  - name: 💬 Discord Chat
+    url: https://discord.gg/8GuAdwDhj6
+    about: Ask questions and discuss with other Vben users in real time.
+
+  - name: ❓ Questions & Discussions
+    url: https://github.com/@vbenjs/vue-vben-admin/discussions
+    about: Use GitHub discussions for message-board style questions and discussions.
+
+# 向仓库首次贡献者的拉取请求发布的评论
+newPRWelcomeComment: |
+  💖 Thanks for opening this pull request! 💖
+  Please be patient and we will get back to you as soon as we can.
+
+# 首次贡献者的拉取请求合并后发布的评论
+firstPRMergeComment: >
+  Thanks for your contribution!  🎉🎉🎉
+
+# 首次提交议题时发布的评论
+newIssueWelcomeComment: >
+  Thanks for opening your first issue! Be sure to follow the issue template and provide every bit of information to help the developers!
+
+# 可选：用于检查描述是否充分的默认标题
+# 必须全部使用小写
+requestInfoDefaultTitles:
+  - update readme.md
+  - updates
+
+# 必填：回复使用的评论
+requestInfoReplyComment: >
+  Thanks for filing this issue/PR! It would be much appreciated if you could provide us with more information so we can effectively analyze the situation in context.

@@ -1,0 +1,21 @@
+# https://docs.github.com/cn/get-started/getting-started-with-git/configuring-git-to-handle-line-endings
+
+# 自动将所有文本文件的换行符规范为 LF。
+* text=auto eol=lf
+
+# 声明检出时始终使用 CRLF 换行符的文件。
+*.cmd text eol=crlf
+*.[cC][mM][dD] text eol=crlf
+*.bat text eol=crlf
+*.[bB][aA][tT] text eol=crlf
+
+# 标记真正的二进制文件，避免修改其内容。
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.svg binary
+*.woff binary
+*.woff2 binary

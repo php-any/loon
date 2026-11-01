@@ -1,0 +1,1 @@
+CREATE TABLE loom_runtime_pulses(name VARCHAR(255) PRIMARY KEY, started BIGINT NOT NULL, seen BIGINT NOT NULL, ticks BIGINT NOT NULL, interval_seconds BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

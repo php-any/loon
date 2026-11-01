@@ -1,0 +1,1 @@
+import{On as e,k as t,mt as n,v as r}from"./runtime-core.esm-bundler-BqIb1SNH.js";import{t as i}from"./fallback-BfQOKZAY.js";var a=t({__name:`coming-soon`,setup(t){return(t,a)=>(n(),r(e(i),{status:`coming-soon`}))}});export{a as default};

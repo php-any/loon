@@ -1,0 +1,1 @@
+import{o as e}from"./dist-Cb7Yf4Nh.js";var t=()=>e&&/firefox/i.test(window.navigator.userAgent),n=()=>e&&/android/i.test(window.navigator.userAgent);export{t as n,n as t};

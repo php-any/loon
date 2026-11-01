@@ -1,6 +1,9 @@
-// Loom 的命令行入口，应用装配交给宿主层。
 package main
 
-import "github.com/php-any/loom/internal/host"
+import (
+	"os"
 
-func main() { host.Main() }
+	"github.com/php-any/loom/runtime/internal/host"
+)
+
+func main() { os.Exit(host.Run(os.Args[1:])) }

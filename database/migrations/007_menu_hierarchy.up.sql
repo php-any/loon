@@ -1,0 +1,10 @@
+CREATE TABLE admin_menu_groups(name VARCHAR(40) PRIMARY KEY,group_id BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+INSERT INTO admin_menus(label,path,permission,sort_order) VALUES('系统管理','','',70);
+INSERT INTO admin_menu_groups(name,group_id) VALUES('system',LAST_INSERT_ID());
+UPDATE admin_menus SET parent_id=(SELECT group_id FROM admin_menu_groups WHERE name='system') WHERE parent_id IS NULL AND path IN ('/admin#users','/admin#roles','/admin#menus','/admin#settings','/admin#audit');
+INSERT INTO admin_menus(label,path,permission,sort_order) VALUES('业务管理','','',30);
+INSERT INTO admin_menu_groups(name,group_id) VALUES('business',LAST_INSERT_ID());
+UPDATE admin_menus SET parent_id=(SELECT group_id FROM admin_menu_groups WHERE name='business') WHERE parent_id IS NULL AND path IN ('/admin#orders','/admin#notifications');
+INSERT INTO admin_menus(label,path,permission,sort_order) VALUES('运行管理','','',40);
+INSERT INTO admin_menu_groups(name,group_id) VALUES('runtime',LAST_INSERT_ID());
+UPDATE admin_menus SET parent_id=(SELECT group_id FROM admin_menu_groups WHERE name='runtime') WHERE parent_id IS NULL AND path IN ('/admin#queue','/admin#schedules','/admin#monitor');

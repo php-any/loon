@@ -1,0 +1,1 @@
+import{t as e}from"./defu-1oANYd5X.js";var t=e((e,t,n)=>{if(Array.isArray(e[t])&&Array.isArray(n))return e[t]=n,!0});export{t};

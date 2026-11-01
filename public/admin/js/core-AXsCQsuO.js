@@ -1,0 +1,1 @@
+import{t as e}from"./objectSpread2-BmonrgTA.js";var t=`/auth/login`,n=[{label:`简体中文`,value:`zh-CN`},{label:`English`,value:`en-US`}];function r(t){return t.map(t=>e({},t))}var i=r(n),a=[];function o(e){return a.push(e),e(r(i)),()=>{let t=a.indexOf(e);t!==-1&&a.splice(t,1)}}export{o as n,t};

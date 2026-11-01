@@ -1,0 +1,16 @@
+# 迁移校验和取决于 SQL 的原始字节，包括换行符。
+framework/resources/migrations/** -text
+database/migrations/** -text
+
+# 保持 PHP 源码格式在 Windows 和 Unix 检出时一致。
+/.php-cs-fixer.dist.php text eol=lf
+app/**/*.php text eol=lf
+bin/**/*.php text eol=lf
+config/**/*.php text eol=lf
+framework/bootstrap.php text eol=lf
+framework/bootstrap/**/*.php text eol=lf
+framework/src/**/*.php text eol=lf
+framework/tests/*_test.php text eol=lf
+routes/**/*.php text eol=lf
+tests/run.php text eol=lf
+tests/integration/**/*.php text eol=lf

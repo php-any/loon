@@ -1,27 +1,72 @@
-# Local Go workspace
-/runtime/go.work
-/runtime/go.work.sum
-
-# Runtime data
+# 运行时数据
 /storage/*
 !/storage/.gitkeep
 *.log
 
-# Dependencies and build output
+# 依赖与构建产物
 /build/
 /vendor/
+/tools/php-cs-fixer/vendor/
+/.php-cs-fixer.cache
+/.php-cs-fixer.php
 node_modules/
+.venv/
+__pycache__/
+*.pyc
 *.exe
 *.test
+/runtime/go.local.mod
+/runtime/go.local.sum
+/runtime/go.work
+/runtime/go.work.sum
 
-# Local environment and credentials
+# 开发临时文件与备份
+tmp/
+temp/
+.tmp/
+.temp/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*~
+/.startup-diagnose.php
+
+# 工具缓存与测试报告
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.phpunit.cache/
+.phpunit.result.cache
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+coverage/
+.coverage
+.coverage.*
+htmlcov/
+playwright-report/
+test-results/
+.playwright-mcp/
+.pnpm-store/
+.turbo/
+.vite/
+*.pid
+*.pid.lock
+
+# 本地环境与凭据
 .env
 .env.*
 !.env.example
 !.env.*.example
+!/frontend/vben-admin/apps/web-ele/.env
+!/frontend/vben-admin/apps/web-ele/.env.production
+!/frontend/vben-admin/apps/web-ele/.env.development
 /auth.json
 
-# Editors and operating systems
+# 编辑器与操作系统
 .idea/
 .vscode/
 .DS_Store
@@ -29,3 +74,4 @@ Thumbs.db
 Desktop.ini
 *.swp
 *.swo
+.history/

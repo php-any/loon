@@ -1,0 +1,3 @@
+CREATE TABLE demo_release_tickets(job_id BIGINT PRIMARY KEY, token VARCHAR(255) NOT NULL, expires BIGINT NOT NULL,FOREIGN KEY (job_id) REFERENCES loom_jobs(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE demo_release_exchanges(id BIGINT PRIMARY KEY AUTO_INCREMENT, owner BIGINT NOT NULL, job_id BIGINT NOT NULL, protocol VARCHAR(255) NOT NULL, ok BIGINT NOT NULL, request LONGTEXT NOT NULL, response LONGTEXT NOT NULL, elapsed_ms DOUBLE NOT NULL, created BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP()),FOREIGN KEY (owner) REFERENCES loom_users(id),FOREIGN KEY (job_id) REFERENCES loom_jobs(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE INDEX demo_release_exchanges_owner ON demo_release_exchanges(owner,id);

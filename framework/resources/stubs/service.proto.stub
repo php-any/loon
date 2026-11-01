@@ -1,0 +1,16 @@
+syntax = "proto3";
+package {{package}};
+
+// 先定义契约，再生成服务实现。
+service {{name}}Service {
+  rpc Get{{name}}(Get{{name}}Request) returns (Get{{name}}Reply);
+}
+
+message Get{{name}}Request {
+  string id = 1;
+}
+
+message Get{{name}}Reply {
+  string id = 1;
+  string name = 2;
+}

@@ -1,78 +1,74 @@
 package host
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 )
 
-func TestShowcasePagesAndAssets(t *testing.T) {
-	h, err := newHandler("bootstrap/http.php")
-	if err != nil {
+func TestResolveProject(t *testing.T) {
+	root := t.TempDir()
+	entry := filepath.Join(root, "loom.php")
+	if err := os.WriteFile(entry, []byte("<?php"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(h)
-	defer server.Close()
-	client := &http.Client{Timeout: 15 * time.Second}
-	for _, tc := range []struct{ path, contains, contentType string }{
-		{"/", "优雅成形", "text/html"},
-		{"/playground", "contract-form", "text/html"},
-		{"/guide", "View::render", "text/html"},
-		{"/welcome?name=%3Cscript%3E", "&lt;script&gt;", "text/html"},
-		{"/assets/app.css", "@media", "text/css"},
-		{"/assets/app.js", "Promise.all", "javascript"},
-		{"/assets/mark.svg", "<svg", "image/svg+xml"},
+	for _, tc := range []struct{ name, cwd, exe, override string }{
+		{"working directory ancestor", filepath.Join(root, "app"), "elsewhere/loom", ""},
+		{"deployment", t.TempDir(), filepath.Join(root, "build", "loom"), ""},
+		{"explicit root", t.TempDir(), "elsewhere/loom", root},
 	} {
-		t.Run(tc.path, func(t *testing.T) {
-			r, err := client.Get(server.URL + tc.path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer r.Body.Close()
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if r.StatusCode != 200 || !strings.Contains(string(body), tc.contains) || !strings.Contains(r.Header.Get("Content-Type"), tc.contentType) {
-				t.Fatalf("status=%d type=%s body=%.500s", r.StatusCode, r.Header.Get("Content-Type"), body)
-			}
-			if tc.contentType == "text/html" && !strings.Contains(r.Header.Get("Content-Security-Policy"), "script-src 'self'") {
-				t.Fatal("missing page CSP")
+		t.Run(tc.name, func(t *testing.T) {
+			path, args, err := resolve([]string{"doctor"}, tc.cwd, tc.exe, tc.override)
+			if err != nil || path != entry || len(args) != 1 || args[0] != "doctor" {
+				t.Fatalf("resolve: %q %v %v", path, args, err)
 			}
 		})
 	}
-	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			token := fmt.Sprintf("showcase-%d", i)
-			req, _ := http.NewRequest("GET", server.URL+"/api/isolation", nil)
-			req.Header.Set("X-Loom-Probe", token)
-			res, err := client.Do(req)
-			if err != nil {
-				t.Error(err)
-				return
+}
+
+func TestHostProcess(t *testing.T) {
+	if os.Getenv("LOOM_HOST_TEST_CHILD") == "1" {
+		for i, arg := range os.Args {
+			if arg == "--" {
+				os.Exit(Run(os.Args[i+1:]))
 			}
-			defer res.Body.Close()
-			var payload struct {
-				Token   string `json:"token"`
-				Counter int    `json:"counter"`
-			}
-			if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-				t.Error(err)
-				return
-			}
-			if res.StatusCode != 200 || payload.Token != token || payload.Counter != 1 {
-				t.Errorf("status=%d payload=%+v", res.StatusCode, payload)
-			}
-		}(i)
+		}
+		os.Exit(99)
 	}
-	wg.Wait()
+	for _, tc := range []struct {
+		name, source, want string
+		code               int
+	}{
+		{"arguments and extensions", "<?php echo $argv[1]; echo '|'; echo LOOM_RUNTIME; echo '|'; echo PHP_BINARY;", "literal $() & argument|loom|", 0},
+		{"exit status", "<?php exit(7);", "", 7},
+		{"exception", "<?php throw new RuntimeException('host failure');", "host failure", 1},
+		{"parse failure", "<?php function (", "", 1},
+		{"missing script", "", "", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// tempnam() 生成无扩展名脚本，供进程和工作进程测试使用。
+			path := filepath.Join(t.TempDir(), "script with spaces")
+			if tc.source != "" {
+				if err := os.WriteFile(path, []byte(tc.source), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command(os.Args[0], "-test.run=^TestHostProcess$", "--", path, "literal $() & argument")
+			cmd.Env = append(os.Environ(), "LOOM_HOST_TEST_CHILD=1")
+			out, err := cmd.CombinedOutput()
+			code := 0
+			if err != nil {
+				if exit, ok := err.(*exec.ExitError); ok {
+					code = exit.ExitCode()
+				} else {
+					t.Fatal(err)
+				}
+			}
+			if code != tc.code || !strings.Contains(string(out), tc.want) {
+				t.Fatalf("code=%d want=%d output=%s", code, tc.code, out)
+			}
+		})
+	}
 }

@@ -1,0 +1,3 @@
+CREATE TABLE demo_release_sessions(token VARCHAR(255) PRIMARY KEY, owner BIGINT NOT NULL UNIQUE, csrf VARCHAR(255) NOT NULL, created BIGINT NOT NULL, expires BIGINT NOT NULL,FOREIGN KEY (owner) REFERENCES loom_users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE demo_release_events(id BIGINT PRIMARY KEY AUTO_INCREMENT, owner BIGINT NOT NULL, kind VARCHAR(255) NOT NULL, detail LONGTEXT NOT NULL, created BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP()),FOREIGN KEY (owner) REFERENCES loom_users(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE INDEX demo_release_events_owner ON demo_release_events(owner,id);

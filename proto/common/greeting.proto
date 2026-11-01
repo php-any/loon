@@ -1,7 +1,0 @@
-syntax = "proto3";
-package loom.examples.common;
-
-message Greeting {
-  string name = 1;
-  string message = 2;
-}

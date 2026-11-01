@@ -1,0 +1,9 @@
+syntax = "proto3";
+package loom.examples;
+
+import "google/protobuf/wrappers.proto";
+
+// 发布验收计数与策略结果使用 JSON 业务封装。
+service ReleasePolicy {
+  rpc Evaluate(google.protobuf.StringValue) returns (google.protobuf.StringValue);
+}
