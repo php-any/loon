@@ -43,6 +43,7 @@ final class ModuleDiscovery
     private array $visiting = [];
     private array $classes = [];
     private array $services = [];
+    private array $serviceLifetimes = [];
     private array $routes = [];
     private array $jobs = [];
     private array $timers = [];
@@ -148,6 +149,7 @@ final class ModuleDiscovery
                 throw new \LogicException('Duplicate service id: ' . $id);
             }
             $this->services[$id] = $class;
+            $this->serviceLifetimes[$id] = $service->lifetime;
         }
         $table = self::attribute($reflection, \Database\Annotation\Table::class);
         if ($table !== null) {
@@ -236,6 +238,12 @@ final class ModuleDiscovery
         $this->routes[] = ['method' => $route->method, 'path' => rtrim($controller->prefix, '/') . $route->path,
             'action' => [$class->getName(), $method], 'name' => $route->name,
             'middleware' => array_merge($controller->middleware, $route->middleware), 'websocket' => $route->websocket];
+    }
+
+    /** 返回指定模块服务声明的生命周期。 */
+    public function serviceLifetime(string $id): string
+    {
+        return $this->serviceLifetimes[$id];
     }
 
     /**

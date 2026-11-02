@@ -55,7 +55,7 @@ final class FixtureCommandRegistrar implements Loom\Console\CommandRegistrar
 }
 $scope = new Loom\ServiceScope(new Loom\Config($root));
 $services = $scope->services();
-$services->alias(Loom\Console\CommandRegistrar::class, FixtureCommandRegistrar::class);
+$services->scoped(Loom\Console\CommandRegistrar::class, FixtureCommandRegistrar::class);
 $out = '';
 $err = '';
 $services->instance(Loom\Console\Output::class, new Loom\Console\Output(function ($text, $stderr) use (&$out, &$err) {
@@ -67,7 +67,7 @@ $services->instance(Loom\Console\Output::class, new Loom\Console\Output(function
 }));
 // 注册、帮助、参数错误和清理都不得解析数据库、服务器或 worker。
 foreach ([Loom\Database::class, Loom\Server::class, Loom\TcpServer::class, Loom\GrpcServer::class, Loom\Queue::class, Loom\Schedule::class] as $service) {
-    $services->singleton($service, function ($container) use ($service): object {
+    $services->scoped($service, function ($container) use ($service): object {
         throw new RuntimeException('Unexpected resolution: ' . $service);
     });
 }

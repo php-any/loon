@@ -54,7 +54,22 @@ return $factory->create();
 
 `Router::match($method, $path)` 只返回 `RouteMatch`，不会创建控制器或执行中间件。`HttpKernel` 接受 `RouteMatcher` 接口，因此可独立替换匹配实现。全局中间件包裹 404、405 和路由 HttpError 响应；路由中间件在参数绑定之后执行，短路时不会解析后续处理器。WebSocket 连接在路由中间件放行之后才建立。
 
-容器使用 `singleton($id, $factory = null)` 声明容器内共享对象，`transient($id, $factory = null)` 声明每次解析创建对象，`alias($id, $target)` 委托目标解析并保持目标生命周期。旧 `bind()` 保持共享语义。这里 singleton 的边界是一个容器，不是整个进程。`new Container($objectFactory)` 可替换实现 `ObjectFactory` 的创建策略；默认 `ConfiguredObjectFactory` 负责构造参数及配置属性注入。
+容器提供 `singleton($id, $implementation = null)`、`scoped(...)` 和 `transient(...)`，第二个参数统一接受实现类名或工厂。singleton 在同一应用根容器及其所有子作用域间共享；scoped 只在当前作用域复用；transient 每次解析创建。不同根容器、进程之间不共享实例。未显式注册的具体类默认 scoped，以保持请求隔离。旧 `bind()` 保留原有作用域共享行为，等同于 `scoped()`。
+
+```php
+$services->singleton(CacheInterface::class, MemoryCache::class);
+$services->scoped(RepositoryInterface::class, SqlRepository::class);
+$services->transient(HandlerInterface::class, Handler::class);
+$services->scoped(Database::class, static fn (Container $c) => new Database($c->get(Config::class)));
+```
+
+接口绑定以服务标识为缓存键；分别注册接口和实现类，会得到两个独立服务。需要两个名称指向同一对象时使用 `alias($id, $target)`，它沿用目标生命周期。返回对象必须满足已知接口/类的类型要求。
+
+`ServiceScope::fork()` 共享注册规则及 singleton，创建新的 scoped 缓存，不重复执行入口注册回调。`config/services.php` 在应用首次安装模块服务时执行一次。注册回调应只描述服务，不创建或捕获请求对象。`instance()` 注册调用方已构造的应用共享对象；`scopedInstance()` 为当前作用域绑定已有对象，框架用它安装 `ServiceScope`。
+
+singleton 工厂及其依赖在根容器解析，直接或经 transient、alias 间接依赖 scoped 都会抛出 `LogicException`。Go 侧按应用串行保护单例构造，失败不缓存，后续解析可重试；单例自身的方法和可变业务状态仍需自行保证并发安全。`close()` 保留现有数据库、请求上下文清理行为，不会关闭其他作用域使用的 singleton，也不推断任意业务对象的析构协议。
+
+`#[Loom\Attributes\Service(id: CacheInterface::class, lifetime: 'singleton')]` 可为模块服务选择生命周期，默认 `scoped`。`new Container($objectFactory)` 可替换对象创建策略，默认 `ConfiguredObjectFactory` 负责构造参数及配置属性注入。
 
 `ModuleDiscovery` 负责扫描和声明校验，`ModuleRegistry` 消费这些定义，完成容器、路由、命令和任务装配。发现过程不会创建业务服务；定时器注册及实际请求执行时才解析实例。
 
@@ -107,7 +122,7 @@ $data = $stored->toArray();
 
 关系与归属限制由 `App\Repositories\Projects\ProjectRepository` 维护；`tasksFor($project)` 和 `projectFor($task)` 同时限制外键和 user_id。
 
-`Loom\Container` 是 `Container\Container` 的适配层。原生 singleton 工厂承担实例缓存与循环依赖检测；每个请求/任务容器独立创建原生容器，不使用 `getInstance()` 全局单例。Loom 只保留重复注册检查、ConfigInjector、工厂返回值验证与异常契约，普通类类型的构造参数自动装配，别名使用 Inject，标量配置使用 InjectConfig 或显式工厂。
+`Loom\Container` 是 `Container\Container` 的适配层。原生 singleton 工厂承担实例缓存与循环依赖检测；根容器缓存应用 singleton，每个请求/任务容器缓存自己的 scoped；不使用 `getInstance()` 进程全局容器。Loom 负责生命周期选择、作用域依赖校验、重复注册检查、ConfigInjector、工厂返回值验证与异常契约，普通类类型的构造参数自动装配，别名使用 Inject，标量配置使用 InjectConfig 或显式工厂。
 
 `Job($kind, $method = 'handle')` 根据持久化队列记录的 kind 分发到对应服务实例，处理方法接收 Request 并返回 Response。不同 kind 可以使用不同类，未知 kind 报错并由既有队列重试策略处理。隔离子进程、租约与幂等要求不变。
 
@@ -177,7 +192,7 @@ Cron 支持五字段数字、星号、范围、列表和步长，要求明确 IA
 
 `Loom\Console\ConsoleKernel` 负责控制台启动、命令注册和执行结束后的作用域清理；`Loom\Cli` 仅兼容旧的 `command` 参数前缀。框架命令、模块命令和闭包命令共享 `Console` 注册表，统一执行、帮助、参数校验和 `Console::call()`；重名注册报错。输入错误返回 2，执行异常返回 1。
 
-应用闭包命令由 `app/Console/ApplicationCommands.php` 实现 `Loom\Console\CommandRegistrar::register(Console $console)`，并在 `loom.php` 的服务装配回调中通过 `$services->alias(\Loom\Console\CommandRegistrar::class, \App\Console\ApplicationCommands::class)` 显式绑定。控制台从容器解析该接口并注册一次；未绑定时只加载内置命令和模块命令，不再隐式加载 `routes/console.php`。模块命令类仍由 `app/Console/Commands` 发现，`make:command` 注册在 `framework/bootstrap/commands.php`，生成器不覆盖已有文件。自定义启动入口或测试需要应用闭包命令时，应显式安装同一接口绑定。绑定随服务作用域创建，实例不跨作用域共享。
+应用闭包命令由 `app/Console/ApplicationCommands.php` 实现 `Loom\Console\CommandRegistrar::register(Console $console)`，并在 `loom.php` 的服务装配回调中通过 `$services->scoped(\Loom\Console\CommandRegistrar::class, \App\Console\ApplicationCommands::class)` 显式绑定。控制台从容器解析该接口并注册一次；未绑定时只加载内置命令和模块命令，不再隐式加载 `routes/console.php`。模块命令类仍由 `app/Console/Commands` 发现，`make:command` 注册在 `framework/bootstrap/commands.php`，生成器不覆盖已有文件。自定义启动入口或测试需要应用闭包命令时，应显式安装同一接口绑定。绑定在应用启动时注册，实例按作用域隔离。
 
 命令类的 `$signature`、`$description` 和可选 `$hidden` 必须在属性默认值中声明，不应在构造函数中设置。注册时读取元数据，不调用命令构造函数或解析业务依赖；执行并通过参数校验后才通过容器取得命令。`list` 和 `help` 不初始化数据库或启动服务。内部 `_job` 命令仍通过相同注册表执行，但不在列表中显示。Kernel 在最外层命令结束时清理作用域，嵌套 `Console::call()` 不提前释放外层命令的资源。
 

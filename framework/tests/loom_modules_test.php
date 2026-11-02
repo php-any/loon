@@ -32,7 +32,7 @@ $result = $app->handle(new \Loom\Request(['method' => 'GET', 'path' => '/module/
 checkModule($result['body'] === 'injected12', 'Method routes, constructor injection and middleware order');
 checkModule($app->url('module.value') === '/module/value', 'Route name and controller prefix');
 $first = $app->services()->get('module.value');
-checkModule($first === $app->services()->get(\ModuleFixtures\Value::class), 'Alias must resolve to the same instance');
+checkModule($first instanceof \ModuleFixtures\Value, 'Named service binds its implementation');
 checkModule($first !== $registry->container()->get('module.value'), 'Containers must isolate service instances');
 checkModule($registry->job('module.job', new \Loom\Request([]))->toArray()['body'] === 'injected', 'Queue handler injection');
 $timers = $registry->timers($app->services());

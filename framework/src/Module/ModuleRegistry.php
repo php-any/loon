@@ -108,17 +108,15 @@ final class ModuleRegistry
         // 显式工厂用于覆盖，注解提供默认注册。
         $configure = $this->config->get('services');
         if ($configure !== null) {
-            $configure($container);
+            $container->configureOnce('config/services.php', $configure);
         }
         foreach ($this->discovery->services() as $id => $class) {
-            if ($container->has($id)) {
-                continue;
-            }
-            if ($id === $class) {
-                $container->singleton($class);
-            } else {
-                $container->alias($id, $class);
-            }
+            $lifetime = $this->discovery->serviceLifetime($id);
+            $container->configureOnce('module.service:' . $id, static function (Container $services) use ($id, $class, $lifetime): void {
+                if (!$services->has($id)) {
+                    $services->$lifetime($id, $class);
+                }
+            });
         }
     }
 

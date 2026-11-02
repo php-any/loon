@@ -12,7 +12,7 @@ namespace Loom\Console;
  * 返回值：接口不能直接实例化；由实现类提供本契约，操作结果见各方法的返回值。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $services->alias(CommandRegistrar::class, AppCommandRegistrar::class);
+ * @example $services->scoped(CommandRegistrar::class, AppCommandRegistrar::class);
  */
 interface CommandRegistrar
 {

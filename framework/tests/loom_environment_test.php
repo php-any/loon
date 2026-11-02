@@ -67,11 +67,11 @@ final class ScopeRegistrationProbe
 }
 $config = new Loom\Config(dirname(__DIR__, 2));
 $first = new Loom\ServiceScope($config, static function (Loom\Container $services): void {
-    $services->singleton(ScopeRegistrationProbe::class, static function (): ScopeRegistrationProbe {
+    $services->scoped(ScopeRegistrationProbe::class, static function (): ScopeRegistrationProbe {
         return new ScopeRegistrationProbe('from entry');
     });
-    $services->singleton(Loom\RequestContext::class);
-    $services->singleton(Loom\Database::class, static function (Loom\Container $services): Loom\Database {
+    $services->scoped(Loom\RequestContext::class);
+    $services->scoped(Loom\Database::class, static function (Loom\Container $services): Loom\Database {
         return new Loom\Database($services->get(Loom\Config::class));
     });
 });
@@ -88,7 +88,7 @@ try {
         $child->get(Loom\ServiceScope::class)->close();
     }
     if ($a->get(Loom\Database::class) !== $a->get(Loom\Database::class) || $a->get(Loom\Database::class) === $b->get(Loom\Database::class) || $a->get(Loom\RequestContext::class) === $b->get(Loom\RequestContext::class)) {
-        throw new RuntimeException('Entry singleton scope incorrect');
+        throw new RuntimeException('Entry scoped lifetime incorrect');
     }
 } finally {
     $first->close();

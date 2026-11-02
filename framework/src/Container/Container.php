@@ -4,194 +4,220 @@ declare(strict_types=1);
 
 namespace Loom;
 
-// 每个 Loom 作用域拥有独立的标准库容器，禁止使用全局单例。
 /**
- * 封装 Origami 原生容器，提供作用域单例、瞬时服务、别名及配置注入，拒绝重复注册。
- *
- * 构造参数：
- * - $objects（?ObjectFactory）：负责构造及初始化对象的工厂；null 时使用 ConfiguredObjectFactory。默认值为 null。
- *
- * 返回值：使用 new 构造时得到 Container 实例；注册到容器时由容器管理实例的创建与复用。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $services = new Container(); $services->singleton(RequestContext::class);
+ * 应用根容器保存注册和 singleton；派生容器只缓存自己的 scoped 服务。
+ * 未注册的具体类默认 scoped。所有生命周期都接受实现类名或工厂。
  */
 final class Container
 {
     private \Container\Container $native;
     private ObjectFactory $objects;
+    private Container $root;
+    private array $definitions = [];
+    private array $instances = [];
+    private array $sharedInstances = [];
     private array $resolved = [];
-    /**
-     * 初始化 Container 实例及其依赖。封装 Origami 原生容器，提供作用域单例、瞬时服务、别名及配置注入，拒绝重复注册。
-     *
-     * @param ?ObjectFactory $objects 负责构造及初始化对象的工厂；null 时使用 ConfiguredObjectFactory。默认值为 null。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services = new Container(); $services->singleton(RequestContext::class);
-     */
-    public function __construct(?ObjectFactory $objects = null)
+    private array $configured = [];
+    private int $singletonDepth = 0;
+
+    public function __construct(?ObjectFactory $objects = null, ?Container $parent = null)
     {
         $this->native = new \Container\Container();
         $this->objects = $objects ?? new ConfiguredObjectFactory();
+        $this->root = $parent === null ? $this : $parent->root;
     }
-    /**
-     * 检查服务标识是否已经注册，不触发实例构造。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @return bool 已注册为 true，否则 false。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $exists = $services->has(RequestContext::class);
-     */
+
+    /** 新作用域共享注册规则和应用单例，不继承 scoped 实例。 */
+    public function fork(): self
+    {
+        return new self($this->objects, $this->root);
+    }
+
     public function has(string $id): bool
     {
-        return $this->native->has($id);
+        return $id === self::class || $this->native->has($id) || isset($this->instances[$id]) || isset($this->root->sharedInstances[$id]) || isset($this->root->definitions[$id]);
     }
-    /**
-     * 只读取已经解析并缓存的共享实例，不触发构造。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @return ?object 已缓存对象；未解析或非共享服务返回 null。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $context = $services->resolved(RequestContext::class);
-     */
+
+    /** 只读取已缓存对象，不创建对象。 */
     public function resolved(string $id): ?object
     {
-        return $this->resolved[$id] ?? null;
+        $id = $this->canonicalId($id);
+        if (isset($this->instances[$id])) {
+            return $this->instances[$id];
+        }
+        if (isset($this->root->sharedInstances[$id])) {
+            return $this->root->sharedInstances[$id];
+        }
+        return ($this->root->definitions[$id]['lifetime'] ?? '') === 'singleton'
+            ? ($this->root->resolved[$id] ?? null) : ($this->resolved[$id] ?? null);
     }
-    /**
-     * 注册已构造对象，并立即将其记录为已解析共享实例。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param object $instance 已构造、需要共享的服务对象。
-     * @return void 无返回值；标识重复时抛出 LogicException。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->instance(Config::class, $config);
-     */
+
+    /** 只读取当前作用域持有的缓存，供请求资源清理使用。 */
+    public function resolvedLocal(string $id): ?object
+    {
+        $id = $this->canonicalId($id);
+        if (($this->root->definitions[$id]['lifetime'] ?? '') === 'singleton' || isset($this->root->sharedInstances[$id])) {
+            return null;
+        }
+        return $this->instances[$id] ?? $this->resolved[$id] ?? null;
+    }
+
+    /** 预构造实例在应用树内共享，由调用方负责资源释放。 */
     public function instance(string $id, object $instance): void
     {
-        if ($this->has($id)) {
+        $this->assertAvailable($id);
+        $this->root->sharedInstances[$id] = $instance;
+    }
+
+    /** 仅向当前作用域绑定宿主上下文，不会传播到子作用域。 */
+    public function scopedInstance(string $id, object $instance): void
+    {
+        if ($id === self::class || $this->native->has($id) || isset($this->instances[$id]) || isset($this->root->definitions[$id]) || isset($this->root->sharedInstances[$id])) {
             throw new \LogicException('Duplicate service: ' . $id);
         }
-        $this->native->singleton($id, function ($native) use ($instance): object {
-            return $instance;
-        });
-        $this->resolved[$id] = $instance;
+        $this->instances[$id] = $instance;
     }
-    /**
-     * 以工厂注册作用域单例，是 singleton 的便捷别名。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param callable $factory 接收当前 Container 并返回对象的工厂；允许 null 的方法会自动按类名构造。
-     * @return void 无返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->bind('clock', fn (Container $c) => new \DateTimeImmutable());
-     */
+
+    /** 兼容旧工厂注册；旧 bind 的作用域共享语义保持不变。 */
     public function bind(string $id, callable $factory): void
     {
-        $this->singleton($id, $factory);
+        $this->scoped($id, $factory);
     }
-    /**
-     * 注册当前容器内共享的服务，首次 get 时构造。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param ?callable $factory 接收当前 Container 并返回对象的工厂；允许 null 的方法会自动按类名构造。默认值为 null。
-     * @return void 无返回值；重复标识会报错。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->singleton(RequestContext::class);
-     */
-    public function singleton(string $id, ?callable $factory = null): void
+
+    public function singleton(string $id, string|callable|null $implementation = null): void
     {
-        $this->register($id, $factory, true);
+        $this->register($id, $implementation, 'singleton');
     }
-    /**
-     * 注册每次 get 都重新构造的服务，不记录到共享实例缓存。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param ?callable $factory 接收当前 Container 并返回对象的工厂；允许 null 的方法会自动按类名构造。默认值为 null。
-     * @return void 无返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->transient('clock', fn (Container $c) => new \DateTimeImmutable());
-     */
-    public function transient(string $id, ?callable $factory = null): void
+
+    public function scoped(string $id, string|callable|null $implementation = null): void
     {
-        $this->register($id, $factory, false);
+        $this->register($id, $implementation, 'scoped');
     }
-    /**
-     * 将服务标识委托给另一标识，每次解析都遵守目标服务生命周期。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param string $target 别名指向的目标服务标识。
-     * @return void 无返回值；别名标识已存在时会报错。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->alias('request.context', RequestContext::class);
-     */
+
+    public function transient(string $id, string|callable|null $implementation = null): void
+    {
+        $this->register($id, $implementation, 'transient');
+    }
+
+    /** 纯访问别名；不会另行创建或缓存目标对象。 */
     public function alias(string $id, string $target): void
     {
-        if ($this->has($id)) {
-            throw new \LogicException('Duplicate service: ' . $id);
-        }
-        $services = $this;
-        // 委托每次查找，使别名保留目标的生命周期和初始化行为。
-        $this->native->bind($id, function ($native) use ($services, $target): object {
-            return $services->get($target);
+        $this->assertAvailable($id);
+        $this->root->definitions[$id] = ['alias' => $target];
+    }
+
+    /** 应用配置在根容器上串行安装一次；回调应只注册服务，不解析请求状态。 */
+    public function configureOnce(string $key, callable $configure): void
+    {
+        $root = $this->root;
+        \Loom\Native\withSingletonLock($root->native, static function () use ($root, $key, $configure): void {
+            if (!isset($root->configured[$key])) {
+                $configure($root);
+                $root->configured[$key] = true;
+            }
         });
     }
-    /**
-     * 包装工厂或自动构造器，统一进行属性初始化并按 shared 选择生命周期。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @param ?callable $factory 接收当前 Container 并返回对象的工厂；允许 null 的方法会自动按类名构造。
-     * @param bool $shared true 缓存当前容器内实例，false 每次解析重新构造。
-     * @return void 无返回值；工厂必须返回对象。
-     *
-     * 内部调用示例（仅类内使用）：
-     * @example $this->register(RequestContext::class, null, true);
-     */
-    private function register(string $id, ?callable $factory, bool $shared): void
+
+    private function assertAvailable(string $id): void
     {
         if ($this->has($id)) {
             throw new \LogicException('Duplicate service: ' . $id);
         }
-        $services = $this;
-        $objects = $this->objects;
-        $resolve = function ($native) use ($services, $factory, $id, $objects, $shared): object {
-            $instance = $factory === null ? $objects->create($id, $services) : $factory($services);
-            if (!is_object($instance)) {
-                throw new \LogicException('Service factory must return an object: ' . $id);
-            }
-            $objects->initialize($instance, $services);
-            if ($shared) {
-                $services->resolved[$id] = $instance;
-            }
-            return $instance;
-        };
-        if ($shared) {
-            $this->native->singleton($id, $resolve);
-        } else {
-            $this->native->bind($id, $resolve);
-        }
     }
-    /**
-     * 解析服务，未注册类名自动注册为单例；把原生循环依赖异常转换为 LogicException。
-     *
-     * @param string $id 服务唯一标识，可使用完整类名或自定义字符串。
-     * @return object 完成构造和配置属性注入的服务对象。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $context = $services->get(RequestContext::class);
-     */
+
+    private function register(string $id, string|callable|null $implementation, string $lifetime): void
+    {
+        $this->assertAvailable($id);
+        $this->root->definitions[$id] = ['implementation' => $implementation ?? $id, 'lifetime' => $lifetime];
+    }
+
     public function get(string $id): object
     {
-        if (!$this->has($id)) {
-            $this->singleton($id);
+        $id = $this->canonicalId($id);
+        if ($id === self::class) {
+            $this->rejectCaptive($id);
+            return $this;
+        }
+        if (isset($this->instances[$id])) {
+            $this->rejectCaptive($id);
+            return $this->instances[$id];
+        }
+        if (isset($this->root->sharedInstances[$id])) {
+            return $this->root->sharedInstances[$id];
+        }
+        if (!isset($this->root->definitions[$id])) {
+            $this->configureOnce('container.auto:' . $id, static function (Container $services) use ($id): void {
+                if (!$services->has($id)) {
+                    $services->scoped($id);
+                }
+            });
+        }
+        $definition = $this->root->definitions[$id];
+        if ($definition['lifetime'] === 'singleton') {
+            $root = $this->root;
+            // 原生容器缓存共享对象；Go 锁覆盖完整解析链，避免并发重复构造和误报循环依赖。
+            return \Loom\Native\withSingletonLock($root->native, static function () use ($root, $id, $definition): object {
+                $root->singletonDepth++;
+                try {
+                    return $root->resolve($id, $definition);
+                } finally {
+                    $root->singletonDepth--;
+                }
+            });
+        }
+        if ($definition['lifetime'] === 'scoped') {
+            $this->rejectCaptive($id);
+        }
+        return $this->resolve($id, $definition);
+    }
+
+    private function canonicalId(string $id): string
+    {
+        $seen = [];
+        while (isset($this->root->definitions[$id]['alias'])) {
+            if (isset($seen[$id])) {
+                throw new \LogicException('Dependency cycle: ' . $id);
+            }
+            $seen[$id] = true;
+            $id = $this->root->definitions[$id]['alias'];
+        }
+        return $id;
+    }
+
+    private function rejectCaptive(string $id): void
+    {
+        if ($this->singletonDepth > 0) {
+            throw new \LogicException('Singleton cannot depend on scoped service: ' . $id);
+        }
+    }
+
+    private function resolve(string $id, array $definition): object
+    {
+        if (!$this->native->has($id)) {
+            $services = $this;
+            $implementation = $definition['implementation'];
+            $shared = $definition['lifetime'] !== 'transient';
+            $factory = static function ($native) use ($services, $id, $implementation, $shared): object {
+                $instance = is_string($implementation)
+                    ? $services->objects->create($implementation, $services)
+                    : $implementation($services);
+                if (!is_object($instance)) {
+                    throw new \LogicException('Service factory must return an object: ' . $id);
+                }
+                if ((interface_exists($id) || class_exists($id)) && !($instance instanceof $id)) {
+                    throw new \LogicException('Service must implement ' . $id);
+                }
+                $services->objects->initialize($instance, $services);
+                if ($shared) {
+                    $services->resolved[$id] = $instance;
+                }
+                return $instance;
+            };
+            if ($shared) {
+                $this->native->singleton($id, $factory);
+            } else {
+                $this->native->bind($id, $factory);
+            }
         }
         try {
             return $this->native->make($id);

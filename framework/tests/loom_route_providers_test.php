@@ -119,8 +119,8 @@ file_put_contents($root . '/generated/grpc/routes.json', json_encode(['files' =>
     '/fixture/echo' => ['MissingService', 'missing'],
 ]]]]));
 $scope = new Loom\ServiceScope(new Loom\Config($root), static function (Loom\Container $services): void {
-    $services->alias(Loom\Http\RouteProvider::class, FixtureHttpRoutes::class);
-    $services->alias(Loom\Grpc\RouteProvider::class, FixtureGrpcRoutes::class);
+    $services->scoped(Loom\Http\RouteProvider::class, FixtureHttpRoutes::class);
+    $services->scoped(Loom\Grpc\RouteProvider::class, FixtureGrpcRoutes::class);
 });
 $empty = new Loom\ServiceScope(new Loom\Config($root));
 $applications = [];
@@ -164,8 +164,8 @@ try {
 }
 // 验证迁移后的应用映射，不打开数据库连接或启动服务器。
 $applicationScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2), static function (Loom\Container $services): void {
-    $services->alias(Loom\Http\RouteProvider::class, App\Http\ApplicationRoutes::class);
-    $services->alias(Loom\Grpc\RouteProvider::class, App\Grpc\ApplicationRoutes::class);
+    $services->scoped(Loom\Http\RouteProvider::class, App\Http\ApplicationRoutes::class);
+    $services->scoped(Loom\Grpc\RouteProvider::class, App\Grpc\ApplicationRoutes::class);
 });
 try {
     $app = $applicationScope->load('framework/bootstrap/http.php');

@@ -16,7 +16,7 @@ HTTP 核心按职责组合：`ApplicationFactory` 创建应用作用域，`Appli
 
 `Server` 负责启动宿主服务器和定时器。`HttpRuntime` 衔接原生请求与应用工厂，`RequestFactory` 转换请求，`HttpTransport` 发送响应及升级 WebSocket，`StaticFiles` 处理公开资源。`RequestScope` 在 finally 中释放数据库连接、当前请求和传输上下文；传输对象的升级状态属于单个请求。数据库连接、事务、请求与传输上下文均由实例持有。HTTP 请求、TCP 消息、gRPC 调用和作业分别创建作用域并在 finally 中关闭；模块定时器各自持有独立作用域，每次调用结束释放连接；遥测写入也使用独立连接。原生 IO 仍由 Origami 适配。
 
-容器的生命周期注册与对象创建策略分离：singleton、transient 和 alias 委托原生容器，配置注入通过 `ObjectFactory` 的默认适配器接入。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于执行作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。ModelContext 在框架入口选择作用域，ModelQuery 把累积条件交给原生 Database\DB；原生 SQL 传输适配器复用该作用域的 Database/PDO，保持事务一致。连接按配置自动初始化，作用域退出时移除唯一命名连接。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
+容器的生命周期注册与对象创建策略分离：singleton 跨应用子作用域共享，scoped 按执行作用域缓存，transient 每次创建，alias 委托目标生命周期；对象缓存委托原生容器，配置注入通过 `ObjectFactory` 的默认适配器接入。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于执行作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。ModelContext 在框架入口选择作用域，ModelQuery 把累积条件交给原生 Database\DB；原生 SQL 传输适配器复用该作用域的 Database/PDO，保持事务一致。连接按配置自动初始化，作用域退出时移除唯一命名连接。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
 
 通用 HTTP、CLI、数据库、任务、TCP、gRPC 装配在 `framework/bootstrap/`。`config/modules.php` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用类/方法注解注册，`config/services.php` 提供显式工厂覆盖，`routes/` 提供手动扩展。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
 
@@ -54,7 +54,7 @@ HTTP 核心按职责组合：`ApplicationFactory` 创建应用作用域，`Appli
 
 以下结论针对 此前使用的 `ef4fe76d3195` 版本，根据固定版本 std 源码和 Loom 宿主实测。原生 Inject 修复已合入上游，默认构建直接使用固定依赖，不再应用本地补丁。
 
-- `std/container` 已由 `std.Load()` 加载。Loom 容器委托 `Container\Container` 的 singleton、bind 工厂和 make 处理缓存、工厂执行、循环依赖及失败后的解析状态清理，每个业务作用域使用独立原生容器。配置属性/构造参数注入仍由 Loom 适配，因为 std 容器仅提供构造器注入，且默认自动装配策略不同。
+- `std/container` 已由 `std.Load()` 加载。Loom 容器委托 `Container\Container` 的 singleton、bind 工厂和 make 处理缓存、工厂执行、循环依赖及失败后的解析状态清理，根容器缓存应用 singleton，业务作用域分别缓存 scoped；Go 锁保护并发单例构造。配置属性/构造参数注入仍由 Loom 适配，因为 std 容器仅提供构造器注入，且默认自动装配策略不同。
 - `std/database/annotation` 提供 Table、Column、Id、GeneratedValue，模型直接使用这组原生注解。表名和列名来自原生元数据，类型来自属性声明；Id 用于模型主键，GeneratedValue 标记数据库生成字段。Loom 不另定义数据库映射注解，也不设置批量写入字段白名单。当前原生注解的 getArguments() 在探针中返回空数组，不能依赖它恢复原始参数。
 - `std/container/annotation` 提供 Component、Singleton、Scoped、Bind、Inject、Named。它们带注册/宏执行行为，不能当成普通 PHP 元数据注解直接替换。旧版本中，原生 Inject/Named 因缺少参数所属类信息而在加载时失败。该问题已由上游提交 `ef4fe76d31954059dfa362168cce19fa7ae23679` 修复，支持普通/提升参数及继承构造器，并拒绝非构造器目标。Loom 的 Inject 仍承担自身配置注入适配契约，本次没有改动应用注解 API。
 - `std/net/annotation` 提供 Application、Controller、Route、GetMapping/PostMapping 等。原生 Route 表达类级前缀，映射宏与原生 HTTP handler 参数绑定；Loom Route 还承担 Request/Response、中间件顺序、命名路由和 WebSocket 适配，暂保留该契约。原生 CLI Command 使用 execute()，也不等价于现有签名解析和 handle() 命令契约。

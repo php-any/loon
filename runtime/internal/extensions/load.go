@@ -9,6 +9,7 @@ func Load(vm data.VM) {
 	vm.AddFunc(&protocolRequest{})
 	vm.AddFunc(&sendMail{})
 	vm.AddFunc(&webhook{})
+	vm.AddFunc(&withSingletonLock{})
 	vm.AddFunc(&modelConnection{})
 	vm.AddFunc(&modelDatabase{})
 	vm.AddFunc(&withModelDatabase{})

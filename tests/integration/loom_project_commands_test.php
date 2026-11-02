@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 $scope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
 $services = $scope->services();
-$services->alias(\Loom\Console\CommandRegistrar::class, \App\Console\ApplicationCommands::class);
+$services->scoped(\Loom\Console\CommandRegistrar::class, \App\Console\ApplicationCommands::class);
 $services->get(\Loom\Database::class)->connect($services->get(\Loom\Config::class)->get('database.dsn'));
 $scope->load('framework/bootstrap/database.php');
 $out = '';

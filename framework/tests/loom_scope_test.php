@@ -42,7 +42,7 @@ $root = sys_get_temp_dir() . '/loom-scopes-' . bin2hex(random_bytes(6));
 $scopes = [];
 try {
     $lazy = new Loom\ServiceScope(new Loom\Config());
-    $lazy->services()->singleton(Loom\Database::class, function ($services): object {
+    $lazy->services()->scoped(Loom\Database::class, function ($services): object {
         throw new RuntimeException('Cleanup must not resolve unused services');
     });
     $lazy->close();

@@ -220,10 +220,11 @@ HTTP 引导脚本发现模块、注册服务、创建 `Application`，由 `Modul
 
 [Loom\Container](../framework/src/Container/Container.php) 为每个作用域创建独立原生容器，委托它实现实例缓存、工厂执行和循环依赖检测；Loom 的对象工厂负责构造参数和配置属性注入。
 
-- `singleton`：一个容器中共享实例，不是整个进程共享实例。
+- `singleton`：同一应用根容器及其所有子作用域共享。
+- `scoped`：当前作用域共享；未注册具体类的默认生命周期。
 - `transient`：每次解析创建对象。
 - `alias`：委托目标服务解析，保留目标生命周期。
-- `bind`：Loom 中保留共享语义，相当于 `singleton` 注册。
+- `bind`：Loom 中保留共享语义，相当于 `scoped` 注册。
 
 控制器通过类型化构造参数表达依赖，容器递归解析；服务别名可用 `Inject`，配置使用 `InjectConfig` 或显式工厂。`config/services.php` 的显式注册优先于服务注解。
 
