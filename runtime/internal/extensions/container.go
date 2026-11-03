@@ -1,6 +1,7 @@
 package extensions
 
 import (
+	"context"
 	"sync"
 
 	"github.com/php-any/origami/data"
@@ -11,7 +12,7 @@ import (
 // Locks cover a whole singleton dependency graph, including nested resolutions.
 // Entries live only while in use, so completed applications are not retained.
 type singletonGate struct {
-	owner string
+	owner *singletonOwner
 	depth int
 	users int
 }
@@ -24,7 +25,10 @@ var singletonGates = struct {
 
 func init() { singletonGates.changed = sync.NewCond(&singletonGates.Mutex) }
 
-func lockSingleton(key data.ClassStmt, owner string) func() {
+type singletonOwner struct{ token byte }
+type singletonOwnerKey struct{}
+
+func lockSingleton(key data.ClassStmt, owner *singletonOwner) func() {
 	singletonGates.Lock()
 	gate := singletonGates.entries[key]
 	if gate == nil {
@@ -44,7 +48,7 @@ func lockSingleton(key data.ClassStmt, owner string) func() {
 		gate.depth--
 		gate.users--
 		if gate.depth == 0 {
-			gate.owner = ""
+			gate.owner = nil
 		}
 		if gate.users == 0 {
 			delete(singletonGates.entries, key)
@@ -68,8 +72,17 @@ func (*withSingletonLock) Call(ctx data.Context) (data.GetValue, data.Control) {
 	if !ok || container.Class.GetName() != "Container\\Container" {
 		return nil, utils.NewThrowf("Expected a native service container")
 	}
-	release := lockSingleton(container.Class, modelScopeID())
+	owner, _ := ctx.GoContext().Value(singletonOwnerKey{}).(*singletonOwner)
+	if owner == nil {
+		owner = &singletonOwner{}
+	}
+	release := lockSingleton(container.Class, owner)
 	defer release()
 	operation, _ := ctx.GetIndexValue(1)
+	restore, err := bindExecutionContext(ctx, context.WithValue(ctx.GoContext(), singletonOwnerKey{}, owner))
+	if err != nil {
+		return nil, utils.NewThrow(err)
+	}
+	defer restore()
 	return node.NewCallMethod(nil, operation, nil).GetValue(ctx)
 }

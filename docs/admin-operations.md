@@ -63,7 +63,7 @@ Webhook 配置填写 `https://接收端域名/路径` 和环境变量名称 `LOO
 ./tests/e2e/background.ps1
 ./tests/e2e/release-demo.ps1
 # runtime 目录
-go test ./internal/extensions -count=1 -timeout=60s
+go test -modfile=go.local.mod ./internal/extensions -count=1 -timeout=60s
 # frontend/admin 目录
 npm run build
 ```

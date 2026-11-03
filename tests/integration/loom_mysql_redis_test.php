@@ -26,33 +26,28 @@ try {
     mrCheck(Redis::command(['PING']) === 'PONG', 'Redis connection');
     mrCheck(extension_loaded('redis'), 'Origami Redis driver is registered');
     mrCheck($runtimeServices->get(\Loom\Database::class)->query("SELECT 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING' AS value")[0]['value'] === 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING', 'MySQL raw SQL is not rewritten');
-    $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($runtimeServices): void {
-        mrCheck($runtimeServices->get(\Loom\Database::class)->connection()->inTransaction(), 'MySQL uses native PDO transaction state');
+    $database = $runtimeServices->get(\Loom\Database::class);
+    $database->transaction(function () use ($database): void {
+        mrCheck($database->inTransaction(), 'Callback runs inside its transaction');
     });
     $otherScope = new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class));
     $otherDatabase = $otherScope->services()->get(\Loom\Database::class);
     $database = $runtimeServices->get(\Loom\Database::class);
     try {
-        mrCheck($database->connection() !== $otherDatabase->connection(), 'MySQL scopes own separate PDO connections');
-        try {
-            $database->transaction(function () use ($database, $otherDatabase): void {
-                $database->execute("INSERT INTO loom_users(name,email,password) VALUES('Uncommitted','scope-uncommitted@example.test','unused')");
-                mrCheck($otherDatabase->query("SELECT id FROM loom_users WHERE email='scope-uncommitted@example.test'") === [], 'Another scope cannot see uncommitted writes');
-                $otherDatabase->transaction(function () use ($otherDatabase): void {
-                    $otherDatabase->execute("INSERT INTO loom_users(name,email,password) VALUES('Committed','scope-committed@example.test','unused')");
-                });
-                throw new RuntimeException('scope rollback');
-            });
-        } catch (RuntimeException $error) {
-            mrCheck($error->getMessage() === 'scope rollback', 'Cross-scope transactions are independent');
-        }
-        mrCheck($database->query("SELECT id FROM loom_users WHERE email='scope-uncommitted@example.test'") === [], 'Scope transaction rolled back');
-        mrCheck(count($database->query("SELECT id FROM loom_users WHERE email='scope-committed@example.test'")) === 1, 'Other scope commit survives rollback');
-        $otherDatabase->connection()->beginTransaction();
-        $otherDatabase->execute("INSERT INTO loom_users(name,email,password) VALUES('Cleanup','scope-cleanup@example.test','unused')");
-        $otherScope->close();
-        mrCheck($database->query("SELECT id FROM loom_users WHERE email='scope-cleanup@example.test'") === [], 'Closing a scope rolls back its external PDO transaction');
-        $database->execute("DELETE FROM loom_users WHERE email='scope-committed@example.test'");
+    $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($runtimeServices): void {
+        $runtimeServices->get(\Loom\Database::class)->execute("INSERT INTO loom_users(name,email,password) VALUES('Uncommitted','scope-uncommitted@example.test','unused')");
+        mrCheck(count($runtimeServices->get(\Loom\Database::class)->query("SELECT id FROM loom_users WHERE email='scope-uncommitted@example.test'")) === 1, 'Statements in the callback see the transaction');
+        throw new RuntimeException('scope rollback');
+    });
+    } catch (RuntimeException $error) {
+        mrCheck($error->getMessage() === 'scope rollback', 'Transaction error is preserved');
+    }
+    mrCheck($database->query("SELECT id FROM loom_users WHERE email='scope-uncommitted@example.test'") === [], 'Scope transaction rolled back');
+    $otherDatabase->transaction(function () use ($otherDatabase): void {
+        $otherDatabase->execute("INSERT INTO loom_users(name,email,password) VALUES('Committed','scope-committed@example.test','unused')");
+    });
+    mrCheck(count($database->query("SELECT id FROM loom_users WHERE email='scope-committed@example.test'")) === 1, 'A later transaction commits on its own');
+    $database->execute("DELETE FROM loom_users WHERE email='scope-committed@example.test'");
     } finally {
         $otherScope->close();
     }

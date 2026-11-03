@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 /**
- * 数据库连接配置，供模型、原始 SQL、迁移和持久化任务数据共同使用。
- * 当前 Loom\Database 只接受 mysql: 开头的 DSN，不支持 SQLite 或 PostgreSQL。
+ * 数据库连接配置。Loom 把它转换成进程级 database/sql 连接池使用的 DSN。
+ * 当前只接受 mysql: 开头的 DSN。
  * 配置先读取 LOOM_DATABASE；未设置或为空时使用下方默认 DSN。
  * loom.php 先加载根目录 .env（或 LOOM_ENV_FILE 指定的文件），其中的值覆盖进程环境变量。
  * 配置加载后会缓存，修改文件或环境变量后应重启相关服务和工作进程。
@@ -19,7 +19,7 @@ declare(strict_types=1);
  */
 return [
     /**
-     * PDO MySQL 连接字符串，类型为非空字符串。
+     * PDO 风格的 MySQL DSN，类型为非空字符串。运行时会把它转成 database/sql DSN。
      * host：数据库主机，例如 127.0.0.1、mysql 或数据库服务器域名。
      * port：MySQL 端口，例如默认 3306，或本地容器映射端口 13306。
      * dbname：已创建的数据库名称，例如 loom、loom_test；此配置不会自动创建数据库。

@@ -38,6 +38,7 @@ final class ModuleDiscovery
     public function __construct(Config $config)
     {
         $this->config = $config;
+        $this->gate = new \Container\Container();
     }
     private array $modules = [];
     private array $visiting = [];
@@ -48,9 +49,13 @@ final class ModuleDiscovery
     private array $jobs = [];
     private array $timers = [];
     private array $commands = [];
+    private bool $frozen = false;
+    private ?self $snapshot = null;
+    private \Container\Container $gate;
+    private ?Router $routeTable = null;
 
     /**
-     * 创建新的发现器，并按 modules 配置逐个递归发现模块。
+     * 首次按配置发现模块并冻结元数据；已冻结的应用级发现结果直接复用。
      *
      * 参数：无。
      *
@@ -61,11 +66,21 @@ final class ModuleDiscovery
      */
     public function configured(): self
     {
-        $registry = new self($this->config);
-        foreach ($this->config->get('modules', []) as $module) {
-            $registry->add($module);
+        if ($this->frozen) {
+            return $this;
         }
-        return $registry;
+        return \Loom\Native\withSingletonLock($this->gate, function (): self {
+            if ($this->snapshot === null) {
+                $registry = new self($this->config);
+                foreach ($this->config->get('modules', []) as $module) {
+                    $registry->add($module);
+                }
+                $registry->routeTable = $registry->router();
+                $registry->frozen = true;
+                $this->snapshot = $registry;
+            }
+            return $this->snapshot;
+        });
     }
 
     /**
@@ -100,6 +115,9 @@ final class ModuleDiscovery
     {
         if (isset($this->modules[$class])) {
             return;
+        }
+        if ($this->frozen) {
+            throw new \LogicException('Configured module metadata is immutable');
         }
         if (isset($this->visiting[$class])) {
             throw new \LogicException('Module import cycle: ' . $class);
@@ -137,6 +155,9 @@ final class ModuleDiscovery
     {
         if (isset($this->classes[$class])) {
             return;
+        }
+        if ($this->frozen) {
+            throw new \LogicException('Configured module metadata is immutable');
         }
         $reflection = new \ReflectionClass($class);
         $service = self::attribute($reflection, \Loom\Attributes\Service::class);
@@ -235,9 +256,15 @@ final class ModuleDiscovery
         if ($route->websocket && strtoupper($route->method) !== 'GET') {
             throw new \LogicException('WebSocket route requires GET');
         }
+        $middleware = array_merge($controller->middleware, $route->middleware);
+        foreach ($middleware as $entry) {
+            if (!is_string($entry) || $entry === '') {
+                throw new \LogicException('Attribute middleware must use service class names; register instances through a RouteProvider');
+            }
+        }
         $this->routes[] = ['method' => $route->method, 'path' => rtrim($controller->prefix, '/') . $route->path,
             'action' => [$class->getName(), $method], 'name' => $route->name,
-            'middleware' => array_merge($controller->middleware, $route->middleware), 'websocket' => $route->websocket];
+            'middleware' => $middleware, 'websocket' => $route->websocket];
     }
 
     /** 返回指定模块服务声明的生命周期。 */
@@ -273,6 +300,23 @@ final class ModuleDiscovery
     public function routes(): array
     {
         return $this->routes;
+    }
+
+    /** 已配置的声明路由只校验一次；返回独立路由表供作用域内追加显式路由。 */
+    public function router(): Router
+    {
+        if ($this->routeTable !== null) {
+            return clone $this->routeTable;
+        }
+        $router = new Router();
+        foreach ($this->routes as $route) {
+            if ($route['websocket']) {
+                $router->websocket($route['path'], $route['action'], $route['name'], $route['middleware']);
+            } else {
+                $router->route($route['method'], $route['path'], $route['action'], $route['name'], $route['middleware']);
+            }
+        }
+        return $router;
     }
     /**
      * 取得任务种类到处理目标的映射。

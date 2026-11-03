@@ -59,15 +59,15 @@ final class ApplicationFactory
      */
     public function create(): Application
     {
-        $app = new Application($this->modules->container());
+        $services = $this->modules->container();
         try {
-            $this->modules->routes($app);
+            $app = $this->modules->application($services);
             foreach ($this->routes as $register) {
                 $register($app->router(), $app);
             }
             return $app;
         } catch (\Throwable $error) {
-            $app->close();
+            $services->get(ServiceScope::class)->close();
             throw $error;
         }
     }

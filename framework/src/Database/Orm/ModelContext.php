@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 管理活动服务作用域与模型数据库选择，优先使用原生显式绑定，回退到最近注册的作用域。
+ * 在进程里只存在一个活动作用域时，提供该作用域的数据库。查询参数和执行帧上的值不参与选择。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
@@ -19,7 +19,7 @@ final class ModelContext
     private static array $scopes = [];
 
     /**
-     * 按对象身份登记作用域，供没有显式模型绑定的调用回退使用。
+     * 按对象身份登记仍存活的作用域。登记只表示对象尚未关闭，不改变当前模型连接。
      *
      * @param ServiceScope $scope 当前执行单元拥有的服务作用域。
      * @return void 无返回值。
@@ -47,7 +47,7 @@ final class ModelContext
     }
 
     /**
-     * 读取原生绑定数据库；不存在时取最近注册作用域的 Database，无活动作用域时报错。
+     * 返回唯一活动作用域的数据库。多个作用域并存时拒绝猜测，调用方把该作用域的 Database 传给 Model::using()。
      *
      * 参数：无。
      *
@@ -58,14 +58,13 @@ final class ModelContext
      */
     public static function database(): Database
     {
-        $bound = \Loom\Native\modelDatabase();
-        if ($bound !== null) {
-            return $bound;
-        }
         $scopes = array_values(self::$scopes);
+        if (count($scopes) === 1) {
+            return $scopes[0]->services()->get(\Loom\Database::class);
+        }
         if ($scopes === []) {
             throw new \LogicException('Models require an active framework service scope');
         }
-        return $scopes[count($scopes) - 1]->services()->get(\Loom\Database::class);
+        throw new \LogicException('Multiple service scopes are open; pass that scope\'s database to Model::using()');
     }
 }

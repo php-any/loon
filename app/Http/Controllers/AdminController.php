@@ -19,13 +19,15 @@ final class AdminController
     private \App\Services\Access\Admin $admin;
     private \Loom\RuntimeStatus $runtimeStatus;
     private \Loom\Config $config;
+    private \Loom\Database $database;
 
-    public function __construct(\Loom\Auth $auth, \App\Services\Access\Admin $admin, \Loom\RuntimeStatus $runtimeStatus, \Loom\Config $config)
+    public function __construct(\Loom\Auth $auth, \App\Services\Access\Admin $admin, \Loom\RuntimeStatus $runtimeStatus, \Loom\Config $config, \Loom\Database $database)
     {
         $this->auth = $auth;
         $this->admin = $admin;
         $this->runtimeStatus = $runtimeStatus;
         $this->config = $config;
+        $this->database = $database;
     }
 
     #[\Loom\Attributes\Route('GET', '/admin')]
@@ -49,7 +51,7 @@ final class AdminController
     {
         $user = $this->auth->guard();
         $grants = $this->admin->grants($user['id']);
-        $account = Account::whereUserId($user['id'])->rows(['verified_at']);
+        $account = Account::using($this->database)->whereUserId($user['id'])->rows(['verified_at']);
         $settings = $this->admin->settings();
         return Response::json(['user' => $user, 'permissions' => $grants, 'menus' => $this->admin->menus($grants), 'verified' => ($account[0]['verified_at'] ?? null) !== null, 'branding' => ['name' => $settings['site_name'], 'description' => $settings['site_description']]])->withHeader('Cache-Control', 'no-store');
     }
@@ -59,7 +61,7 @@ final class AdminController
     {
         $user = $this->auth->guard();
         $this->admin->require($user['id'], 'overview.view');
-        return Response::json(['projects' => Project::whereUserId($user['id'])->count(), 'tasks' => Task::whereUserId($user['id'])->count(), 'completed' => Task::whereUserId($user['id'])->whereCompleted(1)->count(), 'runtime' => $this->runtimeStatus->snapshot()])->withHeader('Cache-Control', 'no-store');
+        return Response::json(['projects' => Project::using($this->database)->whereUserId($user['id'])->count(), 'tasks' => Task::using($this->database)->whereUserId($user['id'])->count(), 'completed' => Task::using($this->database)->whereUserId($user['id'])->whereCompleted(1)->count(), 'runtime' => $this->runtimeStatus->snapshot()])->withHeader('Cache-Control', 'no-store');
     }
 
     #[\Loom\Attributes\Route('GET', '/api/admin/manage/{resource}')]

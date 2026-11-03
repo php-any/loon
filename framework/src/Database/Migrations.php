@@ -156,17 +156,19 @@ final class Migrations
                 }
             }
         };
-        // MySQL DDL 会隐式提交。将迁移器串行化，不将 DDL 视为事务操作。
-        $name = 'loom-migrate-' . substr(hash('sha256', $this->database->query('SELECT DATABASE() AS name')[0]['name']), 0, 40);
-        $locked = $this->database->query('SELECT GET_LOCK(?,30) AS acquired', [$name]);
-        if ((int)$locked[0]['acquired'] !== 1) {
-            throw new \RuntimeException('Cannot acquire migration lock');
-        }
-        try {
-            $operation();
-        } finally {
-            $this->database->query('SELECT RELEASE_LOCK(?)', [$name]);
-        }
+        // DDL 会隐式提交，但 *sql.Tx 会把这条连接留到 commit。GET_LOCK 因此留在同一次回调里。不要在回调中再调用 transaction()。
+        $this->database->transaction(function () use ($operation): void {
+            $name = 'loom-migrate-' . substr(hash('sha256', $this->database->query('SELECT DATABASE() AS name')[0]['name']), 0, 40);
+            $locked = $this->database->query('SELECT GET_LOCK(?,30) AS acquired', [$name]);
+            if ((int)$locked[0]['acquired'] !== 1) {
+                throw new \RuntimeException('Cannot acquire migration lock');
+            }
+            try {
+                $operation();
+            } finally {
+                $this->database->query('SELECT RELEASE_LOCK(?)', [$name]);
+            }
+        });
     }
     /**
      * 按分号拆分并执行非空 SQL 片段；只适用于项目使用的简单迁移 SQL 格式。
@@ -181,7 +183,7 @@ final class Migrations
     {
         foreach (explode(';', $sql) as $statement) {
             if (trim($statement) !== '') {
-                $this->database->connection()->exec(trim($statement));
+                $this->database->execute(trim($statement));
             }
         }
     }

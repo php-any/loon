@@ -24,10 +24,11 @@ Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供
 从项目根目录启动：
 
 ```powershell
-go -C runtime run ./cmd/loom serve
+./scripts/build.ps1
+./build/loom.exe serve
 ```
 
-`loom.php` 中的容器回调由 `ServiceScope` 保存和执行，可注册服务单例或工厂，已提供 `RequestContext` 单例和注入 `Config` 的 `Database` 工厂。回调在每个请求、命令及后台任务的服务作用域创建时执行，单例不会跨作用域共享。其他业务服务仍可在 `config/services.php` 注册，避免重复注册同一个服务。
+`loom.php` 的服务注册回调只在根作用域执行一次。子作用域共享这些注册规则和 singleton，scoped 服务各自创建。入口把命令、HTTP 和 gRPC 路由接口绑到应用实现，并把 `RequestContext`、`Database` 固定为 scoped。`Database` 由容器注入 `Config`，只携带配置，不占有连接。其他业务服务在 `config/services.php` 注册，不要重复注册已经占用的标识。
 
 官网 `/`、后台 `/admin`、指南 `/guide` 和发布验收场景 `/demo` 共用服务。演示围绕一次发布的计划、验收、摘要交付与自动回顾展开，协议、队列和调度能力在这条业务流程中展示。旧工作室、协议实验室和 HTTP 实验页面地址统一跳转到 `/demo`。
 
@@ -37,7 +38,7 @@ go -C runtime run ./cmd/loom serve
 
 两站分别使用展示型顶部导航与操作台侧边导航，不互相加载对方的 CSS/JS；官网进入演示站的链接在新标签页打开，演示站内部导航在当前标签页切换。演示站继续使用同一套业务 API、数据库和后台进程。
 
-安装 Go 1.27.1 或更新版本与 PowerShell 7。在项目根目录构建宿主；所需 Origami 版本由 Go 模块固定并自动下载（见 [运行时要求](docs/runtime-requirements.md)）：
+安装 Go 1.27.1 或更新版本、PowerShell 7 和 Git。在项目根目录构建宿主；所需 Origami 版本由 Go 模块固定并自动下载（见 [运行时要求](docs/runtime-requirements.md)）：
 
 ```powershell
 ./scripts/build.ps1 -Test
@@ -90,7 +91,7 @@ final class Heartbeat
 
 周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。类由容器创建，支持 `InjectConfig` 和 `config/services.php` 工厂绑定。类名、命名空间需与 `app/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
 
-每个 HTTP 服务进程启动一组定时器，服务退出后结束，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。
+每个 HTTP 服务进程把这组定时器装进 `Host`，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务实现 `Loom\HostedService`，在 `config/services.php` 里登记到 `Loom\Host`。
 
 后台消费和调度分别在另外的终端启动：
 
@@ -101,9 +102,9 @@ final class Heartbeat
 
 加 `--once` 可只执行一次。HTTP 不自动启动后台进程。停止进程后，未完成任务由租约过期恢复；任务需要保持幂等。
 
-开发时也可进入 `runtime/` 执行 `go run ./cmd/loom serve`。只有联调本地 Origami 源码时才需要 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，本机路径不写入提交的 Go 模块。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
+首次运行构建脚本后，开发时也可进入 `runtime/` 执行 `go run -modfile=go.local.mod ./cmd/loom serve`。构建脚本为固定版本 Origami 应用仓库内的执行上下文补丁，生成独立构建副本和被忽略的本地模块文件；详见 [运行时要求](docs/runtime-requirements.md)。联调已包含该能力的 Origami 源码时可指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，本机路径不写入提交的 Go 模块。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
 
-Composer 可选：`composer build` 构建宿主（源码覆盖使用 `LOOM_ORIGAMI_SOURCE`）；`composer start`、`composer test`、`composer loom -- list` 调用上述 Origami 脚本。根入口 `loom.php` 显式加载已安装的 `vendor/autoload.php`，随后由 `framework/bootstrap/autoload.php` 加载框架并注册 App 自动加载；仓库内置应用无需先运行 Composer 即可启动。部署需要携带匹配的运行程序、脚本和资源；目标机器无需 Go 工具链、Origami 源码或 `go.work`。Go 模块和构建入口位于 `runtime/`。
+Composer 只用于构建和代码风格工具：`composer build` 构建宿主（源码覆盖使用 `LOOM_ORIGAMI_SOURCE`）；`composer start`、`composer test`、`composer loom -- list` 调用上述 Origami 脚本。应用入口不加载 `vendor/autoload.php`。宿主在运行脚本前把 `app/` 和 `generated/grpc/` 写入 Origami 类路径，因此仓库内置应用无需先运行 Composer。部署需要携带匹配的运行程序、脚本和资源；目标机器无需 Go 工具链、Origami 源码或 `go.work`。Go 模块和构建入口位于 `runtime/`。
 
 ## 后台管理
 
@@ -210,7 +211,7 @@ $config->get('database.dsn'); // config/database.php 的数据库连接配置
 $config->get(); // 返回以文件名为键的全部配置
 ```
 
-只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。`config/services.php` 的闭包也会被加载，由 HTTP、Console、队列、定时器及协议入口通过统一模块注册中心调用来注册服务。
+只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。需要强类型配置时，用公开属性声明选项类，再 `$services->options(PaymentOptions::class, 'payment')`；容器会把它注册为 singleton。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。`config/services.php` 的闭包也会被加载，由 HTTP、Console、队列、定时器及协议入口通过统一模块注册中心调用来注册服务。
 
 ### 注解注入配置
 

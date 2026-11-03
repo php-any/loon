@@ -57,25 +57,25 @@ try {
     $other = new \Loom\ServiceScope(new \Loom\Config($configRoot));
     $second = $other->services()->get(\Loom\Database::class);
     $second->execute('CREATE TEMPORARY TABLE model_scope_records(id BIGINT PRIMARY KEY AUTO_INCREMENT, name TEXT NOT NULL, owner INTEGER NOT NULL, note TEXT)');
-    ScopedConvenientRecord::create(['name' => 'B', 'owner' => 2]);
+    $ambiguous = false;
+    try {
+        ScopedConvenientRecord::first();
+    } catch (LogicException $error) {
+        $ambiguous = str_contains($error->getMessage(), 'Multiple service scopes');
+    }
+    checkModelScope($ambiguous, 'opening another scope does not choose a database');
+    ScopedConvenientRecord::using($second)->create(['name' => 'B', 'owner' => 2]);
     checkModelScope($captured->first()->name === 'A', 'query captures the original connection');
-    $scope->run(function () use ($other): void {
-        checkModelScope(ScopedConvenientRecord::first()->name === 'A', 'explicit entry selects its own scope');
-        $other->run(function (): void {
-            checkModelScope(ScopedConvenientRecord::first()->name === 'B', 'nested scope selection');
-        });
-        checkModelScope(ScopedConvenientRecord::first()->name === 'A', 'nested scope restores its caller');
-    });
+    checkModelScope(ScopedConvenientRecord::using($database)->first()->name === 'A', 'explicit database selects its own scope');
+    checkModelScope(ScopedConvenientRecord::using($second)->first()->name === 'B', 'the other database stays on its own scope');
     $finished = new \Channel(2);
-    foreach ([[$scope, 'A'], [$other, 'B']] as $case) {
+    foreach ([[$database, 'A'], [$second, 'B']] as $case) {
         \spawn(function () use ($case, $finished): void {
             try {
-                $case[0]->run(function () use ($case): void {
-                    for ($i = 0; $i < 10; $i++) {
-                        usleep(1000);
-                        checkModelScope(ScopedConvenientRecord::first()->name === $case[1], 'concurrent model scopes are isolated');
-                    }
-                });
+                for ($i = 0; $i < 10; $i++) {
+                    usleep(1000);
+                    checkModelScope(ScopedConvenientRecord::using($case[0])->first()->name === $case[1], 'concurrent model scopes are isolated');
+                }
                 $finished->send('ok');
             } catch (Throwable $error) {
                 $finished->send($error->getMessage());

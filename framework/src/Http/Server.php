@@ -48,27 +48,36 @@ final class Server
     }
 
     /**
-     * 读取监听配置、校验网络限制、安装请求回调并启动定时器，阻塞运行原生 HTTP 服务。
+     * 读取 HTTP 选项、校验网络限制、安装请求回调，并由 Host 启动后台服务后阻塞运行原生 HTTP 服务。
      *
      * 参数：无。
      *
-     * @return void 无返回值；服务结束后停止定时器并关闭启动作用域。
+     * @return void 无返回值；迁移和路由检查各用独立作用域，用完即关闭。服务结束后停止定时器，命令作用域由调用方关闭。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $server->run();
      */
     public function run(): void
     {
-        $config = $this->config->get('http');
-        $this->network->limits('websocket');
-        $startup = $this->scope->fork();
+        $services = $this->scope->services();
+        $migration = $this->scope->fork();
         try {
-            $startup->load(dirname(__DIR__, 2) . '/bootstrap/database.php');
+            $migration->load(dirname(__DIR__, 2) . '/bootstrap/database.php');
         } finally {
-            $startup->close();
+            $migration->close();
         }
-        $address = parse_url('http://' . $config['address']);
-        if (!isset($address['host'], $address['port'])) {
+        // 先安装模块服务，应用才能在监听前替换 HTTP 选项或登记后台服务。
+        $this->moduleRegistry->configured()->services($services);
+        if ($services->lifetime(\Loom\HttpServerOptions::class) === null) {
+            $services->options(\Loom\HttpServerOptions::class, 'http');
+        }
+        $http = $services->get(\Loom\HttpServerOptions::class);
+        if (!isset($http->address, $http->entry) || !is_string($http->address) || $http->address === '' || !is_string($http->entry) || $http->entry === '') {
+            throw new \LogicException('HTTP options require address and entry');
+        }
+        $this->network->limits('websocket');
+        $address = parse_url('http://' . $http->address);
+        if (!is_array($address) || !isset($address['host'], $address['port'])) {
             throw new \LogicException('HTTP address requires host:port');
         }
         $server = new \Net\Http\Server($address['host'], $address['port']);
@@ -82,21 +91,27 @@ final class Server
                 $scope->close();
             }
         });
-        // 监听之前验证应用路由；请求仍各自构建隔离的容器。
-        $app = $startup->load($config['entry']);
-        $modules = $this->moduleRegistry->configured();
-        $timers = $modules->timers($app->services());
-        echo 'Loom: http://' . $config['address'] . "\n";
-        $timers->start();
+        // 只借一个作用域确认入口能返回应用，然后关掉。请求和定时器再各自 fork。
+        $check = $this->scope->fork();
         try {
-            \Loom\Native\serveHttp($server, $config['address'], json_encode($this->network->limits('http'), JSON_THROW_ON_ERROR));
+            $app = $check->load($http->entry);
+            if (!($app instanceof Application)) {
+                throw new \LogicException('HTTP entry must return an Application');
+            }
         } finally {
-            $timers->stop();
-            $startup->close();
+            $check->close();
         }
+        $timers = $this->moduleRegistry->configured()->timers($services);
+        $limits = json_encode($this->network->limits('http'), JSON_THROW_ON_ERROR);
+        $host = $services->get(\Loom\Host::class);
+        $host->service(new \Loom\TimerHostedService($timers));
+        echo 'Loom: http://' . $http->address . "\n";
+        $host->run(static function () use ($server, $http, $limits): void {
+            \Loom\Native\serveHttp($server, $http->address, $limits);
+        });
     }
     /**
-     * 创建当前请求的 HTTP 运行适配器并处理原生请求，结束时关闭服务作用域。
+     * 创建当前请求的 HTTP 运行适配器并处理原生请求。服务作用域由创建它的调用方关闭。
      *
      * @param mixed $native 原生 HTTP 请求对象，提供方法、URL、头与正文访问能力。
      * @param mixed $writer 原生响应写出对象，提供 header、writeHeader 和 write 操作。
@@ -109,14 +124,10 @@ final class Server
     {
         $scope = $this->scope;
         $services = $scope->services();
-        $config = $this->config;
-        $runtime = new HttpRuntime($services->get(\Loom\Network::class), $services->get(\Loom\RequestScope::class), static function () use ($scope, $config): Application {
-            return $scope->load($config->get('http.entry'));
-        }, new StaticFiles($config->path('public')));
-        try {
-            $runtime->handle($native, $writer);
-        } finally {
-            $scope->close();
-        }
+        $http = $services->get(\Loom\HttpServerOptions::class);
+        $runtime = new HttpRuntime($services->get(\Loom\Network::class), $services->get(\Loom\RequestScope::class), static function () use ($scope, $http): Application {
+            return $scope->load($http->entry);
+        }, new StaticFiles($this->config->path('public')));
+        $runtime->handle($native, $writer);
     }
 }

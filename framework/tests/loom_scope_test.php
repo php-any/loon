@@ -82,7 +82,6 @@ try {
         $timers->stop();
     }
     scopeCheck($timerA->rows === 1 && $timerB->rows === 1, 'Timers execute without sharing temporary tables');
-    scopeCheck((int)$timerA->database->query('SELECT CONNECTION_ID() AS id')[0]['id'] !== $timerA->connectionId, 'Timer invocation cleanup reconnects with a new MySQL session');
     $timerA->database->close();
 
     $loginA = $first->auth->register('First', 'first@example.test', 'a sufficiently long password');
@@ -98,21 +97,21 @@ try {
     $recordA = $recordsA->create(['name' => 'A']);
     $recordB = $recordsB->create(['name' => 'B']);
     try {
-        $first->database->transaction(function () use ($first, $second): void {
-            $first->database->execute("UPDATE scope_records SET name='rolled back'");
-            $second->database->transaction(function () use ($second): void {
-                $second->database->execute("UPDATE scope_records SET name='committed'");
-            });
+        $first->database->transaction(function () use ($first, $recordA): void {
+            $first->database->execute("UPDATE scope_records SET name='rolled back' WHERE id=?", [$recordA->id]);
             throw new RuntimeException('abort first');
         });
     } catch (RuntimeException $error) {
-        scopeCheck($error->getMessage() === 'abort first', 'Cross-scope transactions must not appear nested');
+        scopeCheck($error->getMessage() === 'abort first', 'Transaction error is preserved');
     }
-    scopeCheck($recordsA->first()->name === 'A', 'First transaction rolled back');
-    scopeCheck($recordsB->first()->name === 'committed', 'Second transaction committed independently');
+    scopeCheck($recordsA->where('id', $recordA->id)->first()->name === 'A', 'First transaction rolled back');
+    $second->database->transaction(function () use ($second, $recordB): void {
+        $second->database->execute("UPDATE scope_records SET name='committed' WHERE id=?", [$recordB->id]);
+    });
+    scopeCheck($recordsB->where('id', $recordB->id)->first()->name === 'committed', 'A later transaction commits on its own');
     $recordsB->whereId($recordB->id)->update(['name' => 'bound connection']);
-    scopeCheck($recordsB->first()->name === 'bound connection', 'Queries retain their originating database');
-    scopeCheck($recordsA->first()->name === 'A', 'Bound writes cannot redirect to another scope');
+    scopeCheck($recordsB->where('id', $recordB->id)->first()->name === 'bound connection', 'Queries retain their originating database');
+    scopeCheck($recordsA->where('id', $recordA->id)->first()->name === 'A', 'Bound writes cannot redirect to another scope');
 
     $scopes['first']->close();
     $cleared = false;
@@ -125,14 +124,26 @@ try {
     scopeCheck($second->auth->user()['name'] === 'Second', 'Closing one scope leaves the other usable');
     $scopes['first']->close();
 
-    // 作用域清理时，即使事务由外部在其拥有的 PDO 上开启，也必须回滚。
-    $first->database->connect((string)getenv('LOOM_DATABASE'));
+    $nested = false;
+    try {
+        $first->database->transaction(function () use ($first): void {
+            $first->database->transaction(fn () => null);
+        });
+    } catch (LogicException $error) {
+        $nested = str_contains($error->getMessage(), 'Nested transactions');
+    }
+    scopeCheck($nested, 'Nested transactions are rejected');
     $first->database->execute('CREATE TABLE cleanup(id INTEGER)');
-    $first->database->connection()->beginTransaction();
-    $first->database->execute('INSERT INTO cleanup VALUES(1)');
+    try {
+        $first->database->transaction(function () use ($first): void {
+            $first->database->execute('INSERT INTO cleanup VALUES(1)');
+            throw new RuntimeException('abort cleanup');
+        });
+    } catch (RuntimeException $error) {
+        scopeCheck($error->getMessage() === 'abort cleanup', 'Cleanup transaction preserves its error');
+    }
+    scopeCheck($first->database->query('SELECT * FROM cleanup') === [], 'A failed transaction leaves no pending write');
     $scopes['first']->close();
-    $first->database->connect((string)getenv('LOOM_DATABASE'));
-    scopeCheck($first->database->query('SELECT * FROM cleanup') === [], 'Cleanup rolls back pending writes');
 } finally {
     foreach ($scopes as $scope) {
         $scope->close();

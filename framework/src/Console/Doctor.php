@@ -73,17 +73,16 @@ final class Doctor
         if ($local === $utc || $utc->format('c') !== '1970-01-01T00:00:00+00:00' || $local->format('c') !== '1970-01-01T08:00:00+08:00') {
             throw new \RuntimeException('Origami DateTimeImmutable timezone regression: update the runtime');
         }
-        $db = $this->database->connection();
         $table = 'loom_doctor_' . bin2hex(random_bytes(8));
-        $db->exec('CREATE TEMPORARY TABLE ' . $table . '(id BIGINT PRIMARY KEY AUTO_INCREMENT,value VARCHAR(32))');
+        $this->database->execute('CREATE TABLE ' . $table . '(id BIGINT PRIMARY KEY AUTO_INCREMENT,value VARCHAR(32))');
         try {
             $result = $this->database->execute('INSERT INTO ' . $table . '(value) VALUES(?)', ['std']);
             $rows = $this->database->query('SELECT id,value FROM ' . $table);
             if ($result['id'] !== 1 || count($rows) !== 1 || $rows[0]['value'] !== 'std') {
-                throw new \RuntimeException('MySQL PDO insert/query check failed');
+                throw new \RuntimeException('MySQL insert/query check failed');
             }
         } finally {
-            $db->exec('DROP TEMPORARY TABLE ' . $table);
+            $this->database->execute('DROP TABLE ' . $table);
         }
     }
 }

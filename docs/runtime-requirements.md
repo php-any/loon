@@ -2,7 +2,7 @@
 
 > 当前依赖为 Origami 正式版 `v1.0.8`，包含 `std/net/tcp`、`std/net/grpc`，并保留 `v1.0.7` 的 HTTP 并发修复。`v1.0.7` 缺少这两个网络包，不能用于构建当前宿主。
 
-Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查只创建连接级临时表）。此前 Go 模块固定 Origami 提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`，包含原生 Inject/Named 修复。标准库修复在提交 `9ffb515e`，通用网络 API 与审核修正在 `93d26a39`；两者已推送到 Origami 远端 main，默认构建直接下载固定上游版本，无需本地源码或补丁。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
+Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查会创建并删除一张唯一命名的普通表）。此前 Go 模块固定 Origami 提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`，包含原生 Inject/Named 修复。标准库修复在提交 `9ffb515e`，通用网络 API 与审核修正在 `93d26a39`；两者已推送到 Origami 远端 main。当前固定版本另需仓库内的 Origami 补丁，由标准构建脚本按文件名顺序自动应用。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
 
 ```powershell
 ./scripts/build.ps1 -Test
@@ -10,7 +10,9 @@ Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build
 ./tests/run-all.ps1
 ```
 
-指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE` 联调本地源码时，构建脚本使用被忽略的 `runtime/go.local.mod` 与 `go.local.sum` 设置源码替换，不修改提交的模块、不依赖全局 `go.work`，也不修改 Origami 源码。默认构建使用固定版本及模块校验。显式指定源码覆盖时，调用方需确保该源码已包含所需修复。
+默认构建将经过 Go 模块校验的 v1.0.8 源码复制到 `build/dependencies/`，按文件名顺序应用 `runtime/patches/` 中的全部补丁，通过被忽略的 `runtime/go.local.mod` 与 `go.local.sum` 指向构建副本。原模块缓存和提交的模块文件保持不变。`origami-execution-context.patch` 提供 `Context.SetGoContext()`、`Context.RawGoContext()`、子帧继承、include/require 只继承帧上已经保存的 context，以及帧回收清理。恢复绑定时写回 `RawGoContext()`；`GoContext()` 在未保存时会借用调用截止时间，把这个回退值写回帧会挡住之后的请求取消。`origami-sql-executor.patch` 让 `Database\DB` 除了 `*sql.DB` 也能在 `Database\Sql` 返回的 `*sql.Tx` 上执行，脚本通过 `Database\bind` 使用它。上游发布同等能力后，可更新固定版本并移除对应补丁及准备步骤。
+
+指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE` 联调本地源码时，不自动修改提供的源码；调用方需确保它已包含上述上下文能力和其他所需修复。未具备上下文能力时，宿主测试或第一次绑定会明确报错。直接使用 Go 命令需先执行构建脚本，再传 `-modfile=go.local.mod`。
 
 ## 本轮发现的明确标准库错误
 
@@ -27,7 +29,7 @@ Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build
 ## 现有 std 能力的使用
 
 - HTTP 请求隔离由标准库提供，脚本负责请求适配和应用装配。
-- 数据库使用标准库 PDO；连接、事务、预处理及驱动均由标准库执行。
+- 数据库连接池和事务使用 `Database\Sql` 与 `Database\DB`。脚本负责 SQL、迁移编排和查询语义。`Database\bind` 让查询器跑在 `begin()` 返回的事务上。PDO 不是 Loom 的连接模型。
 - 时区使用 DateTimeImmutable/DateTimeZone；认证使用 password_hash/password_verify、random_bytes、hash_equals。
 - 子进程通过 proc_open 的参数数组和 stdout/stderr 管道启动，通过 spawn 与 Channel 并发读取两条输出管道，proc_get_status 与 proc_terminate 管理超时。Windows 管道 select 不保证读取不阻塞，因此监督循环与管道读取分开运行。仅使用已验证的接口，不依赖尚不支持的文件描述符或 stdin 管道。
 
@@ -62,7 +64,7 @@ go run -mod=readonly ./zy.go tests/php/net_api_test.php
 
 根因是 `annotationTargetParameter` 对参数目标始终返回空所属类名。解析参数时没有携带构造器声明类；提升参数分支也没有执行参数注解。补丁在构造器解析入口显式传递类名，在参数节点中保留，并在所有参数形式返回前处理注解。容器按参数的构造器声明类读取元数据，因此继承构造器仍使用父类的 Inject/Named。普通方法、全局函数和闭包没有构造器所有者，明确拒绝这些目标。
 
-修复已提交并推送至 [Origami main](https://github.com/php-any/origami/commit/ef4fe76d31954059dfa362168cce19fa7ae23679)，并包含在正式版 `v1.0.8` 中。Loom 直接依赖该正式版；本地补丁和自动打补丁脚本已移除，默认构建不再创建源码副本或使用本地 replace。
+修复已提交并推送至 [Origami main](https://github.com/php-any/origami/commit/ef4fe76d31954059dfa362168cce19fa7ae23679)，并包含在正式版 `v1.0.8` 中。执行上下文和查询器事务绑定仍由 `runtime/patches/` 在构建时应用，见上文。
 
 ```powershell
 ./scripts/build.ps1 -Test

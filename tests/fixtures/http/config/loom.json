@@ -1,6 +1,0 @@
-{
-  "address": "127.0.0.1:18087",
-  "database": "mysql:host=127.0.0.1;dbname=loom_test",
-  "http": "app.php",
-  "migrations": {"namespace": "fixture", "path": "migrations"}
-}

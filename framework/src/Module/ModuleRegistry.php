@@ -41,7 +41,7 @@ final class ModuleRegistry
         $this->scope = $scope;
     }
     /**
-     * 使用重新发现的配置模块构造注册器，复用配置和父作用域引用。
+     * 使用应用级只读模块元数据构造注册器，保留当前作用域引用。
      *
      * 参数：无。
      *
@@ -162,12 +162,25 @@ final class ModuleRegistry
                 $app->route($route['method'], $route['path'], $route['action'], $route['name'], $route['middleware']);
             }
         }
+        $this->providerRoutes($services, $app instanceof Application ? $app->router() : $app);
+    }
+
+    /** 复用预校验的声明路由，显式 provider 仍从当前作用域解析。 */
+    public function application(Container $services): Application
+    {
+        $app = new Application($services, $this->discovery->router());
+        $this->providerRoutes($services, $app->router());
+        return $app;
+    }
+
+    private function providerRoutes(Container $services, Router $router): void
+    {
         if ($services->has(\Loom\Http\RouteProvider::class)) {
             $provider = $services->get(\Loom\Http\RouteProvider::class);
             if (!($provider instanceof \Loom\Http\RouteProvider)) {
                 throw new \LogicException('HTTP route provider must implement RouteProvider');
             }
-            $provider->register($app instanceof Application ? $app->router() : $app);
+            $provider->register($router);
         }
     }
 

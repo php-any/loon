@@ -41,6 +41,7 @@ func Run(args []string) int {
 	p := parser.NewParser()
 	vm := runtime.NewVM(p).(*runtime.VM)
 	loadModules(vm)
+	registerApplicationClasses(vm, script)
 	defer vm.RunShutdownCallbacks()
 	_, control := vm.LoadAndRun(script)
 	if control != nil {
@@ -97,4 +98,41 @@ func resolve(args []string, cwd, executable, root string) (string, []string, err
 		}
 	}
 	return "", nil, fmt.Errorf("cannot find loom.php; set LOOM_ROOT or pass a .php/.zy script path")
+}
+
+// Origami 按类路径加载业务类。引导脚本不注册命名空间，也不改工作目录。
+func registerApplicationClasses(vm *runtime.VM, script string) {
+	root := projectRoot(filepath.Dir(script))
+	if root == "" {
+		return
+	}
+	for _, mapping := range []struct {
+		namespace string
+		directory string
+	}{
+		{"App", "app"},
+		{`Generated\Grpc`, filepath.Join("generated", "grpc")},
+	} {
+		path := filepath.Join(root, mapping.directory)
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		vm.AddNamespace(mapping.namespace, path)
+	}
+}
+
+func projectRoot(dir string) string {
+	for {
+		entry := filepath.Join(dir, "loom.php")
+		info, err := os.Stat(entry)
+		if err == nil && !info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }

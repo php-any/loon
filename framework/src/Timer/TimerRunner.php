@@ -141,25 +141,19 @@ final class TimerRunner
                         $state->executing = true;
                         try {
                             $handler = $timer['handler'];
-                            if ($timer['scope'] === null) {
-                                $handler();
-                            } else {
-                                \Loom\Native\withModelDatabase($timer['scope']->services()->get(\Loom\Database::class), $handler);
-                            }
+                            $handler();
                         } catch (\Throwable $error) {
                             fwrite(fopen('php://stderr', 'w'), '[timer ' . $class . '] ' . $error->getMessage() . "\n");
                         } finally {
-                            try {
-                                if ($timer['scope'] !== null) {
-                                    $timer['scope']->close();
-                                }
-                            } finally {
-                                $state->executing = false;
-                            }
+                            $state->executing = false;
                         }
                     }
                     // 保留原始相位，丢弃执行期间错过的所有时钟节拍。
                     $next = $startedAt + (floor((microtime(true) - $startedAt) / $period) + 1) * $period;
+                }
+                // 只由仍拥有这个代次的循环关闭。stop 之后再次 start 会换代，旧循环不能把新循环的作用域关掉。
+                if ($timer['scope'] !== null && $runner->generation === $generation) {
+                    $timer['scope']->close();
                 }
             });
         }

@@ -17,9 +17,9 @@ namespace Loom;
 abstract class Model
 {
     /**
-     * 基于当前模型表创建映射到结果类的原生投影查询，保持显式数据库连接。
+     * 基于当前模型表创建原生投影。在 transaction() 回调里创建时绑定该事务，否则使用进程池。
      *
-     * @param Database $database 显式数据库服务，保证 ORM 与原始 SQL 使用同一事务；查询构造时可为 null。
+     * @param Database $database 提供 DSN 的数据库服务。投影注册并使用进程池。
      * @param string $resultClass 接收投影结果的完整类名，其公共属性应对应查询别名。
      * @return \Database\DB 绑定当前模型表及结果类的原生 DB 构建器。
      *
@@ -32,11 +32,11 @@ abstract class Model
         if ($table === null) {
             throw new \LogicException('Projection requires a mapped model');
         }
-        return \Database\DB::model($resultClass, $database->modelConnectionName())->table($table->name);
+        return $database->bind(\Database\DB::model($resultClass, $database->modelConnectionName())->table($table->name));
     }
 
     /**
-     * 使用活动模型作用域中的数据库创建查询。
+     * 使用唯一活动作用域中的数据库创建查询。多个作用域同时存在时，改用 using() 传入该作用域的 Database。
      *
      * 参数：无。
      *

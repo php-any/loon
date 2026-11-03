@@ -1,0 +1,12 @@
+---
+description: Loom 运行在 Go 上，不要按官方 PHP 或 PDO 设计
+alwaysApply: true
+---
+
+# 运行时
+
+先读仓库根目录 `agent.md`，再改运行时、数据库、模型或作用域。
+
+脚本是 PHP 语法，宿主和 Origami 是 Go。可以直接使用 `database/sql`、`context` 等 Go 能力；语言层不够时用 Go 扩展 Origami。不要用官方 PHP、php-fpm 或 PDO 推断能力边界。
+
+连接池是进程级的。事务只活在该次回调里。`ServiceScope` 不拥有连接。查询参数不能切换作用域。

@@ -32,7 +32,7 @@ LOOM_REDIS_PREFIX=loom:
 
 默认 MySQL DSN 是 `mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4`，用户名和密码读取 `LOOM_MYSQL_USER`、`LOOM_MYSQL_PASSWORD`，不要把密码嵌入 DSN。Redis 默认地址为 `redis://127.0.0.1:6379/0`；`LOOM_REDIS_URL` 可设置密码、ACL 用户、端口和数据库，TLS 使用 `rediss://`。不同环境或 MySQL 数据库须使用不同的 `LOOM_REDIS_PREFIX`。
 
-MySQL 连接启用严格模式和 ANSI_QUOTES，以兼容现有 ORM 标识符。当前 Origami PDO 的 MySQL DSN 仅暴露 host、port、dbname、charset，不暴露 TLS 参数；远程部署应使用可信私有网络或本地 TLS 隧道。
+MySQL 连接在驱动 DSN 里设置 `sql_mode` 和 `transaction_isolation`，物理连接建立时生效。当前配置只带 host、port、dbname 和 charset，不带 TLS；远程部署应使用可信私有网络或本地 TLS 隧道。
 
 Redis 传输直接复用 Origami 可选原生模块 `std/php/redis`，宿主在初始化时显式注册，部署需要重新构建匹配的 `loom` 程序。Loom 不再维护自有 RESP 客户端。连接在显式作用域内使用并关闭，原生模块处理超时、请求取消、认证和 TLS；不自动重试可能已被 Redis 执行的写操作。不宣称兼容完整 phpredis 或 Laravel Redis，也不启用原生模块尚未支持的持久连接池、Cluster、Sentinel 或自动 backoff。
 
@@ -57,7 +57,7 @@ Windows 可直接使用本机 MySQL 和 Redis 可执行文件运行独立实库�
 
 两个目录分别需包含 `mysqld.exe` / `mysql.exe` 和 `redis-server.exe` / `redis-cli.exe`。默认使用 `build/loom.exe` 与 `.venv/Scripts/python.exe`，可通过 `-Origami`、`-Python` 指定。脚本使用随机本机端口、临时密码和全新数据目录，为各套件分别创建数据库与 Redis 前缀；完成或失败后停止本次启动的进程并恢复环境变量，不操作已有服务。日志与 `result.json` 保留在 `storage/testing/native-storage-<随机标识>/`。
 
-套件覆盖 MySQL/Redis 集成、ORM、实体映射、全表模型覆盖、列表投影、项目命令、运营业务、后台 HTTP、账户邮件及发布多协议流程。专门验证不同服务作用域的 PDO 连接与事务隔离、作用域关闭时未提交事务的回滚，以及 Redis 登录会话隔离与独立撤销。
+套件覆盖 MySQL/Redis 集成、ORM、实体映射、全表模型覆盖、列表投影、项目命令、运营业务、后台 HTTP、账户邮件及发布多协议流程。数据库断言覆盖事务回滚、回调内可见未提交写入，以及 Redis 登录会话隔离与独立撤销。
 
 仅验证模型和查询时不需要 Redis，可运行：
 

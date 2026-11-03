@@ -11,17 +11,19 @@ use Loom\Models\MigrationRecord;
 final class ApplicationMigrations extends Command
 {
     private \Loom\Config $config;
+    private \Loom\Database $database;
 
-    public function __construct(\Loom\Config $config)
+    public function __construct(\Loom\Config $config, \Loom\Database $database)
     {
         $this->config = $config;
+        $this->database = $database;
     }
 
     protected string $signature = 'app:migrations {--json : 输出 JSON}';
     protected string $description = '查看当前应用的数据库迁移记录';
     public function handle(): int
     {
-        $versions = MigrationRecord::whereNamespace($this->config->get('migrations.namespace'))
+        $versions = MigrationRecord::using($this->database)->whereNamespace($this->config->get('migrations.namespace'))
             ->orderBy('version')->rows(['version', 'batch', 'applied_at']);
         if ($this->option('json')) {
             $this->json($versions);

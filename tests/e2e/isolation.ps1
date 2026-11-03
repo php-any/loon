@@ -1,4 +1,4 @@
-param([string]$Origami = '', [string]$DatabaseDsn = $env:LOOM_DATABASE)
+param([string]$Origami = '', [string]$DatabaseDsn = $env:LOOM_DATABASE, [switch]$HttpOnly)
 if (!$DatabaseDsn -or !$DatabaseDsn.StartsWith('mysql:')) { throw 'A disposable MySQL DatabaseDsn is required' }
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -25,8 +25,14 @@ try {
     $results=$tokens | ForEach-Object -Parallel { Invoke-RestMethod "$using:origin/api/isolation" -Headers @{'X-Loom-Probe'=$_} -TimeoutSec 8 } -ThrottleLimit 6
     foreach($result in $results) {
         if ($result.counter -ne 1 -or $result.token -notin $tokens) { throw 'Concurrent request isolation failed' }
+        if ($result.modelToken -ne $result.token -or !$result.rolledBack) { throw 'Static Model transaction or request database binding leaked' }
     }
     if (($results.token | Sort-Object -Unique).Count -ne 12) { throw 'Request identity leaked' }
+    if ($HttpOnly) {
+        if ((Get-Item $stderr).Length -ne 0) { throw (Get-Content $stderr -Raw) }
+        Write-Host 'HTTP isolation: 12 requests, static Model bindings and PDO transaction rollback: OK'
+        return
+    }
     $ws=[Net.WebSockets.ClientWebSocket]::new(); $ws.Options.SetRequestHeader('Origin',$origin)
     $cancel=[Threading.CancellationTokenSource]::new(8000)
     try {
@@ -47,6 +53,9 @@ try {
     } finally { $ws.Dispose(); $cancel.Dispose() }
     if ((Get-Item $stderr).Length -ne 0) { throw (Get-Content $stderr -Raw) }
     Write-Host 'Isolated HTTP fixture: request state, identities and WebSocket transport/origin: OK'
+} catch {
+    if (Test-Path -LiteralPath $stderr) { Write-Host (Get-Content -LiteralPath $stderr -Raw) }
+    throw
 } finally {
     if ($server -and !$server.HasExited) { Stop-Process -Id $server.Id }
     $env:LOOM_ADDRESS=$oldAddress; $env:LOOM_DATABASE=$oldDatabase

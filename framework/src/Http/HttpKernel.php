@@ -62,7 +62,7 @@ final class HttpKernel
         return $this;
     }
     /**
-     * 绑定当前作用域的模型数据库后处理请求，避免模型跨请求使用连接。
+     * 在当前请求作用域内处理请求。模型连接来自该作用域容器中的 Database，不通过执行帧参数切换作用域。
      *
      * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
      * @return Response 处理后的 HTTP 响应。
@@ -72,9 +72,7 @@ final class HttpKernel
      */
     public function handle(Request $request): Response
     {
-        return \Loom\Native\withModelDatabase($this->services->get(\Loom\Database::class), function () use ($request): Response {
-            return $this->handleScoped($request);
-        });
+        return $this->handleScoped($request);
     }
     /**
      * 临时绑定请求上下文，执行全局管道并把 HttpError 转为问题响应，最后恢复旧请求。

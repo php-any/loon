@@ -77,7 +77,6 @@ abstract class ScopedTimerProbe
 {
     public Loom\Database $database;
     public int $rows = 0;
-    public int $connectionId = 0;
     /**
      * 初始化 ScopedTimerProbe 实例及其依赖。通过连接编号和临时表验证并发定时器的数据库隔离。
      *
@@ -92,22 +91,26 @@ abstract class ScopedTimerProbe
         $this->database = $database;
     }
     /**
-     * 记录连接编号并创建临时表，短暂等待后统计数据以验证连接隔离。
+     * 创建一张唯一命名的普通表，短暂等待后统计行数。
      *
      * 参数：无。
      *
-     * @return void 无返回值，记录 connectionId 和 rows。
+     * @return void 无返回值，记录 rows。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $timer(); // 使用已注入数据库的具体子类
      */
     public function __invoke(): void
     {
-        $this->connectionId = (int)$this->database->query('SELECT CONNECTION_ID() AS id')[0]['id'];
-        $this->database->execute('CREATE TEMPORARY TABLE timer_probe(id INTEGER)');
-        $this->database->execute('INSERT INTO timer_probe VALUES(1)');
-        usleep(20000);
-        $this->rows = count($this->database->query('SELECT * FROM timer_probe'));
+        $table = 'timer_probe_' . bin2hex(random_bytes(8));
+        $this->database->execute('CREATE TABLE ' . $table . '(id INTEGER)');
+        try {
+            $this->database->execute('INSERT INTO ' . $table . ' VALUES(1)');
+            usleep(20000);
+            $this->rows = count($this->database->query('SELECT * FROM ' . $table));
+        } finally {
+            $this->database->execute('DROP TABLE ' . $table);
+        }
     }
 }
 

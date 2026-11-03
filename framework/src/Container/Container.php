@@ -18,6 +18,7 @@ final class Container
     private array $sharedInstances = [];
     private array $resolved = [];
     private array $configured = [];
+    private array $optionValidators = [];
     private int $singletonDepth = 0;
 
     public function __construct(?ObjectFactory $objects = null, ?Container $parent = null)
@@ -104,6 +105,47 @@ final class Container
     {
         $this->assertAvailable($id);
         $this->root->definitions[$id] = ['alias' => $target];
+    }
+
+    /**
+     * 把配置节绑定为单例选项对象。首次解析时读取配置并执行校验，之后复用该对象。
+     * 校验失败不缓存，下次解析会重试。
+     */
+    public function options(string $class, string $section, ?callable $validate = null): void
+    {
+        if ($class === '' || $section === '') {
+            throw new \InvalidArgumentException('Options class and section must not be empty');
+        }
+        $root = $this->root;
+        $root->optionValidators[$class] = $validate;
+        $this->singleton($class, static function (Container $services) use ($class, $section, $root): object {
+            // Config 是共享实例。这里不解析 Options 单例，避免在单例构造期间再次进入单例锁。
+            $options = (new \Loom\Options($services->get(\Loom\Config::class)))->bind($class, $section);
+            $root->applyOptionValidator($class, $options);
+            return $options;
+        });
+    }
+
+    /** 执行 options() 保存的校验。校验闭包放在容器上，避免被工厂闭包捕获后无法调用。 */
+    private function applyOptionValidator(string $class, object $options): void
+    {
+        $validate = $this->optionValidators[$class] ?? null;
+        if ($validate !== null) {
+            $validate($options);
+        }
+    }
+
+    /** 解析别名后的生命周期；未注册返回 null，instance() 视为 singleton。 */
+    public function lifetime(string $id): ?string
+    {
+        $id = $this->canonicalId($id);
+        if (isset($this->root->definitions[$id]['lifetime'])) {
+            return $this->root->definitions[$id]['lifetime'];
+        }
+        if (isset($this->root->sharedInstances[$id])) {
+            return 'singleton';
+        }
+        return null;
     }
 
     /** 应用配置在根容器上串行安装一次；回调应只注册服务，不解析请求状态。 */

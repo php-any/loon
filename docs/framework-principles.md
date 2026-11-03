@@ -52,21 +52,18 @@ runtime/cmd/loom/main.go
 [loom.php](../loom.php) 的关键调用是：
 
 ```php
-if (is_file(__DIR__ . '/vendor/autoload.php')) {
-    require_once __DIR__ . '/vendor/autoload.php';
-}
 $initialize = require __DIR__ . '/framework/bootstrap/autoload.php';
-$scope = $initialize(__DIR__);
+$scope = $initialize(__DIR__, $configureServices, $environmentFile);
 ```
 
 可以拆成两步理解：
 
 ```php
 $initialize = require $root . '/framework/bootstrap/autoload.php';
-$scope = $initialize($root);
+$scope = $initialize($root, $configureServices, $environmentFile);
 ```
 
-`require` 执行文件，并取得文件 `return` 的值。这里返回的是闭包，随后传入项目根目录执行闭包，得到 `ServiceScope`。
+`require` 执行文件，并取得文件 `return` 的值。这里返回的是闭包。闭包接收项目根目录、只在根作用域执行的服务注册回调，以及可选的环境文件。传入环境文件时，闭包先加载它，再加载 `config/`。未传入时不读 `.env`。入口不调用 `chdir`，也不探测 `vendor/autoload.php`。业务类由宿主在执行脚本前写入 Origami 类路径。
 
 ### 3.3 框架自身使用显式清单加载
 
@@ -96,33 +93,19 @@ foreach ([
 
 返回的初始化函数依次：
 
-1. 创建以项目目录为根的 `Config`。
-2. 使用 `spl_autoload_register()` 注册 Loom 自己的业务类加载器。
+1. 调用方传入环境文件时，先加载该文件。
+2. 创建以项目目录为根的 `Config`。
 3. 加载 PHP 配置文件。
 4. 创建并返回 `ServiceScope`。
 
-Composer 依赖由根入口 `loom.php` 在加载框架前显式安装；框架初始化不读取应用的 `vendor/autoload.php`。自定义脚本或测试入口使用第三方包时，也应显式加载对应的 Composer 自动加载器。
-
-内置业务类加载器有两条固定映射：
+它不注册自动加载，也不读取 `vendor/autoload.php`。宿主在执行脚本前，从脚本所在目录向上寻找 `loom.php`，把存在的目录写进 Origami 类路径：
 
 ```text
-App\                    → app/
-Generated\Grpc\         → generated/grpc/
+App\             → <项目>/app
+Generated\Grpc\  → <项目>/generated/grpc
 ```
 
-它去掉匹配的命名空间前缀，把剩余反斜杠替换为目录分隔符，追加 `.php`，文件存在时执行 `require_once`。例如：
-
-```text
-App\Http\Controllers\Projects\CreateTaskController
-  → app/Http/Controllers/Projects/CreateTaskController.php
-
-App\Models\Projects\Task
-  → app/Models/Projects/Task.php
-```
-
-当运行时需要解析尚未加载的类时，自动加载机制负责查找文件。`use App\Models\Projects\Task;` 只是引入类名别名，不是 `require`；`Task::class` 提供类名字符串，也不能当成对象构造或组件注册。
-
-Composer 是可选入口：项目 `composer.json` 也声明了上述 PSR-4 映射，但内置应用不依赖先安装 Composer 才能加载自己的类。安装的第三方 PHP 包仍需与 Origami 的实际能力兼容。
+因此 `App\Http\Controllers\Projects\CreateTaskController` 对应 `app/Http/Controllers/Projects/CreateTaskController.php`。目录不存在就跳过，避免在临时脚本或夹具项目上打印警告。工作目录保持调用方原来的位置。`use` 只是类名别名，`::class` 只是字符串；真正加载发生在 Origami 解析这个类的时候。框架类仍然走显式清单，因为 `Loom\Server` 这类名字和 `framework/src/Http/Server.php` 的路径并不对应。
 
 ### 3.5 配置文件通过 require 读取返回值
 
@@ -162,7 +145,7 @@ config/modules.php 返回模块类名
 
 **自动加载器支持按需加载，但模块发现会提前加载扫描范围内的类来读取元数据。** 不能理解为只有某个路由被访问时，对应控制器文件才第一次加载。发现阶段不创建业务服务对象，但会实例化注解对象、校验模型等声明；文件顶层语句也会随加载执行，所以业务文件顶层应避免数据库写入、输出内容或启动后台任务。
 
-模块声明的扫描映射本身不会注册新的自动加载规则。新增 `App`、`Generated\Grpc` 之外的命名空间时，必须另外提供对应自动加载器，例如 Composer PSR-4 配置。
+模块声明的扫描映射本身不会增加类路径。`App` 和 `Generated\Grpc` 之外的命名空间不会由这个宿主自动映射。
 
 ### 3.7 引导脚本和路由文件需要重复执行
 
@@ -179,7 +162,7 @@ PHP 文件在这个调用作用域中执行，因此 `framework/bootstrap/http.p
 
 HTTP 引导脚本发现模块、注册服务、创建 `Application`，由 `ModuleRegistry::routes()` 装配注解路由，再从当前应用容器解析 `Loom\Http\RouteProvider` 并调用 `register(Router $routes)`，统一扩展 HTTP 和 WebSocket 路由。应用实现 `App\Http\ApplicationRoutes` 在 `loom.php` 中显式绑定；每个应用作用域重新解析并装配，不再加载 `routes/web.php` 或 `routes/websocket.php`，不依赖文件继承局部变量。`ApplicationFactory` 使用相同接口和当前应用容器。
 
-当前默认 HTTP 链路是 `Server → ServiceScope::load() → framework/bootstrap/http.php`。框架还提供 `ApplicationFactory` 作为可复用的应用创建入口，但默认入口没有直接调用它。当前 HTTP 引导每次调用 `configured()` 都创建新的发现结果，不能假设所有模块元数据已被全进程永久缓存。
+当前默认 HTTP 链路是 `Server → ServiceScope::load() → framework/bootstrap/http.php`。框架还提供 `ApplicationFactory` 作为可复用的应用创建入口。应用根容器持有单个 `ModuleDiscovery`，首次 `configured()` 扫描并校验声明、预构建声明路由表，成功后发布只读快照；后续请求复用同一份元数据，不再扫描目录或反射模块声明。缓存只属于当前应用根容器，不同应用彼此隔离。HTTP 引导复制预校验的路由表，并从本次作用域解析显式 `RouteProvider` 追加路由，控制器和请求服务仍各自独立。修改模块声明后需要重启应用。
 
 ### 3.8 模板也通过 require 执行
 
@@ -225,25 +208,25 @@ HTTP 引导脚本发现模块、注册服务、创建 `Application`，由 `Modul
 - `transient`：每次解析创建对象。
 - `alias`：委托目标服务解析，保留目标生命周期。
 - `bind`：Loom 中保留共享语义，相当于 `scoped` 注册。
+- `options`：把配置节绑定为 singleton 选项对象，对应 .NET 的 Options。
+- `Host`：按登记顺序启动 `HostedService`，停止时顺序相反，对应 .NET 通用宿主的后台服务。
 
 控制器通过类型化构造参数表达依赖，容器递归解析；服务别名可用 `Inject`，配置使用 `InjectConfig` 或显式工厂。`config/services.php` 的显式注册优先于服务注解。
 
-HTTP 请求、协议调用、作业分别使用自己的作用域。模块定时器各自保留独立作用域和处理器实例，每次执行后释放连接，因此实例计数可以保留，但不会与 HTTP 请求共享事务。
+HTTP 请求、协议调用、作业分别使用自己的作用域。模块定时器各自保留独立作用域和处理器实例。事务只属于调用它的那一次回调，不会因为作用域实例不同就自动分成两条连接。
 
 ## 6. 数据访问与真实接口示例
 
 模型查询的关系是：
 
 ```text
-Task::whereUserId(...)->whereId(...)->first()
-  → Loom\Model 从 ModelContext 获取当前 Database
-  → ModelQuery 累积条件
-  → Origami 原生 ORM 查询和回填实体
-  → 原生 SQL 传输适配到当前 Database/PDO
+Task::using($database)->whereUserId(...)->whereId(...)->first()
+  → ModelQuery 保存该 Database，并在查询对象上累积条件和绑定参数
+  → 向进程级连接池借连接；若查询创建于事务回调内，则使用该事务
   → MySQL
 ```
 
-模型和直接 Database 操作复用当前作用域的连接，才能参与同一个事务。模型的 `Table`、`Column`、`Id`、`GeneratedValue` 注解描述映射；表结构由迁移维护。具体适配边界见 [模型文档](models.md)。
+`$database` 提供 DSN 和查询入口。条件和绑定参数留在查询上。模型和同一次 `transaction()` 回调里的原始 SQL 使用同一个事务。模型的 `Table`、`Column`、`Id`、`GeneratedValue` 注解描述映射；表结构由迁移维护。具体边界见 [模型文档](models.md)。
 
 [CreateTaskController](../app/Http/Controllers/Projects/CreateTaskController.php) 是完整而简短的阅读示例：
 
@@ -251,13 +234,13 @@ Task::whereUserId(...)->whereId(...)->first()
 2. `RequireWorkspaceAccess` 检查工作台访问条件，`ParseJsonInput` 解析 JSON。
 3. 控制器取出当前用户，校验标题和可选项目 ID。
 4. 项目查询同时约束项目 ID 与用户 ID。
-5. `Task::create()` 持久化任务，返回 201 JSON 响应。
+5. `Task::using($database)->create()` 用当前作用域的数据库持久化任务，返回 201 JSON 响应。
 
 简单接口可以直接使用 Model；复杂业务再用 Service 组织流程，Repository 封装关联查询。框架不会自动给所有查询加当前用户条件，资源归属仍需显式约束。
 
 ## 7. Timer、Queue 与 Schedule
 
-- **Timer**：跟随 HTTP 服务进程运行，按固定周期触发；同一定时器不重叠执行，忙碌期间的触发跳过。多 HTTP 进程会各自执行自己的定时器。
+- **Timer**：作为 `HostedService` 跟随 HTTP 服务进程运行，由 `Host` 在监听前启动、退出时停止。按固定周期触发；同一定时器不重叠执行，忙碌期间的触发跳过。多 HTTP 进程会各自执行自己的定时器。
 - **Queue**：请求提交任务，MySQL 保存任务及待投递记录，Redis Stream 负责投递。独立 `queue:work` 消费，每个作业通过宿主子进程执行，提供租约、超时和重试机制。
 - **Schedule**：独立 `schedule:work` 计算到期计划，在数据库事务中生成任务并推进下次执行时间，实际任务交给队列处理。
 

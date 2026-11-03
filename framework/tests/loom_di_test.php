@@ -37,6 +37,10 @@ $b = $a->fork();
 $c = $a->services();
 $d = $b->services();
 diCheck($calls === 1, 'Registration callback runs once');
+diReject(static function () use ($root): void {
+    new Loom\ServiceScope(new Loom\Config(), static function (): void {
+    }, $root->services());
+}, 'root scope');
 diCheck($c->resolved('shared') === null, 'Singleton is lazy');
 diCheck($c->resolvedLocal('shared') === null, 'Scope cleanup excludes singleton cache');
 diCheck($c->get('shared') === $d->get('shared') && $c->get('shared') === $root->services()->get('shared.alias'), 'Singleton spans nested scopes');

@@ -1,7 +1,6 @@
 package extensions
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,7 +18,7 @@ func TestSingletonGateSerializesAndReenters(t *testing.T) {
 		workers.Add(1)
 		go func(i int) {
 			defer workers.Done()
-			owner := fmt.Sprint(i)
+			owner := &singletonOwner{}
 			release := lockSingleton(key, owner)
 			defer release()
 			if active.Add(1) != 1 {
@@ -43,8 +42,8 @@ func TestSingletonGateSerializesAndReenters(t *testing.T) {
 }
 
 func TestSingletonGatesArePerApplication(t *testing.T) {
-	first := lockSingleton(container.NewContainerClass(), "first")
+	first := lockSingleton(container.NewContainerClass(), &singletonOwner{})
 	defer first()
-	second := lockSingleton(container.NewContainerClass(), "second")
+	second := lockSingleton(container.NewContainerClass(), &singletonOwner{})
 	second()
 }

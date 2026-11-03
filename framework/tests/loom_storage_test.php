@@ -40,16 +40,22 @@ try {
         storageCheck($e->getMessage() === 'expected', 'Original transaction error');
     }
     storageCheck(count($runtimeServices->get(\Loom\Database::class)->query('SELECT id FROM storage_probe')) === 1, 'Transaction rollback');
-    $db = $runtimeServices->get(\Loom\Database::class)->connection();
-    $db->beginTransaction();
-    $blocked = false;
+    $nested = false;
     try {
-        $runtimeServices->get(\Loom\Database::class)->transaction(fn () => null);
-    } catch (LogicException $e) {
-        $blocked = true;
+        $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($runtimeServices, &$nested): void {
+            try {
+                $runtimeServices->get(\Loom\Database::class)->transaction(fn () => null);
+            } catch (LogicException $e) {
+                $nested = str_contains($e->getMessage(), 'Nested transactions');
+            }
+            if (!$nested) {
+                throw new RuntimeException('nested transaction was accepted');
+            }
+        });
+    } catch (RuntimeException $e) {
+        storageCheck(false, $e->getMessage());
     }
-    storageCheck($blocked && $db->inTransaction(), 'External PDO transaction is not overwritten');
-    $db->rollBack();
+    storageCheck($nested, 'Nested transaction is rejected without ending the outer transaction');
     $blocked = false;
     try {
         $runtimeServices->get(\Loom\Database::class)->conflict(['name); DELETE FROM storage_probe']);

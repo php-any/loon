@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Loom;
 
-// PDO 由 Origami std/php/pdo 提供。每个执行作用域拥有独立句柄。
 /**
- * 按作用域持有 MySQL PDO 连接，并为原生 ORM 提供同一连接适配，统一事务与参数化 SQL 执行。
+ * 进程级 MySQL 连接池的脚本入口。池、事务和查询都使用 Origami 的 Database\Sql 与 Database\DB。
  *
  * 构造参数：
  * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
@@ -19,9 +18,14 @@ namespace Loom;
 final class Database
 {
     private \Loom\Config $config;
+    private ?string $source = null;
+    private ?string $registered = null;
+    private ?\Database\Sql\Tx $tx = null;
+    /** @var array<string, \Database\Sql\DB> */
+    private static array $pools = [];
 
     /**
-     * 初始化 Database 实例及其依赖。按作用域持有 MySQL PDO 连接，并为原生 ORM 提供同一连接适配，统一事务与参数化 SQL 执行。
+     * 保存配置。连接池属于进程，不在这个实例上占有物理连接。
      *
      * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
      * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
@@ -34,50 +38,139 @@ final class Database
         $this->config = $config;
     }
 
-    private ?\PDO $connection = null;
-    private bool $transaction = false;
-    private ?\Database\Sql\DB $modelAdapter = null;
-    private string $modelName = '';
-
     /**
-     * 惰性打开 PDO 并注册共享该连接的原生 ORM 适配器。
+     * 把当前 DSN 的进程池注册为连接名 loom。同一个 DSN 只打开一次池。
      *
      * 参数：无。
      *
-     * @return string 当前作用域唯一的原生模型连接名称。
+     * @return string 原生模型连接名称。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $name = $database->modelConnectionName();
      */
     public function modelConnectionName(): string
     {
-        $this->connection();
-        if ($this->modelAdapter === null) {
-            $this->modelName = 'loom_' . bin2hex(random_bytes(16));
-            $this->modelAdapter = \Loom\Native\modelConnection($this->modelName, $this);
+        $dsn = $this->driverDsn();
+        if ($this->registered !== $dsn) {
+            $this->register('loom');
+            $this->registered = $dsn;
         }
-        return $this->modelName;
+        return 'loom';
     }
+
     /**
-     * 验证 MySQL DSN，读取环境账号密码，打开 PDO 并设置严格 SQL 模式及 READ COMMITTED 隔离级别。
+     * 用当前进程池注册一个连接名。测试和原生模型通过这个名字取得同一条池。
      *
-     * @param string $dsn mysql: 开头的 PDO DSN；账号密码从 LOOM_MYSQL_USER、LOOM_MYSQL_PASSWORD 读取。
-     * @return \PDO 新 PDO 连接；此方法不直接替换本实例缓存句柄。
+     * @param string $name 连接名，由调用方保证不与其他 DSN 冲突。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $pdo = $database->open('mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4');
+     * @example $database->register('model_test');
      */
-    public function open(string $dsn): \PDO
+    public function register(string $name): void
     {
-        if (!str_starts_with($dsn, 'mysql:')) {
+        \Database\registerConnection($name, $this->pool());
+    }
+
+    /**
+     * 返回这次回调正在使用的事务。回调外面为 null。
+     *
+     * 参数：无。
+     *
+     * @return ?\Database\Sql\Tx 当前实例上的事务；没有事务时为 null。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $tx = $database->activeTransaction();
+     */
+    public function activeTransaction(): ?\Database\Sql\Tx
+    {
+        return $this->tx;
+    }
+
+    /**
+     * 当前实例是否正处在自己的 transaction() 回调里。
+     *
+     * 参数：无。
+     *
+     * @return bool 回调期间为 true。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $inside = $database->inTransaction();
+     */
+    public function inTransaction(): bool
+    {
+        return $this->tx !== null;
+    }
+
+    /**
+     * 校验 mysql: DSN。账号密码仍从 LOOM_MYSQL_USER、LOOM_MYSQL_PASSWORD 读取。
+     *
+     * @param string $dsn mysql: 开头的 DSN。
+     * @return void 无返回值；非 MySQL DSN 抛出 InvalidArgumentException。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $database->open('mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4');
+     */
+    public function open(string $dsn): void
+    {
+        self::mysqlDriverDsn($dsn, (string)getenv('LOOM_MYSQL_USER'), (string)getenv('LOOM_MYSQL_PASSWORD'));
+    }
+
+    /**
+     * 返回当前实例使用的 database/sql DSN。
+     *
+     * 参数：无。
+     *
+     * @return string 已编码的 MySQL DSN。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $dsn = $database->driverDsn();
+     */
+    public function driverDsn(): string
+    {
+        return self::mysqlDriverDsn($this->source ?? (string)$this->config->get('database.dsn'), (string)getenv('LOOM_MYSQL_USER'), (string)getenv('LOOM_MYSQL_PASSWORD'));
+    }
+
+    /**
+     * 把 mysql:host=;port=;dbname=;charset= 转成 database/sql 使用的 DSN。
+     *
+     * @param string $pdo mysql: 开头的 DSN，不含账号密码。
+     * @param string $user MySQL 用户名。
+     * @param string $password MySQL 密码。
+     * @return string database/sql DSN。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $driver = Database::mysqlDriverDsn('mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4', 'loom', 'secret');
+     */
+    public static function mysqlDriverDsn(string $pdo, string $user, string $password): string
+    {
+        if (!str_starts_with($pdo, 'mysql:')) {
             throw new \InvalidArgumentException('Database requires a MySQL DSN');
         }
-        $db = new \PDO($dsn, (string)getenv('LOOM_MYSQL_USER'), (string)getenv('LOOM_MYSQL_PASSWORD'), [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-        $db->exec("SET SESSION sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ANSI_QUOTES'");
-        $db->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
-        return $db;
+        $parts = [];
+        foreach (explode(';', substr($pdo, 6)) as $item) {
+            if ($item === '') {
+                continue;
+            }
+            $split = strpos($item, '=');
+            if ($split === false) {
+                throw new \InvalidArgumentException('Database requires a MySQL DSN');
+            }
+            $parts[strtolower(substr($item, 0, $split))] = substr($item, $split + 1);
+        }
+        $host = $parts['host'] ?? '';
+        $name = $parts['dbname'] ?? '';
+        $port = $parts['port'] ?? '3306';
+        $charset = $parts['charset'] ?? 'utf8mb4';
+        if ($host === '' || $name === '' || !preg_match('/^[A-Za-z0-9_.:-]+$/D', $host) || !preg_match('/^[A-Za-z0-9_]+$/D', $name) || !preg_match('/^[0-9]+$/D', $port) || !preg_match('/^[A-Za-z0-9_]+$/D', $charset)) {
+            throw new \InvalidArgumentException('Database requires a MySQL DSN');
+        }
+        return rawurlencode($user) . ':' . rawurlencode($password) . '@tcp(' . $host . ':' . $port . ')/' . $name
+            . '?charset=' . rawurlencode($charset)
+            . '&sql_mode=' . rawurlencode("'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ANSI_QUOTES'")
+            . '&transaction_isolation=' . rawurlencode("'READ-COMMITTED'");
     }
-    // 仅编译结构化的冲突元数据。绝不改写原始 query/execute SQL。
+
     /**
      * 根据结构化唯一键及更新列生成 MySQL 冲突写入片段，标识符先经过校验。
      *
@@ -107,10 +200,11 @@ final class Database
         }
         return ' ON DUPLICATE KEY UPDATE ' . implode(',', $sets);
     }
+
     /**
-     * 关闭旧连接后以指定 DSN 建立并保存新连接。
+     * 记录随后查询使用的 DSN，并把它的连接池注册给原生 ORM。
      *
-     * @param string $path 用于替换当前连接的 MySQL DSN，并非文件系统路径。
+     * @param string $path MySQL DSN，并非文件系统路径。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -118,80 +212,47 @@ final class Database
      */
     public function connect(string $path): void
     {
-        $this->close();
-        $this->connection = $this->open($path);
+        $this->open($path);
+        $this->source = $path;
+        $this->registered = null;
+        $this->modelConnectionName();
     }
+
     /**
-     * 取得当前 PDO，尚未连接时按 database.dsn 惰性建立。
+     * 连接池属于进程。关闭作用域时调用此方法不会关掉池，也不会回滚别的请求。
      *
      * 参数：无。
      *
-     * @return \PDO 当前作用域的 PDO 连接。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $pdo = $database->connection();
-     */
-    public function connection(): \PDO
-    {
-        if ($this->connection === null) {
-            $this->connect($this->config->get('database.dsn'));
-        }
-        return $this->connection;
-    }
-    /**
-     * 移除模型适配器并关闭 PDO，对未完成事务先回滚，之后清除内部句柄。
-     *
-     * 参数：无。
-     *
-     * @return void 无返回值；未连接时可安全调用。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $database->close();
      */
     public function close(): void
     {
-        if ($this->modelAdapter !== null) {
-            \Database\removeConnection($this->modelName);
-            $this->modelAdapter->close();
-            $this->modelAdapter = null;
-            $this->modelName = '';
-        }
-        $connection = $this->connection;
-        $this->connection = null;
-        $this->transaction = false;
-        if ($connection === null) {
-            return;
-        }
-        try {
-            if ($connection->inTransaction()) {
-                $connection->rollBack();
-            }
-        } finally {
-            $connection->close();
-        }
     }
+
     /**
-     * 预处理并执行查询，以关联数组读取全部记录，最后释放游标。
+     * 执行参数化查询。事务回调里使用该事务，否则语句结束就把连接还回进程池。
      *
      * @param string $sql SQL 模板，值应使用 ? 占位符。
      * @param array $args 按占位符顺序排列的绑定值。默认值为 []。
-     * @return array 行数组列表，无结果时为空数组。
+     * @return array 行数组列表，无结果时为空数组。标量以字符串返回，null 保持 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $rows = $database->query('SELECT id FROM loom_users WHERE id=?', [1]);
      */
     public function query(string $sql, array $args = []): array
     {
-        $statement = $this->connection()->prepare($sql);
-        try {
-            $statement->execute($args);
-            return $statement->fetchAll(\PDO::FETCH_ASSOC);
-        } finally {
-            $statement->closeCursor();
+        $rows = [];
+        foreach ($this->runner($this->tx)->query($sql, $args) as $row) {
+            $rows[] = get_object_vars($row);
         }
+        return $rows;
     }
+
     /**
-     * 执行参数化写语句并取得插入标识及影响行数，最后释放游标。
+     * 执行参数化写语句。事务回调里使用该事务，否则语句结束即归还连接。
      *
      * @param string $sql SQL 模板，值应使用 ? 占位符。
      * @param array $args 按占位符顺序排列的绑定值。默认值为 []。
@@ -202,17 +263,12 @@ final class Database
      */
     public function execute(string $sql, array $args = []): array
     {
-        $db = $this->connection();
-        $statement = $db->prepare($sql);
-        try {
-            $statement->execute($args);
-            return ['id' => (int) $db->lastInsertId(), 'affected' => $statement->rowCount()];
-        } finally {
-            $statement->closeCursor();
-        }
+        $result = $this->runner($this->tx)->execute($sql, $args);
+        return ['id' => (int)$result->lastInsertId, 'affected' => (int)$result->rowsAffected];
     }
+
     /**
-     * 开启单层事务并执行回调，成功提交、异常回滚；拒绝嵌套或外部已开启事务。
+     * 开启这一次回调的事务。回调里新创建的模型和原始 SQL 使用这个事务；提交或回滚后连接回池。
      *
      * @param callable $operation 无参事务回调，异常将触发回滚。
      * @return mixed operation 的返回值；失败重新抛出原异常。
@@ -222,32 +278,82 @@ final class Database
      */
     public function transaction(callable $operation): mixed
     {
-        if ($this->transaction) {
+        if ($this->tx !== null) {
             throw new \LogicException('Nested transactions are not supported');
         }
-        $db = $this->connection();
-        if ($db->inTransaction()) {
-            throw new \LogicException('An external PDO transaction is active');
-        }
-        if (!$db->beginTransaction()) {
-            throw new \RuntimeException('Could not begin transaction');
-        }
-        $this->transaction = true;
+        $tx = $this->pool()->begin();
+        $this->tx = $tx;
         try {
             $result = $operation();
-            if (!$db->commit()) {
-                throw new \RuntimeException('Transaction commit failed');
-            }
+            $tx->commit();
             return $result;
         } catch (\Throwable $error) {
-            if ($db->inTransaction()) {
-                $db->rollBack();
+            try {
+                $tx->rollback();
+            } catch (\Throwable $rollbackError) {
             }
             throw $error;
         } finally {
-            $this->transaction = false;
+            $this->tx = null;
         }
     }
+
+    /**
+     * 取得命名连接上的查询器。传入事务时，查询器改在该 *sql.Tx 上执行。
+     *
+     * @param ?\Database\Sql\Tx $tx 查询创建时捕获的事务；没有事务时使用连接池。默认值为 null。
+     * @return \Database\DB 可执行 query 和 execute 的查询器。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $rows = $database->runner($database->activeTransaction())->query('SELECT 1 AS value', []);
+     */
+    public function runner(?\Database\Sql\Tx $tx = null): \Database\DB
+    {
+        $builder = \Database\DB::connection($this->modelConnectionName());
+        if ($tx === null) {
+            return $builder;
+        }
+        return \Database\bind($builder, $tx);
+    }
+
+    /**
+     * 让一条已经建好的原生查询使用当前事务。回调外面原样返回。
+     *
+     * @param \Database\DB $builder 原生查询器。
+     * @return \Database\DB 绑定当前事务后的同一个查询器；没有事务时不变。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $query = $database->bind(\Database\DB::connection('loom'));
+     */
+    public function bind(\Database\DB $builder): \Database\DB
+    {
+        if ($this->tx === null) {
+            return $builder;
+        }
+        return \Database\bind($builder, $this->tx);
+    }
+
+    /**
+     * 按 DSN 打开或复用进程级连接池。会话变量由驱动在物理连接建立时设置。
+     *
+     * 参数：无。
+     *
+     * @return \Database\Sql\DB 进程级 *sql.DB。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $pool = $this->pool();
+     */
+    private function pool(): \Database\Sql\DB
+    {
+        $dsn = $this->driverDsn();
+        if (!isset(self::$pools[$dsn])) {
+            $pool = \Database\Sql\open('mysql', $dsn);
+            $pool->setMaxIdleConns(8);
+            self::$pools[$dsn] = $pool;
+        }
+        return self::$pools[$dsn];
+    }
+
     /**
      * 在同一事务内依次执行带 SQL 和参数的语句列表。
      *

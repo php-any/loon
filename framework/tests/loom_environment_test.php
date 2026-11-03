@@ -30,6 +30,26 @@ try {
         }
     }
     Loom\Environment::load($path . '.missing');
+    $bootRoot = sys_get_temp_dir() . '/loom-env-boot-' . bin2hex(random_bytes(4));
+    mkdir($bootRoot . '/config', 0700, true);
+    $bootPrevious = getenv('LOOM_BOOT_PROBE');
+    putenv('LOOM_BOOT_PROBE=process');
+    file_put_contents($bootRoot . '/.env', "LOOM_BOOT_PROBE=file\n");
+    file_put_contents($bootRoot . '/config/probe.php', '<?php return ["value" => getenv("LOOM_BOOT_PROBE")];');
+    $boot = require dirname(__DIR__) . '/bootstrap/autoload.php';
+    $bootScope = $boot($bootRoot, null, $bootRoot . '/.env');
+    try {
+        if ($bootScope->services()->get(Loom\Config::class)->get('probe.value') !== 'file') {
+            throw new RuntimeException('Bootstrap must load the environment file before config');
+        }
+    } finally {
+        $bootScope->close();
+        putenv($bootPrevious === false ? 'LOOM_BOOT_PROBE' : 'LOOM_BOOT_PROBE=' . $bootPrevious);
+        unlink($bootRoot . '/.env');
+        unlink($bootRoot . '/config/probe.php');
+        rmdir($bootRoot . '/config');
+        rmdir($bootRoot);
+    }
 } finally {
     unlink($path);
     foreach ($previous as $name => $value) {
@@ -71,9 +91,7 @@ $first = new Loom\ServiceScope($config, static function (Loom\Container $service
         return new ScopeRegistrationProbe('from entry');
     });
     $services->scoped(Loom\RequestContext::class);
-    $services->scoped(Loom\Database::class, static function (Loom\Container $services): Loom\Database {
-        return new Loom\Database($services->get(Loom\Config::class));
-    });
+    $services->scoped(Loom\Database::class);
 });
 $second = $first->fork();
 try {

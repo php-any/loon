@@ -12,7 +12,7 @@ runtime/
 
 ## 构建与测试
 
-需要 Go 1.27.1 或更新版本及 PowerShell 7。从项目根目录执行：
+需要 Go 1.27.1 或更新版本、PowerShell 7 和 Git。从项目根目录执行：
 
 ```powershell
 ./scripts/build.ps1 -Test
@@ -23,14 +23,14 @@ runtime/
 
 默认依赖 Origami 正式版 `v1.0.8`，包含宿主所需的 `std/net/tcp`、`std/net/grpc`、原生 Inject/Named 修复，以及 `v1.0.7` 的 HTTP 并发修复。`v1.0.7` 缺少这两个网络包，不能用于构建当前宿主。开发 Origami 时可用 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE` 覆盖依赖；源码必须包含所需标准库修复和 TCP/gRPC API，详见 [运行时要求](../docs/runtime-requirements.md)。
 
-仅显式指定源码覆盖时，构建脚本通过被忽略的 `go.local.mod` 和 `go.local.sum` 添加本地 replace。构建以 readonly 模式运行，并关闭外部 Go workspace。提交的模块不包含机器路径。`-Test` 先运行 Go 宿主测试；失败时不继续构建。
+构建脚本将固定版本源码复制到被忽略的 `build/dependencies/`，按文件名顺序应用 `patches/` 中的全部补丁，再通过被忽略的 `go.local.mod` 和 `go.local.sum` 指向构建副本。执行上下文补丁为执行帧增加原生 Go context 传递，覆盖子调用、include/require 和帧池清理。include 与绑定恢复只复制帧上已保存的 context，不把 `GoContext()` 的截止时间回退值固化到帧上。查询器补丁让 `Database\DB` 可以在 `*sql.Tx` 上执行。构建不改写全局模块缓存。副本目录包含补丁摘要，补丁变化会生成新副本。显式 `-OrigamiSource` 不自动打补丁，该源码须已具备同等能力。构建以 readonly 模式运行，并关闭外部 Go workspace。提交的模块不包含机器路径。`-Test` 先运行 Go 宿主测试；失败时不继续构建。
 
 完成上述配置后，也可从 `runtime/` 单独运行测试：
 
 ```powershell
 $env:GOWORK='off'
-go test -mod=readonly ./...
-go run ./cmd/loom serve
+go test -mod=readonly -modfile=go.local.mod ./...
+go run -modfile=go.local.mod ./cmd/loom serve
 ```
 
 ## 运行与部署

@@ -8,15 +8,15 @@ Loom 的产品目标是通用型后台，为不同业务提供统一管理工作
 
 项目自有 Go 源码统一放在 `runtime/`，包括宿主入口、标准库装配、原生扩展和 Go 测试；Go 模块文件也放在该目录。`app/` 与 `framework/` 保持脚本职责。自定义宿主由 `runtime/cmd/loom` 构建到 `build/loom.exe`，负责初始化 Origami、装配标准库和项目扩展；目录结构与依赖管理见 [运行时目录说明](../runtime/README.md)。
 
-`loom.php` 调用 `framework/bootstrap/autoload.php` 返回的函数并传入项目根目录。加载函数返回显式 `ServiceScope`，装配 Config、容器与可选 Composer 依赖，注册 App 与 Generated 自动加载。CLI 在 finally 中关闭作用域。框架自身资源相对 framework 定位，业务文件相对项目根目录定位。
+`loom.php` 调用 `framework/bootstrap/autoload.php` 返回的函数并传入项目根目录。加载函数返回显式 `ServiceScope`，装配 Config 与容器。它不改工作目录，不加载 Composer，也不注册命名空间。宿主按脚本所属项目把 `App` 和 `Generated\Grpc` 写入 Origami 类路径。CLI 在 finally 中关闭作用域。框架自身资源相对 framework 定位，业务文件相对项目根目录定位。
 
 框架模块按 Application、Http、Routing、Container、View、Database、Auth、Queue、Schedule、Console、Config、Process、Network 划分。目录拆分没有改变已有公共类名。`framework/bootstrap.php` 显式加载模块，以兼容 Origami。
 
 HTTP 核心按职责组合：`ApplicationFactory` 创建应用作用域，`Application` 暴露装配入口，`Router` 保存路由并实现 `RouteMatcher`，`HttpKernel` 处理请求，`Pipeline` 执行中间件，`ActionResolver` 延迟解析控制器。路由结果只包含定义与参数，不持有容器或原生连接。模块发现由 `ModuleDiscovery` 完成，`ModuleRegistry` 负责消费声明和运行时装配。
 
-`Server` 负责启动宿主服务器和定时器。`HttpRuntime` 衔接原生请求与应用工厂，`RequestFactory` 转换请求，`HttpTransport` 发送响应及升级 WebSocket，`StaticFiles` 处理公开资源。`RequestScope` 在 finally 中释放数据库连接、当前请求和传输上下文；传输对象的升级状态属于单个请求。数据库连接、事务、请求与传输上下文均由实例持有。HTTP 请求、TCP 消息、gRPC 调用和作业分别创建作用域并在 finally 中关闭；模块定时器各自持有独立作用域，每次调用结束释放连接；遥测写入也使用独立连接。原生 IO 仍由 Origami 适配。
+`Server` 负责启动宿主服务器。定时器和其他 `HostedService` 由 `Host` 在监听前按登记顺序启动，退出时按相反顺序停止。HTTP 监听地址和入口来自 `HttpServerOptions`。`HttpRuntime` 衔接原生请求与应用工厂，`RequestFactory` 转换请求，`HttpTransport` 发送响应及升级 WebSocket，`StaticFiles` 处理公开资源。`RequestScope` 在 finally 中结束请求和传输上下文。数据库连接池属于进程；事务只存在于 `transaction()` 回调。HTTP 请求、TCP 消息、gRPC 调用和作业分别创建作用域并在 finally 中关闭。原生 IO 仍由 Origami 适配。
 
-容器的生命周期注册与对象创建策略分离：singleton 跨应用子作用域共享，scoped 按执行作用域缓存，transient 每次创建，alias 委托目标生命周期；对象缓存委托原生容器，配置注入通过 `ObjectFactory` 的默认适配器接入。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于执行作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。ModelContext 在框架入口选择作用域，ModelQuery 把累积条件交给原生 Database\DB；原生 SQL 传输适配器复用该作用域的 Database/PDO，保持事务一致。连接按配置自动初始化，作用域退出时移除唯一命名连接。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
+容器的生命周期注册与对象创建策略分离：singleton 跨应用子作用域共享，scoped 按执行作用域缓存，transient 每次创建，alias 委托目标生命周期；对象缓存委托原生容器，配置注入通过 `ObjectFactory` 的默认适配器接入。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于执行作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。ModelContext 只在进程里仅有一个活动作用域时提供它的 Database。ModelQuery 保存调用方传入的 Database，条件和绑定参数留在查询对象上。普通读写使用进程池；在事务回调里创建的查询使用该事务。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
 
 通用 HTTP、CLI、数据库、任务、TCP、gRPC 装配在 `framework/bootstrap/`。`config/modules.php` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用类/方法注解注册，`config/services.php` 提供显式工厂覆盖，`routes/` 提供手动扩展。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
 
@@ -63,7 +63,7 @@ HTTP 核心按职责组合：`ApplicationFactory` 创建应用作用域，`Appli
 后续增加基础能力前先核对固定版本 std 的实现和行为测试；能直接使用的能力直接使用，语义有差异的能力通过适配层接入，确认的上游缺口应先记录再考虑补齐。
 
 
-模型接入的 v1.0.8 行为差异及适配边界见 [基础模型](models.md)：连续 where 需累积条件，对象写入会省略部分假值，原生 ORM 与 PDO 默认不共享连接。宿主 model 扩展仅承担作用域绑定和 SQL 传输，查询及实体回填仍使用原生 ORM。
+模型接入的 v1.0.8 行为差异及适配边界见 [基础模型](models.md)：连续 `where()` 会替换而不是追加条件，对象插入会丢掉 0、false 和空字符串。`ModelQuery` 因此自己累积条件，并自己生成保留这些值的 INSERT/UPDATE。查询器原先只保存 `*sql.DB`；`Database\bind` 让它也能在 `Database\Sql` 返回的 `*sql.Tx` 上执行。PDO 不是连接模型。
 
 ## 历史标识
 

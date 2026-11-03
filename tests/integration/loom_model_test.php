@@ -45,7 +45,7 @@ function checkModel(bool $condition, string $message): void
 
 $database = new \Loom\Database(new \Loom\Config(dirname(__DIR__, 2)));
 $database->connect((string)getenv('LOOM_DATABASE'));
-$db = \Loom\Native\modelConnection('model_test', $database);
+$database->register('model_test');
 try {
     $native = \Database\DB::connection('model_test');
     $native->execute('CREATE TABLE model_users(id BIGINT PRIMARY KEY AUTO_INCREMENT, display_name TEXT NOT NULL, team_id INTEGER NOT NULL, note TEXT)');
@@ -107,7 +107,6 @@ try {
     checkModel($rejected === 6, 'invalid methods, arguments, identifiers and missing records are rejected');
 } finally {
     \Database\removeConnection('model_test');
-    $db->close();
     $database->close();
 }
 

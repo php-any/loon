@@ -9,9 +9,9 @@ final class Account extends \Loom\Model
 {
     private static function search(\Loom\Database $database, string $result, string $search): \Database\DB
     {
-        return \Database\DB::model($result, $database->modelConnectionName())->table('loom_users')
+        return $database->bind(\Database\DB::model($result, $database->modelConnectionName())->table('loom_users')
             ->join('LEFT JOIN admin_accounts ON admin_accounts.user_id=loom_users.id')
-            ->where('loom_users.name LIKE ? OR loom_users.email LIKE ?', '%' . $search . '%', '%' . $search . '%');
+            ->where('loom_users.name LIKE ? OR loom_users.email LIKE ?', '%' . $search . '%', '%' . $search . '%'));
     }
 
     public static function listing(\Loom\Database $database, int $page, string $search): array
@@ -30,10 +30,10 @@ final class Account extends \Loom\Model
     public static function statusForEmail(\Loom\Database $database, string $email): ?array
     {
         // 从用户表开始查询，确保没有账户记录的旧用户仍然可见。
-        $row = \Database\DB::model(\App\Queries\Identity\AccountStatus::class, $database->modelConnectionName())
+        $row = $database->bind(\Database\DB::model(\App\Queries\Identity\AccountStatus::class, $database->modelConnectionName())
             ->table('loom_users')->select('loom_users.id,admin_accounts.enabled,admin_accounts.verified_at')
             ->join('LEFT JOIN admin_accounts ON admin_accounts.user_id=loom_users.id')
-            ->where('loom_users.email=?', $email)->first();
+            ->where('loom_users.email=?', $email))->first();
         return $row === null ? null : $row->toArray();
     }
 

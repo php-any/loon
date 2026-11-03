@@ -1,7 +1,7 @@
 # 通过点调用加载此文件，以解析项目宿主或显式指定的运行时。
 function Resolve-LoomRuntime([string]$Runtime='') {
     if (!$Runtime) {
-        $name=if ($IsWindows) { 'loom.exe' } else { 'loom' }
+        $name=if ([System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'loom.exe' } else { 'loom' }
         $Runtime=Join-Path (Split-Path -Parent $PSScriptRoot) "build/$name"
     }
     $command=Get-Command $Runtime -ErrorAction SilentlyContinue

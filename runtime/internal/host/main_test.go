@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "loom.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "framework", "tests")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if projectRoot(nested) != root {
+		t.Fatalf("project root: %s", projectRoot(nested))
+	}
+	if projectRoot(t.TempDir()) != "" {
+		t.Fatal("script outside a project has no class root")
+	}
+}
+
 func TestResolveProject(t *testing.T) {
 	root := t.TempDir()
 	entry := filepath.Join(root, "loom.php")

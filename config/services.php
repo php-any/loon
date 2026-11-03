@@ -20,8 +20,9 @@ declare(strict_types=1);
  * 工厂接收解析容器，singleton 使用根容器，scoped/transient 使用当前容器。
  * singleton 不得依赖 scoped 服务（包括自动装配的类、Container 和 ServiceScope）。
  *
- * 已由启动入口注册的 Config、Container、ServiceScope、Database 等标识不能再次注册，
+ * 已由启动入口注册的 Config、Container、ServiceScope、Options、Host、Database 等标识不能再次注册，
  * 否则会报 Duplicate service；这里的“覆盖”仅指优先于尚未安装的注解默认注册。
+ * HTTP 服务在执行本回调之后才启动 Host。后台服务用 Host::service() 登记，选项用 options() 绑定。
  */
 return static function (\Loom\Container $services): void {
     // 示例一：显式注册现有通知服务，并提供便于按名称获取的别名。
@@ -38,4 +39,9 @@ return static function (\Loom\Container $services): void {
     // 示例三：每次获取创建新对象；也可改用 instance 注册已经创建的对象，二者任选其一。
     // $services->transient('application.clock', static fn (\Loom\Container $container): \DateTimeImmutable => new \DateTimeImmutable());
     // $services->instance('application.clock', new \DateTimeImmutable());
+
+    // 示例四：绑定配置节，并登记随 HTTP 进程启动和停止的后台服务。服务类要是 singleton。
+    // $services->options(\App\Options\PaymentOptions::class, 'payment');
+    // $services->singleton(\App\Workers\HeartbeatHost::class);
+    // $services->get(\Loom\Host::class)->service(\App\Workers\HeartbeatHost::class);
 };

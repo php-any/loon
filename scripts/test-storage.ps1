@@ -3,7 +3,7 @@ param(
     [string]$RedisBin = '',
     [string]$Origami = '',
     [string]$Python = '',
-    [ValidateSet('scripts','mysql_redis','orm','native_model','model_coverage','read_projection','project_commands','timers','operations','admin_http','account_http','release_protocols','http','background','isolation','protocols','network_limits','notifications')]
+    [ValidateSet('scripts','mysql_redis','orm','native_model','model_coverage','read_projection','project_commands','timers','operations','admin_http','account_http','release_protocols','http','background','isolation','model_isolation','protocols','network_limits','notifications')]
     [string[]]$Suites = @('scripts','mysql_redis','orm','native_model','model_coverage','read_projection','project_commands','timers','operations','admin_http','account_http','release_protocols','http','background','isolation','protocols','network_limits','notifications')
 )
 $ErrorActionPreference = 'Stop'
@@ -128,6 +128,7 @@ appendonly no
     foreach ($suite in @('http', 'background', 'isolation')) {
         Run-Suite $suite { & "$root/tests/e2e/$suite.ps1" -Origami $runtime -DatabaseDsn $env:LOOM_DATABASE }
     }
+    Run-Suite 'model_isolation' { & "$root/tests/e2e/isolation.ps1" -Origami $runtime -DatabaseDsn $env:LOOM_DATABASE -HttpOnly }
     foreach ($suite in @('protocols', 'network_limits')) {
         Run-Suite $suite {
             & $Python "$root/tests/e2e/$suite.py" --origami $runtime

@@ -69,6 +69,12 @@ $configured = $runtimeServices->get(\Loom\ModuleRegistry::class)->configured();
 $table = \Loom\ModuleRegistry::attribute(new \ReflectionClass(\App\Models\Projects\Task::class), \Database\Annotation\Table::class);
 checkModule($table->name === 'studio_tasks', 'Model uses native std Table annotation metadata');
 $configured->add(\App\AppModule::class);
+$requestLogs = [];
+$runtimeServices->scoped(\Loom\Http\Middleware\RequestLog::class, static function ($services) use (&$requestLogs): object {
+    return new \Loom\Http\Middleware\RequestLog(static function (string $line) use (&$requestLogs): void {
+        $requestLogs[] = json_decode($line, true);
+    });
+});
 $http = $runtimeScope->load('framework/bootstrap/http.php');
 $page = $http->handle(new \Loom\Request(['method' => 'GET', 'path' => '/demo']))->toArray();
 checkModule($page['status'] === 200 && str_contains($page['body'], 'release-app'), 'Application module discovers release scenario routes');
@@ -83,4 +89,5 @@ try {
     $runtimeServices->get(\Loom\RequestContext::class)->bind(null);
     $runtimeServices->get(\Loom\Database::class)->close();
 }
+checkModule(count($requestLogs) === 3 && $requestLogs[2]['status'] === 401, 'Cached application routes retain request logging');
 echo "loom_modules_test: OK\n";

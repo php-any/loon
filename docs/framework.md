@@ -4,7 +4,7 @@
 
 Loom 由 `framework/src/` 下的 Origami 脚本实现，`loom.php` 是唯一命令入口。框架直接调用标准库，应用使用 `App\` 命名空间。Go 不参与 Loom 应用装配和业务调用。
 
-Loom 是具体应用项目，`framework/` 是随项目开发的内部框架，不是独立发布包。`framework/bootstrap.php` 只加载框架；`framework/bootstrap/autoload.php` 返回应用加载函数，由命令及测试入口传入项目根目录，注册 App 自动加载并创建作用域；Composer 依赖由根入口 `loom.php` 在加载框架之前显式加载，框架不探测或加载应用的 `vendor/autoload.php`。框架资源相对 `framework/` 定位，配置、业务与运行数据相对应用根目录定位。
+Loom 是具体应用项目，`framework/` 是随项目开发的内部框架，不是独立发布包。`framework/bootstrap.php` 只加载框架；`framework/bootstrap/autoload.php` 返回应用加载函数，由命令及测试入口传入项目根目录并创建作用域。它不注册命名空间，也不加载 `vendor/autoload.php`。`App` 与 `Generated\Grpc` 的类路径由宿主在执行脚本前写入 Origami。框架资源相对 `framework/` 定位，配置、业务与运行数据相对应用根目录定位。
 
 ## 实例服务与作用域
 
@@ -28,11 +28,11 @@ final class TaskService
 }
 ```
 
-Config 的根目录与缓存属于实例；Database 的连接与事务属于实例；Auth 注入 Database 和 RequestContext。HTTP Kernel 绑定本次请求，退出时恢复先前上下文；后台代码只有显式绑定请求时才能调用需要 HTTP 身份的认证操作。`Request::capture/bind` 已移除。
+Config 的根目录与缓存属于实例。Database 携带配置，不持有连接；事务只存在于 `transaction()` 回调。Auth 注入 Database 和 RequestContext。HTTP Kernel 绑定本次请求，退出时恢复先前上下文；后台代码只有显式绑定请求时才能调用需要 HTTP 身份的认证操作。`Request::capture/bind` 已移除。
 
-应用模型继承 `Loom\Model`，通过 public 类型属性和 Origami 原生注解映射表结构。连接按配置自动初始化并复用当前事务，详见 [基础模型](models.md)。旧 EntityManager、EntityMetadata 和 Query 已移除。
+应用模型继承 `Loom\Model`，通过 public 类型属性和 Origami 原生注解映射表结构。普通查询使用进程池，事务回调内新建的查询使用该事务，详见 [基础模型](models.md)。旧 EntityManager、EntityMetadata 和 Query 已移除。
 
-原生 HTTP、TCP、gRPC 和 CLI 入口自动在 finally 中关闭对应作用域。自建脚本应在 finally 中调用 `$scope->close()`，通过 ApplicationFactory 创建的应用可调用 `$app->close()`。关闭操作幂等，回滚未提交事务并清理请求上下文，不会关闭另一个作用域的连接。配置对象可在同一应用的作用域间复用；不同应用应创建各自的 Config，运行中不要更换共享配置的根目录。
+原生 HTTP、TCP、gRPC 和 CLI 入口自动在 finally 中关闭对应作用域。自建脚本应在 finally 中调用 `$scope->close()`，通过 ApplicationFactory 创建的应用可调用 `$app->close()`。关闭操作幂等，并清理请求上下文。未结束的事务只可能存在于尚未返回的 `transaction()` 回调里。配置对象可在同一应用的作用域间复用；不同应用应创建各自的 Config，运行中不要更换共享配置的根目录。
 
 ## 模块启动与注解注册
 
@@ -69,6 +69,12 @@ $services->scoped(Database::class, static fn (Container $c) => new Database($c->
 
 singleton 工厂及其依赖在根容器解析，直接或经 transient、alias 间接依赖 scoped 都会抛出 `LogicException`。Go 侧按应用串行保护单例构造，失败不缓存，后续解析可重试；单例自身的方法和可变业务状态仍需自行保证并发安全。`close()` 保留现有数据库、请求上下文清理行为，不会关闭其他作用域使用的 singleton，也不推断任意业务对象的析构协议。
 
+根作用域另外注册两个 singleton：`Options` 和 `Host`。这是 .NET 通用宿主里的选项绑定和后台服务生命周期，接在现有 singleton、scoped、transient 之上。
+
+`Options::bind($class, $section)` 把配置节的数组写进具体类的公开属性，并返回新对象。`null`、`false`、`0` 和空字符串原样保留；多余的键忽略。没有默认值的类型化属性必须存在，类型必须匹配，整数可以写入 `float`。属性类型是具体类且值是数组时递归绑定。类需要能无必填构造参数地创建。`Container::options($class, $section, $validate = null)` 把绑定结果注册为 singleton：第一次解析时绑定并执行可选校验，之后复用该对象；校验失败不缓存。直接 `bind()` 每次读取当前配置，已解析的选项对象不会随 `setRoot()` 更新。
+
+`HostedService` 提供同步的 `start()` 和 `stop()`。`Host::service()` 在启动前登记实例或服务标识；启动时尚未注册的具体类会登记为 singleton，scoped、transient 以及会依赖 scoped 的 singleton 都会拒绝。`start()` 按登记顺序调用，中途失败则按相反顺序停止已经启动的服务，并抛出原来的异常。`stop()` 按相反顺序停止；某个 `stop()` 失败时其余服务仍会停止，然后抛出第一个停止异常。`run($work)` 包住一次启动、回调和停止。HTTP 服务在监听前把定时器运行器装进 `TimerHostedService`，和其他后台服务一起交给 `Host::run()`。队列和调度进程不启动这个 Host。`config/services.php` 在 `serve` 监听前执行，可以在那里登记后台服务或替换 `HttpServerOptions`。
+
 `#[Loom\Attributes\Service(id: CacheInterface::class, lifetime: 'singleton')]` 可为模块服务选择生命周期，默认 `scoped`。`new Container($objectFactory)` 可替换对象创建策略，默认 `ConfiguredObjectFactory` 负责构造参数及配置属性注入。
 
 `ModuleDiscovery` 负责扫描和声明校验，`ModuleRegistry` 消费这些定义，完成容器、路由、命令和任务装配。发现过程不会创建业务服务；定时器注册及实际请求执行时才解析实例。
@@ -82,7 +88,7 @@ use Loom\Attributes\Module;
 final class AppModule {}
 ```
 
-`$modules->configured()` 按导入顺序加载模块、递归扫描 PHP 类、读取反射元数据。重复导入/重叠扫描去重，循环导入、重复服务别名、重复任务类型和无效处理方法会报错。类与文件路径必须遵循对应命名空间的自动加载规则，扫描跳过符号链接；未声明组件注解的类不自动注册。模块类只声明元数据，不在构造器中执行启动副作用。
+`$modules->configured()` 首次按导入顺序加载模块、递归扫描 PHP 类、读取反射元数据并预校验声明路由。发现结果在当前应用根容器内共享，成功后不可再添加组件；后续调用直接复用，不重新扫描。不同应用根容器不共享缓存，修改模块声明后重启应用。注解中间件须使用服务类名，在请求容器内解析；需要实例或回调的路由通过作用域内的 `RouteProvider` 注册，避免缓存持有可变业务对象。重复导入/重叠扫描去重，循环导入、重复服务别名、重复任务类型和无效处理方法会报错。类与文件路径必须遵循对应命名空间的自动加载规则，扫描跳过符号链接；未声明组件注解的类不自动注册。模块类只声明元数据，不在构造器中执行启动副作用。
 
 业务扩展注解位于 `Loom\Attributes`；数据库映射直接使用 std 的 `Database\Annotation` 注解，现有 `Loom\Timer`、`Loom\InjectConfig` 保持原接口：
 
@@ -128,7 +134,7 @@ $data = $stored->toArray();
 
 `ConsoleCommand` 标记继承 `Loom\Console\Command` 的类，沿用 signature/description/handle 契约。命令生成器自动添加此注解，手写闭包命令由实现 `Loom\Console\CommandRegistrar` 的应用类注册。
 
-`Timer` 同样由模块发现，HTTP 服务启动时注册并启动，退出时停止；每次 HTTP 请求只装配路由与服务，不启动定时器。固定周期、超时跳过、不补跑、同一定时器不重叠的语义保持不变。
+`Timer` 同样由模块发现。HTTP 服务把它装成 `TimerHostedService`，由 `Host` 在监听前启动、退出时停止；每次 HTTP 请求只装配路由与服务，不启动定时器。固定周期、超时跳过、不补跑、同一定时器不重叠的语义保持不变。
 
 各入口共享注册规则，而非共享业务实例：每个 HTTP 请求、队列子进程、协议调用分别创建容器，每个模块定时器使用独立容器，每次执行结束关闭该定时器的连接，处理器实例保留自身计数等状态，Console 使用命令容器。发现阶段不实例化控制器或服务，也不启动后台任务。手动 HTTP/WebSocket 路由通过 `Loom\Http\RouteProvider::register(Router $routes)` 注册，应用实现位于 `app/Http/ApplicationRoutes.php`，在 `loom.php` 中显式绑定；不能重复注册已声明的注解路由。默认 HTTP 引导和 `ApplicationFactory` 都使用当前应用容器解析该接口，未绑定时仅安装模块注解路由。HTTP 启动时预先校验路由，修改注解后需重启长期运行的进程。
 
@@ -146,14 +152,14 @@ HTTP 启动时默认注册 `Loom\Http\Middleware\RequestLog` 全局中间件，�
 
 ## 数据库、ORM 与迁移
 
-`Loom\Database` 直接使用 Origami `std/php/pdo`，不经过宿主业务接口。每个请求或命令持有自己的 PDO 连接；原生标准库管理连接池，脚本在结束时显式释放连接。
+`Loom\Database` 使用 `Database\Sql` 的进程级连接池和 `Database\DB` 的查询。普通语句结束即归还连接。`transaction()` 的事务只存在于该回调。会话级 `sql_mode` 和 `READ COMMITTED` 由 MySQL 驱动在物理连接建立时按 DSN 设置一次。作用域不持有连接，关闭作用域也不关闭池。查询器要跑在 `*sql.Tx` 上时，使用语言层的 `Database\bind`。
 
-- `query($sql, $args)` 返回 PDO 关联数组；底层当前将非 NULL 标量按字符串返回，ORM 按模型 casts 转换。不要依赖旧 Go 桥接的隐式数值类型。
-- `execute($sql, $args)` 返回整型 `id` 和 `affected`。
-- `batch($statements)` 在同一事务执行；失败回滚。MySQL 直接使用 Origami PDO 的 `beginTransaction/commit/rollBack/inTransaction`，检查提交结果。不支持嵌套事务，也不接管调用方已开启的 PDO 事务。
-- 参数通过 prepare/execute 绑定，SQL 和标识符必须来自可信应用代码。
-- `query/execute` 原样发送 SQL，不再用正则替换 `key`、`rowid` 或冲突子句。`$database->conflict($unique, $update)` 只根据校验过的列名生成冲突子句；所有 SQL 使用 MySQL 语法。MySQL 冲突处理由数据库的唯一索引决定，不能把 `$unique` 当作 MySQL 的冲突目标过滤器。
-- `framework/src/Database/Orm/` 提供 Model / ModelQuery 对原生 ORM 的便捷入口与作用域适配，仓储维护关系和用户资源归属条件。
+- `query($sql, $args)` 返回关联数组；非 NULL 标量按字符串返回，模型再按声明恢复类型。
+- `execute($sql, $args)` 返回整型 `id` 和 `affected`。`id` 来自这条语句的插入结果。
+- `batch($statements)` 在同一事务执行；失败回滚。不支持嵌套事务。
+- 参数通过占位符绑定，SQL 和标识符必须来自可信应用代码。
+- `query/execute` 原样发送 SQL。`$database->conflict($unique, $update)` 只根据校验过的列名生成冲突子句。MySQL 冲突处理由唯一索引决定。
+- 模型的普通读写走同一套池和事务。`native()` 与 `project()` 使用池中的原生查询器，不自动加入当前事务。
 
 `framework/src/Database/Migrations.php` 负责校验和、版本前缀及批次；框架迁移位于 `framework/resources/migrations/`，应用迁移由 `framework/bootstrap/database.php` 装配。迁移目录直接包含 MySQL SQL，以数据库命名锁串行执行；MySQL DDL 隐式提交，不能整体事务回滚。不能修改已发布迁移，`migrate:down` 逆序撤销最后一个应用批次。
 

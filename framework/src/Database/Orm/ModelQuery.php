@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 不可变模型查询链，组合参数化条件并委托原生 SQL 执行；批量更新删除要求显式条件且不能带排序或投影限制。
+ * 不可变模型查询。条件、排序和分页留在查询对象上，执行时使用进程池，或使用创建查询时正在进行的事务。
  *
  * 构造参数：
  * - $model（string）：可实例化的模型完整类名，必须具有 Table 映射。
@@ -24,6 +24,11 @@ final class ModelQuery
     private array $arguments = [];
     private array $orders = [];
     private bool $restricted = false;
+    private ?string $projection = null;
+    private ?string $grouping = null;
+    private ?int $rowLimit = null;
+    private ?int $rowOffset = null;
+    private ?\Database\Sql\Tx $tx = null;
     /**
      * 初始化 ModelQuery 实例及其依赖。不可变模型查询链，组合参数化条件并委托原生 SQL 执行；批量更新删除要求显式条件且不能带排序或投影限制。
      *
@@ -38,7 +43,35 @@ final class ModelQuery
      */
     public function __construct(private string $model, private \Database\DB $native, private string $connection, private ?Database $database = null)
     {
+        if ($database !== null) {
+            $this->tx = $database->activeTransaction();
+        }
     }
+    /**
+     * 保留当前连接，清除条件、排序和分页，供插入后按主键回读。
+     *
+     * 参数：无。
+     *
+     * @return self 同一连接上的空查询。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $record = $this->fresh()->findOrFail($key);
+     */
+    private function fresh(): self
+    {
+        $copy = clone $this;
+        $copy->conditions = [];
+        $copy->arguments = [];
+        $copy->orders = [];
+        $copy->restricted = false;
+        $copy->projection = null;
+        $copy->grouping = null;
+        $copy->rowLimit = null;
+        $copy->rowOffset = null;
+        $copy->native = \Database\DB::model($this->model, $this->connection);
+        return $copy;
+    }
+
     /**
      * 确认原生连接仍已注册，防止作用域清理后复用查询器。
      *
@@ -68,7 +101,11 @@ final class ModelQuery
     private function builder(): \Database\DB
     {
         $this->ensureConnection();
-        return $this->conditions === [] ? $this->native : $this->native->where(implode(' AND ', $this->conditions), ...$this->arguments);
+        $native = $this->conditions === [] ? $this->native : $this->native->where(implode(' AND ', $this->conditions), ...$this->arguments);
+        if ($this->tx === null) {
+            return $native;
+        }
+        return \Database\bind($native, $this->tx);
     }
     /**
      * 添加映射字段的比较条件；双参数调用表示等值，null 仅允许等于或不等于。
@@ -163,6 +200,7 @@ final class ModelQuery
             throw new \InvalidArgumentException('Limit must be positive');
         }
         $copy = clone $this;
+        $copy->rowLimit = $limit;
         $copy->native = $this->native->limit($limit);
         $copy->restricted = true;
         return $copy;
@@ -182,6 +220,7 @@ final class ModelQuery
             throw new \InvalidArgumentException('Offset must be nonnegative');
         }
         $copy = clone $this;
+        $copy->rowOffset = $offset;
         $copy->native = $this->native->offset($offset);
         $copy->restricted = true;
         return $copy;
@@ -198,6 +237,7 @@ final class ModelQuery
     public function select(string $fields): self
     {
         $copy = clone $this;
+        $copy->projection = $fields;
         $copy->native = $this->native->select($fields);
         $copy->restricted = true;
         return $copy;
@@ -214,6 +254,7 @@ final class ModelQuery
     public function groupBy(string $fields): self
     {
         $copy = clone $this;
+        $copy->grouping = $fields;
         $copy->native = $this->native->groupBy($fields);
         $copy->restricted = true;
         return $copy;
@@ -248,7 +289,7 @@ final class ModelQuery
         return $record;
     }
     /**
-     * 执行当前查询并逐条恢复模型字段类型。
+     * 用进程池或当前回调的事务执行查询，并把行填回模型。
      *
      * 参数：无。
      *
@@ -259,10 +300,18 @@ final class ModelQuery
      */
     public function get(): array
     {
+        if ($this->database === null) {
+            $records = [];
+            foreach ($this->builder()->get() as $record) {
+                $records[] = $this->typed($record);
+            }
+            return $records;
+        }
         $records = [];
-        foreach ($this->builder()->get() as $record) {
-            $records[] = $this->typed($record);
-        } return $records;
+        foreach ($this->querySql($this->selectSql(), $this->arguments) as $row) {
+            $records[] = $this->hydrate($row);
+        }
+        return $records;
     }
     /**
      * 执行当前查询并读取首条模型记录。
@@ -276,8 +325,8 @@ final class ModelQuery
      */
     public function first(): ?object
     {
-        $record = $this->builder()->first();
-        return $record === null ? null : $this->typed($record);
+        $rows = ($this->rowLimit === null ? $this->limit(1) : $this)->get();
+        return $rows[0] ?? null;
     }
     /**
      * 读取首条模型记录；不存在时抛出 HTTP 404。
@@ -368,10 +417,20 @@ final class ModelQuery
         $record = $class::make($attributes);
         $result = $this->insert($record);
         $key = [];
+        $generated = null;
         foreach ($class::primaryFields() as $field) {
-            $key[$field] = $attributes[$field] ?? $result->insertId;
+            if (array_key_exists($field, $attributes) && $attributes[$field] !== null) {
+                $key[$field] = $attributes[$field];
+                continue;
+            }
+            if ($generated !== null) {
+                throw new \LogicException('Create can infer only one generated key');
+            }
+            $generated = $field;
+            $key[$field] = $result->insertId;
         }
-        return $this->findOrFail($key);
+        // 回读不能沿用调用方的过滤、排序和分页，否则新行可能匹配不到。
+        return $this->fresh()->findOrFail($key);
     }
     /**
      * 检查当前查询是否至少存在一条记录。
@@ -448,10 +507,18 @@ final class ModelQuery
         if ($this->conditions !== []) {
             $sql .= ' WHERE ' . implode(' AND ', $this->conditions);
         }
-        $rows = $this->native->query($sql, ...$this->arguments);
+        if ($this->database === null) {
+            $rows = $this->native->query($sql, ...$this->arguments);
+            $out = [];
+            foreach ($expressions as $alias => $expression) {
+                $out[$alias] = $rows[0]->{$alias};
+            }
+            return $out;
+        }
+        $rows = $this->querySql($sql, $this->arguments);
         $out = [];
         foreach ($expressions as $alias => $expression) {
-            $out[$alias] = $rows[0]->{$alias};
+            $out[$alias] = $rows[0][$alias] ?? null;
         }
         return $out;
     }
@@ -625,9 +692,14 @@ final class ModelQuery
             }
             $conflict = $this->database->conflict($uniqueColumns, $updateColumns);
         }
-        $result = $this->native->execute('INSERT INTO ' . SqlIdentifier::quote($table->name) . ' (' . implode(',', $columns) . ') VALUES (' . implode(',', $marks) . ')' . $conflict, ...$args);
-        $result->insertId = $result->lastInsertId;
-        return $result;
+        $sql = 'INSERT INTO ' . SqlIdentifier::quote($table->name) . ' (' . implode(',', $columns) . ') VALUES (' . implode(',', $marks) . ')' . $conflict;
+        if ($this->database === null) {
+            $result = $this->native->execute($sql, ...$args);
+            $result->insertId = $result->lastInsertId;
+            return $result;
+        }
+        $result = $this->executeSql($sql, $args);
+        return new StatementResult($result['id'], $result['affected']);
     }
     /**
      * 要求查询具有条件且未设置排序、限制、偏移、投影或分组，避免含糊批量写入。
@@ -671,8 +743,12 @@ final class ModelQuery
             $sets[] = SqlIdentifier::quote($class::modelColumn($field)) . '=?';
             $values[] = is_bool($value) ? (int)$value : $value;
         }
-        $result = $this->native->execute('UPDATE ' . SqlIdentifier::quote($table->name) . ' SET ' . implode(',', $sets) . ' WHERE ' . implode(' AND ', $this->conditions), ...array_merge($values, $this->arguments));
-        return (int)$result->rowsAffected;
+        $sql = 'UPDATE ' . SqlIdentifier::quote($table->name) . ' SET ' . implode(',', $sets) . ' WHERE ' . implode(' AND ', $this->conditions);
+        $args = array_merge($values, $this->arguments);
+        if ($this->database === null) {
+            return (int)$this->native->execute($sql, ...$args)->rowsAffected;
+        }
+        return $this->executeSql($sql, $args)['affected'];
     }
     /**
      * 删除当前条件匹配的记录，执行前验证批量写入约束。
@@ -687,14 +763,22 @@ final class ModelQuery
     public function delete(): int
     {
         $this->assertWrite();
-        return (int)$this->builder()->delete()->rowsAffected;
+        if ($this->database === null) {
+            return (int)$this->builder()->delete()->rowsAffected;
+        }
+        $class = $this->model;
+        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        if ($table === null) {
+            throw new \LogicException('Delete requires a mapped table');
+        }
+        return $this->executeSql('DELETE FROM ' . SqlIdentifier::quote($table->name) . ' WHERE ' . implode(' AND ', $this->conditions), $this->arguments)['affected'];
     }
     /**
-     * 取得应用当前条件后的原生构建器，供使用原生表达式、连接查询等高级能力。
+     * 取得应用当前条件后的原生构建器。查询创建于事务回调内时，构建器绑定该事务。
      *
      * 参数：无。
      *
-     * @return \Database\DB 原生 Database\DB，调用方负责其 SQL 表达式安全及作用域生命周期。
+     * @return \Database\DB 原生 Database\DB，调用方负责其 SQL 表达式安全。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $native = $query->native();
@@ -702,5 +786,66 @@ final class ModelQuery
     public function native(): \Database\DB
     {
         return $this->builder();
+    }
+    private function selectSql(): string
+    {
+        $class = $this->model;
+        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        if ($table === null) {
+            throw new \LogicException('Query requires a mapped table');
+        }
+        $sql = 'SELECT ' . ($this->projection ?? '*') . ' FROM ' . SqlIdentifier::quote($table->name);
+        if ($this->conditions !== []) {
+            $sql .= ' WHERE ' . implode(' AND ', $this->conditions);
+        }
+        if ($this->grouping !== null) {
+            $sql .= ' GROUP BY ' . $this->grouping;
+        }
+        if ($this->orders !== []) {
+            $sql .= ' ORDER BY ' . implode(', ', $this->orders);
+        }
+        if ($this->rowLimit !== null) {
+            $sql .= ' LIMIT ' . $this->rowLimit;
+        }
+        if ($this->rowOffset !== null) {
+            $sql .= ' OFFSET ' . $this->rowOffset;
+        }
+        return $sql;
+    }
+    private function hydrate(array $row): object
+    {
+        $class = $this->model;
+        $record = (new \ReflectionClass($class))->newInstanceWithoutConstructor();
+        $properties = [];
+        foreach ((new \ReflectionClass($class))->getProperties() as $property) {
+            if ($property->isPublic() && !$property->isStatic()) {
+                $properties[$class::modelColumn($property->getName())] = $property;
+            }
+        }
+        foreach ($row as $column => $value) {
+            if (isset($properties[$column])) {
+                $properties[$column]->setValue($record, $value);
+            }
+        }
+        return $this->typed($record);
+    }
+    private function querySql(string $sql, array $args): array
+    {
+        if ($this->database === null) {
+            throw new \LogicException('Model query has no database');
+        }
+        $rows = [];
+        foreach ($this->database->runner($this->tx)->query($sql, $args) as $row) {
+            $rows[] = get_object_vars($row);
+        }
+        return $rows;
+    }
+    private function executeSql(string $sql, array $args): array
+    {
+        if ($this->database === null) {
+            throw new \LogicException('Model query has no database');
+        }
+        $result = $this->database->runner($this->tx)->execute($sql, $args);
+        return ['id' => (int)$result->lastInsertId, 'affected' => (int)$result->rowsAffected];
     }
 }

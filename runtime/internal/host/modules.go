@@ -7,7 +7,6 @@ import (
 
 	"github.com/php-any/loom/runtime/internal/extensions"
 	"github.com/php-any/origami/data"
-	"github.com/php-any/origami/std"
 	netannotation "github.com/php-any/origami/std/net/annotation"
 	"github.com/php-any/origami/std/net/grpc"
 	"github.com/php-any/origami/std/net/http"
@@ -19,7 +18,7 @@ import (
 )
 
 func loadModules(vm data.VM) {
-	std.Load(vm)
+	extensions.LoadStandardLibrary(vm)
 	php.Load(vm)
 	redis.Load(vm)
 	http.Load(vm)

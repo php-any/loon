@@ -57,8 +57,8 @@ final class ReleaseController
         $expires = time() + 7200;
         // 发布验收场景使用独立的身份和 cookie。
         $owner = $this->database->transaction(function () use ($token, $csrf, $expires): int {
-            $owner = User::create(['name' => '发布体验空间', 'email' => bin2hex(random_bytes(16)) . '@demo.invalid', 'password' => '!demo-session-only'])->id;
-            ReleaseSession::create(['token' => hash('sha256', $token), 'owner' => $owner, 'csrf' => $csrf, 'created' => time(), 'expires' => $expires]);
+            $owner = User::using($this->database)->create(['name' => '发布体验空间', 'email' => bin2hex(random_bytes(16)) . '@demo.invalid', 'password' => '!demo-session-only'])->id;
+            ReleaseSession::using($this->database)->create(['token' => hash('sha256', $token), 'owner' => $owner, 'csrf' => $csrf, 'created' => time(), 'expires' => $expires]);
             $this->releaseDemo->event($owner, 'workspace', '独立体验空间已创建，有效期两小时');
             return $owner;
         });
@@ -77,12 +77,12 @@ final class ReleaseController
         }
         $this->database->transaction(function () use ($session, $name): void {
             $owner = $session['owner'];
-            if (Project::whereUserId($owner)->count() !== 0) {
+            if (Project::using($this->database)->whereUserId($owner)->count() !== 0) {
                 throw new HttpError(409, '当前空间已有发布项目');
             }
-            $project = Project::create(['user_id' => $owner, 'name' => $name]);
+            $project = Project::using($this->database)->create(['user_id' => $owner, 'name' => $name]);
             foreach (['确认需求与发布范围', '完成接口验收', '核对上线说明'] as $title) {
-                Task::create(['user_id' => $owner, 'project_id' => $project->id, 'title' => $title]);
+                Task::using($this->database)->create(['user_id' => $owner, 'project_id' => $project->id, 'title' => $title]);
             }
             $this->releaseDemo->event($owner, 'project', '创建项目「' . $name . '」与 3 项发布验收任务');
         });
@@ -95,12 +95,12 @@ final class ReleaseController
         $session = $this->releaseDemo->guard($request);
         $done = $request->json()->only(['completed'])->boolean('completed');
         $this->database->transaction(function () use ($session, $request, $done): void {
-            $task = Task::whereUserId($session['owner'])->whereId($request->parameter('id'))->firstOrFail();
+            $task = Task::using($this->database)->whereUserId($session['owner'])->whereId($request->parameter('id'))->firstOrFail();
             if ((int)$task->completed === (int)$done) {
                 return;
             }
             $task->completed = $done ? 1 : 0;
-            Task::whereUserId($task->user_id)->whereId($task->id)->update(['completed' => $task->completed]);
+            Task::using($this->database)->whereUserId($task->user_id)->whereId($task->id)->update(['completed' => $task->completed]);
             $this->releaseDemo->event($session['owner'], 'task', ($done ? '完成：' : '重新打开：') . $task->title);
         });
         return $this->state($request);
@@ -112,10 +112,10 @@ final class ReleaseController
         $session = $this->releaseDemo->guard($request);
         $owner = $session['owner'];
         $this->database->transaction(function () use ($owner): void {
-            if (Task::whereUserId($owner)->count() === 0 || Task::whereUserId($owner)->where('completed', '=', 0)->count() !== 0) {
+            if (Task::using($this->database)->whereUserId($owner)->count() === 0 || Task::using($this->database)->whereUserId($owner)->where('completed', '=', 0)->count() !== 0) {
                 throw new HttpError(409, '请先完成全部验收任务');
             }
-            if (Job::whereOwner($owner)->whereIn('state', ['pending', 'running'])->exists()) {
+            if (Job::using($this->database)->whereOwner($owner)->whereIn('state', ['pending', 'running'])->exists()) {
                 throw new HttpError(409, '已有摘要正在等待或执行');
             }
             $id = $this->queue->dispatch('demo.release.digest', [], $owner, 5);
@@ -130,14 +130,14 @@ final class ReleaseController
         $session = $this->releaseDemo->guard($request);
         $enabled = $request->json()->only(['enabled'])->boolean('enabled');
         $owner = $session['owner'];
-        if ($enabled && !Report::whereUserId($owner)->exists()) {
+        if ($enabled && !Report::using($this->database)->whereUserId($owner)->exists()) {
             throw new HttpError(409, '请先生成一份发布摘要');
         }
         $this->database->transaction(function () use ($owner, $enabled): void {
             if ($enabled) {
                 $this->schedule->every('demo.release.' . $owner, 15, 'demo.release.digest', [], $owner);
             } else {
-                ScheduledJob::whereName('demo.release.' . $owner)->whereOwner($owner)->delete();
+                ScheduledJob::using($this->database)->whereName('demo.release.' . $owner)->whereOwner($owner)->delete();
             }
             $this->releaseDemo->event($owner, 'schedule', $enabled ? '启用每 15 秒自动回顾（体验加速节奏）' : '自动回顾已暂停');
         });
