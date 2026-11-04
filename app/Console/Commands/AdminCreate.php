@@ -24,7 +24,7 @@ final class AdminCreate extends \Loom\Console\Command
             throw new \RuntimeException('请输入有效姓名、邮箱，并通过 LOOM_ADMIN_INITIAL_PASSWORD 设置 10–72 字节初始密码');
         }
         $id = $this->database->transaction(function () use ($email, $name, $password): int {
-            $created = \Loom\Models\User::using($this->database)->insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
+            $created = \Loom\Models\User::insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
             if ($created->rowsAffected !== 1) {
                 throw new \RuntimeException('管理员邮箱已存在');
             }

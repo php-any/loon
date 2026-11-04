@@ -25,7 +25,7 @@ try {
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>30,"nested"=>["enabled"=>false],"nullable"=>null,"zero"=>0];');
     file_put_contents($root . '/config/services.php', '<?php return static function (): string { return "registered"; };');
     $runtimeScope = $bootstrap($root);
-    $runtimeServices = $runtimeScope->services();
+    $runtimeServices = $runtimeScope->container();
     // 启动后修改源配置，以证明配置已提前加载并缓存。
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>60];');
     checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout') === 30, 'bootstrap must eagerly load PHP config');
@@ -41,7 +41,7 @@ try {
     checkConfig($runtimeServices->get(\Loom\Config::class)->get()['payment']['timeout'] === 30, 'get without key returns all namespaces');
     checkConfig($runtimeServices->get(\Loom\Config::class)->get('http.address') === $runtimeServices->get(\Loom\Config::class)->get()['http']['address'], 'runtime dotted lookup');
     $runtimeScope = $bootstrap($root);
-    $runtimeServices = $runtimeScope->services();
+    $runtimeServices = $runtimeScope->container();
     checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout') === 60, 'bootstrap must clear stale configuration');
     // 不存在保留的配置名称，也不会隐式加载 JSON。
     file_put_contents($root . '/config/loom.php', '<?php return ["custom" => true];');

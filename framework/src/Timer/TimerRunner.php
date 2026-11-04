@@ -5,15 +5,10 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 在 Origami spawn 中运行代码声明的周期任务；各定时器独立执行，同一定时器不重入，错过的节拍直接跳过。
- *
- * 构造参数：
- * - $services（Container）：解析处理器使用的容器；register 传 null 时使用运行器默认容器。
- *
- * 返回值：使用 new 构造时得到 TimerRunner 实例；注册到容器时由容器管理实例的创建与复用。
+ * 在独立循环里跑带 Timer 注解的无参可调用对象。同一个定时器不重入，错过的节拍直接跳过。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $runner = new TimerRunner($services); $runner->register(\App\Timers\Heartbeat::class); $runner->start();
+ * @example $runner = new TimerRunner($services);
  */
 final class TimerRunner
 {
@@ -22,13 +17,13 @@ final class TimerRunner
     private int $generation = 0;
 
     /**
-     * 初始化 TimerRunner 实例及其依赖。在 Origami spawn 中运行代码声明的周期任务；各定时器独立执行，同一定时器不重入，错过的节拍直接跳过。
+     * 只保存默认容器。定时器表是空的，也还没开始跑。
      *
-     * @param Container $services 解析处理器使用的容器；register 传 null 时使用运行器默认容器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param Container $services 注册时如果没有另外传入容器，就用它解析定时器实例。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner = new TimerRunner($services); $runner->register(\App\Timers\Heartbeat::class); $runner->start();
+     * @example $runner = new TimerRunner($services);
      */
     public function __construct(private Container $services)
     {
@@ -42,7 +37,7 @@ final class TimerRunner
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner->discover($config->path('app/Timers'), 'App\Timers');
+     * @example $runner->discover('/app/Timers', 'App\\Timers');
      */
     public function discover(string $directory, string $namespace = 'App\\Timers'): void
     {
@@ -57,8 +52,8 @@ final class TimerRunner
     /**
      * 验证唯一 Timer 注解、正周期及公开无参 __invoke，解析实例并保存独立执行状态。
      *
-     * @param string $class 带唯一 Timer 注解、可实例化且具有公开无参 __invoke 的完整类名。
-     * @param ?Container $services 解析处理器使用的容器；register 传 null 时使用运行器默认容器。默认值为 null。
+     * @param string $class 要登记的完整类名。没有 Timer 注解则跳过；注解多于一个、周期小于 1 秒或不能无参调用时抛异常。
+     * @param ?Container $services 解析这个类用的容器。null 时改用构造时保存的容器，并且不记录 ServiceScope。默认值为 null。
      * @return ?object 定时器实例；无 Timer 注解返回 null，重复注册返回原实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -141,7 +136,12 @@ final class TimerRunner
                         $state->executing = true;
                         try {
                             $handler = $timer['handler'];
-                            $handler();
+                            $scope = $timer['scope'];
+                            if ($scope instanceof \Loom\ServiceScope) {
+                                \Loom\ModelContext::during($scope, $handler);
+                            } else {
+                                $handler();
+                            }
                         } catch (\Throwable $error) {
                             fwrite(fopen('php://stderr', 'w'), '[timer ' . $class . '] ' . $error->getMessage() . "\n");
                         } finally {

@@ -1,6 +1,6 @@
 # Loom 框架原理与 PHP 文件加载流程
 
-本文面向第一次阅读项目代码的开发者，按当前源码解释启动、文件加载、请求执行、数据访问和后台任务。具体 API 用法见 [框架能力](framework.md)，部署与功能边界见 [架构说明](architecture.md)。
+本文面向第一次阅读项目代码的开发者，按当前源码解释启动、文件加载、请求执行、数据访问和后台任务。具体 API 用法见 [框架能力](framework.md)，选项与后台服务见 [宿主与选项](hosting.md)，部署与功能边界见 [架构说明](architecture.md)。
 
 ## 1. 四层结构
 
@@ -26,7 +26,8 @@ runtime/cmd/loom/main.go
   → 加载框架、配置与自动加载器，创建 ServiceScope
   → 容器创建 Cli，Cli::run() 分发 serve
   → Doctor 检查运行能力
-  → Server::run() 初始化数据库、预先校验路由、启动定时器
+  → Server::run() 初始化数据库、预先校验路由
+  → Host 按登记顺序启动后台服务和定时器
   → 原生 HTTP 服务开始监听
 ```
 
@@ -153,12 +154,12 @@ config/modules.php 返回模块类名
 
 ```php
 $scope = $this;
-$services = $this->services;
-$config = $services->get(\Loom\Config::class);
+$container = $this->container;
+$config = $container->get(\Loom\Config::class);
 return require $config->path($entry);
 ```
 
-PHP 文件在这个调用作用域中执行，因此 `framework/bootstrap/http.php` 可以直接使用 `$scope`、`$services` 和 `$config`。这些变量来自引导入口，不是依靠业务代码访问全局变量。
+PHP 文件在这个调用作用域中执行，因此 `framework/bootstrap/http.php` 可以直接使用 `$scope`、`$container` 和 `$config`。这些变量来自引导入口，不是依靠业务代码访问全局变量。
 
 HTTP 引导脚本发现模块、注册服务、创建 `Application`，由 `ModuleRegistry::routes()` 装配注解路由，再从当前应用容器解析 `Loom\Http\RouteProvider` 并调用 `register(Router $routes)`，统一扩展 HTTP 和 WebSocket 路由。应用实现 `App\Http\ApplicationRoutes` 在 `loom.php` 中显式绑定；每个应用作用域重新解析并装配，不再加载 `routes/web.php` 或 `routes/websocket.php`，不依赖文件继承局部变量。`ApplicationFactory` 使用相同接口和当前应用容器。
 
@@ -208,8 +209,8 @@ HTTP 引导脚本发现模块、注册服务、创建 `Application`，由 `Modul
 - `transient`：每次解析创建对象。
 - `alias`：委托目标服务解析，保留目标生命周期。
 - `bind`：Loom 中保留共享语义，相当于 `scoped` 注册。
-- `options`：把配置节绑定为 singleton 选项对象，对应 .NET 的 Options。
-- `Host`：按登记顺序启动 `HostedService`，停止时顺序相反，对应 .NET 通用宿主的后台服务。
+- `options`：把配置节绑定为 singleton 选项对象。绑定规则和快照语义见 [宿主与选项](hosting.md)。
+- `Host`：按登记顺序启动 `HostedService`，停止时顺序相反。`serve` 的启动顺序见 [宿主与选项](hosting.md)。
 
 控制器通过类型化构造参数表达依赖，容器递归解析；服务别名可用 `Inject`，配置使用 `InjectConfig` 或显式工厂。`config/services.php` 的显式注册优先于服务注解。
 
@@ -220,7 +221,7 @@ HTTP 请求、协议调用、作业分别使用自己的作用域。模块定时
 模型查询的关系是：
 
 ```text
-Task::using($database)->whereUserId(...)->whereId(...)->first()
+Task::whereUserId(...)->whereId(...)->first()
   → ModelQuery 保存该 Database，并在查询对象上累积条件和绑定参数
   → 向进程级连接池借连接；若查询创建于事务回调内，则使用该事务
   → MySQL
@@ -234,13 +235,13 @@ Task::using($database)->whereUserId(...)->whereId(...)->first()
 2. `RequireWorkspaceAccess` 检查工作台访问条件，`ParseJsonInput` 解析 JSON。
 3. 控制器取出当前用户，校验标题和可选项目 ID。
 4. 项目查询同时约束项目 ID 与用户 ID。
-5. `Task::using($database)->create()` 用当前作用域的数据库持久化任务，返回 201 JSON 响应。
+5. `Task::create()` 用当前作用域的数据库持久化任务，返回 201 JSON 响应。
 
 简单接口可以直接使用 Model；复杂业务再用 Service 组织流程，Repository 封装关联查询。框架不会自动给所有查询加当前用户条件，资源归属仍需显式约束。
 
 ## 7. Timer、Queue 与 Schedule
 
-- **Timer**：作为 `HostedService` 跟随 HTTP 服务进程运行，由 `Host` 在监听前启动、退出时停止。按固定周期触发；同一定时器不重叠执行，忙碌期间的触发跳过。多 HTTP 进程会各自执行自己的定时器。
+- **Timer**：作为 `HostedService` 跟随 HTTP 服务进程运行，由 `Host` 在监听前启动、退出时停止。按固定周期触发；同一定时器不重叠执行，忙碌期间的触发跳过。多 HTTP 进程会各自执行自己的定时器。与队列、调度的进程边界见 [宿主与选项](hosting.md)。
 - **Queue**：请求提交任务，MySQL 保存任务及待投递记录，Redis Stream 负责投递。独立 `queue:work` 消费，每个作业通过宿主子进程执行，提供租约、超时和重试机制。
 - **Schedule**：独立 `schedule:work` 计算到期计划，在数据库事务中生成任务并推进下次执行时间，实际任务交给队列处理。
 
@@ -251,7 +252,7 @@ Task::using($database)->whereUserId(...)->whereId(...)->first()
 先阅读一条完整链路，再深入扩展机制：
 
 1. [loom.php](../loom.php) 与 [bootstrap/autoload.php](../framework/bootstrap/autoload.php)：理解入口和加载。
-2. [Server](../framework/src/Http/Server.php) 与 [ServiceScope](../framework/src/Application/ServiceScope.php)：理解进程和请求生命周期。
+2. [Server](../framework/src/Http/Server.php) 与 [ServiceScope](../framework/src/Application/ServiceScope.php)：理解进程和请求生命周期。选项与后台服务见 [宿主与选项](hosting.md)。
 3. [HTTP 引导](../framework/bootstrap/http.php) 与 [HttpKernel](../framework/src/Http/HttpKernel.php)：理解装配与执行的区别。
 4. [CreateTaskController](../app/Http/Controllers/Projects/CreateTaskController.php) 与 [Task](../app/Models/Projects/Task.php)：理解真实业务如何落库。
 5. [ModuleDiscovery](../framework/src/Module/ModuleDiscovery.php) 与 [ModuleRegistry](../framework/src/Module/ModuleRegistry.php)：理解扫描、注解和注册。

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 use Loom\Database;
 use Loom\Queue;
 use Loom\Redis;
@@ -20,7 +20,7 @@ function mrCheck(bool $value, string $message): void
         throw new RuntimeException($message);
     }
 }
-$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Config::class)->get('database.dsn'));
+$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Database::class)->pdoDsn());
 try {
     $runtimeScope->load('framework/bootstrap/database.php');
     mrCheck(Redis::command(['PING']) === 'PONG', 'Redis connection');
@@ -31,7 +31,7 @@ try {
         mrCheck($database->inTransaction(), 'Callback runs inside its transaction');
     });
     $otherScope = new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class));
-    $otherDatabase = $otherScope->services()->get(\Loom\Database::class);
+    $otherDatabase = $otherScope->container()->get(\Loom\Database::class);
     $database = $runtimeServices->get(\Loom\Database::class);
     try {
     $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($runtimeServices): void {
@@ -167,7 +167,7 @@ try {
     $runtimeServices->get(\Loom\RequestContext::class)->bind(new Request(['method' => 'GET', 'path' => '/api/admin/session', 'headers' => ['cookie' => [$cookie]], 'query' => [], 'body' => '']));
     mrCheck($runtimeServices->get(\Loom\Auth::class)->user()['id'] === $owner, 'Redis session authenticates');
     $otherScope = new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class));
-    $otherServices = $otherScope->services();
+    $otherServices = $otherScope->container();
     $otherServices->get(\Loom\RequestContext::class)->bind(new Request(['origin' => 'http://localhost', 'method' => 'POST', 'path' => '/', 'headers' => ['origin' => ['http://localhost']]]));
     $otherSession = $otherServices->get(\Loom\Auth::class)->register('Other scope', 'scope-session@example.test', 'another testing password');
     $otherCookie = explode(';', $otherSession['cookie'])[0];

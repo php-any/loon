@@ -4,8 +4,8 @@ use App\Models\Projects\Task;
 use App\Models\Projects\Project;
 
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
-$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Config::class)->get('database.dsn'));
+$runtimeServices = $runtimeScope->container();
+$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Database::class)->pdoDsn());
 $runtimeScope->load('framework/bootstrap/database.php');
 require dirname(__DIR__) . '/fixtures/remove_default_admin.php';
 $studio = $runtimeServices->get(\App\Repositories\Projects\ProjectRepository::class);

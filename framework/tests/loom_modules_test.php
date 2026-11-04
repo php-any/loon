@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 require __DIR__ . '/fixtures/modules/components.php';
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -26,18 +26,18 @@ foreach ([\ModuleFixtures\Value::class, \ModuleFixtures\Endpoint::class, \Module
     $registry->register($class);
 }
 $app = new \Loom\Application();
-$registry->services($app->services());
+$registry->services($app->container());
 $registry->routes($app);
 $result = $app->handle(new \Loom\Request(['method' => 'GET', 'path' => '/module/value']))->toArray();
 checkModule($result['body'] === 'injected12', 'Method routes, constructor injection and middleware order');
 checkModule($app->url('module.value') === '/module/value', 'Route name and controller prefix');
-$first = $app->services()->get('module.value');
+$first = $app->container()->get('module.value');
 checkModule($first instanceof \ModuleFixtures\Value, 'Named service binds its implementation');
 checkModule($first !== $registry->container()->get('module.value'), 'Containers must isolate service instances');
 checkModule($registry->job('module.job', new \Loom\Request([]))->toArray()['body'] === 'injected', 'Queue handler injection');
-$timers = $registry->timers($app->services());
+$timers = $registry->timers($app->container());
 $timer = $timers->register(\ModuleFixtures\TimerTask::class);
-checkModule($timer !== $app->services()->get(\ModuleFixtures\TimerTask::class), 'Timers must own a separate service scope');
+checkModule($timer !== $app->container()->get(\ModuleFixtures\TimerTask::class), 'Timers must own a separate service scope');
 $timers->start();
 usleep(1200000);
 $timers->stop();

@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 控制台命令基类，子类声明签名与描述并实现 handle；execute 临时绑定输入输出，结束后恢复旧绑定。
+ * 命令基类。子类用属性给出签名、描述和是否隐藏，并实现 handle。execute 只在这一次调用期间绑定输入和输出，离开时恢复进入前的绑定。
  *
- * 构造参数：无，本类型未声明构造参数。
+ * 构造参数：无，本类不声明构造函数。
  *
- * 返回值：抽象类不能直接实例化；创建具体子类后获得符合本类约定的对象。
+ * 返回值：抽象类，只能得到具体子类的实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example final class PingCommand extends \Loom\Console\Command { protected string $signature = 'ping'; public function handle(): int { $this->info('pong'); return 0; } }
@@ -22,11 +22,11 @@ abstract class Command
     private ?Input $input = null;
     private ?Output $output = null;
     /**
-     * 读取子类声明的命令签名。
+     * 返回子类声明的 $signature 原文。不解析，也不检查是否为空。
      *
      * 参数：无。
      *
-     * @return string 用于 Definition 解析的签名字符串。
+     * @return string 交给 Definition 的签名字符串。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $signature = $command->signature();
@@ -36,11 +36,11 @@ abstract class Command
         return $this->signature;
     }
     /**
-     * 读取子类声明的帮助描述。
+     * 返回子类声明的 $description。没有写描述时就是空字符串。
      *
      * 参数：无。
      *
-     * @return string 命令用途描述字符串。
+     * @return string 列表和帮助使用的描述。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $description = $command->description();
@@ -50,11 +50,11 @@ abstract class Command
         return $this->description;
     }
     /**
-     * 判断命令是否应在命令列表中隐藏；隐藏不禁止直接调用。
+     * 返回子类声明的 $hidden。true 只让 list 跳过它，不阻止按名称执行。
      *
      * 参数：无。
      *
-     * @return bool true 表示从列表隐藏，false 表示显示。
+     * @return bool 为 true 时命令列表不展示该命令。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $hidden = $command->hidden();
@@ -64,21 +64,21 @@ abstract class Command
         return $this->hidden;
     }
     /**
-     * 由具体命令实现业务操作，通过基类辅助方法访问输入并输出结果。
+     * 子类在这里完成命令业务，并由 execute 调用。execute 会先绑好输入和输出。若没经过 execute 就调用 argument 或 option，会抛出 LogicException；写输出的辅助方法则没有 Output 可用。返回值须是 0–255 的退出码，0 表示成功。
      *
      * 参数：无。
      *
-     * @return int 0 至 255 的退出码，0 表示成功。
+     * @return int 交给 execute 的退出码。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $code = $command->execute($input, $output);
+     * @example $code = $command->handle();
      */
     abstract public function handle(): int;
     /**
-     * 为本次调用临时绑定 Input 与 Output，执行 handle 后在 finally 中恢复旧上下文。
+     * 先记住原来的输入和输出，绑上这一次的 Input 与 Output，调用 handle，再在 finally 里恢复旧绑定。handle 抛出的异常会在绑定恢复之后继续向外抛。返回值原样交给调用方。
      *
-     * @param Input $input 按命令签名解析完成的 Console\Input。
-     * @param Output $output 本次命令使用的 Console\Output。
+     * @param Input $input 已经按签名解析好的参数和选项。
+     * @param Output $output 这一次命令写入标准输出和标准错误的对象。
      * @return int handle 返回的退出码。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -98,12 +98,12 @@ abstract class Command
         }
     }
     /**
-     * 在命令执行期间读取已解析的位置参数，尚未执行时抛出 LogicException。
+     * 从这次 execute 绑上的 Input 读取位置参数。还没有绑输入时抛出 LogicException，消息为「命令尚未执行」。名称不在输入里时，由 Input 抛出 LogicException。不读取选项。
      *
-     * @param string $name 签名中声明的位置参数或选项名称。
-     * @return mixed 对应参数值。
+     * @param string $name 签名中的位置参数名。
+     * @return mixed 该参数的字符串、数组或默认值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $name = $this->argument('name');
      */
     protected function argument(string $name): mixed
@@ -113,12 +113,12 @@ abstract class Command
         } return $this->input->argument($name);
     }
     /**
-     * 在命令执行期间读取已解析选项，尚未执行时抛出 LogicException。
+     * 从这次 execute 绑上的 Input 读取选项。还没有绑输入时抛出 LogicException，消息为「命令尚未执行」。名称不在输入里时，由 Input 抛出 LogicException。不读取位置参数。
      *
-     * @param string $name 签名中声明的位置参数或选项名称。
-     * @return mixed 对应选项值。
+     * @param string $name 签名中的选项全名，不带 --。
+     * @return mixed 布尔开关、字符串、数组或该选项的默认值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $force = $this->option('force');
      */
     protected function option(string $name): mixed
@@ -128,12 +128,12 @@ abstract class Command
         } return $this->input->option($name);
     }
     /**
-     * 通过当前输出对象写入一行文本，仅在 execute 绑定输出期间使用。
+     * 把一行文本交给当前绑上的 Output。必须在 execute 之内调用，否则没有 Output 可写。
      *
-     * @param string $text 待输出文本。默认值为 ''。
+     * @param string $text 换行前的正文；省略时交给输出的是空字符串。
      * @return void 无返回值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->line('完成');
      */
     protected function line(string $text = ''): void
@@ -141,12 +141,12 @@ abstract class Command
         $this->output->line($text);
     }
     /**
-     * 通过当前输出对象写入信息行。
+     * 把信息文本交给当前绑上的 Output::info。必须在 execute 之内调用，否则没有 Output 可写。
      *
-     * @param string $text 待输出文本。
+     * @param string $text 要显示的信息正文。
      * @return void 无返回值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->info('处理完成');
      */
     protected function info(string $text): void
@@ -154,12 +154,12 @@ abstract class Command
         $this->output->info($text);
     }
     /**
-     * 通过当前输出对象写入错误行。
+     * 把错误文本交给当前绑上的 Output::error，从而写到标准错误。必须在 execute 之内调用，否则没有 Output 可写。
      *
-     * @param string $text 待输出文本。
+     * @param string $text 要显示的错误正文。
      * @return void 无返回值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->error('处理失败');
      */
     protected function error(string $text): void
@@ -167,13 +167,13 @@ abstract class Command
         $this->output->error($text);
     }
     /**
-     * 通过当前输出对象输出列数一致的文本表格。
+     * 把表头和各行交给当前绑上的 Output 画成文本表。某一行列数与表头不同时，由 Output 抛出 LogicException。必须在 execute 之内调用。
      *
-     * @param array $headers 表格列标题列表。
-     * @param array $rows 表格行列表，列数与标题一致。
+     * @param array $headers 从左到右的列标题。
+     * @param array $rows 每一项是一行，列数须与表头相同。
      * @return void 无返回值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->table(['名称'], [['queue']]);
      */
     protected function table(array $headers, array $rows): void
@@ -181,12 +181,12 @@ abstract class Command
         $this->output->table($headers, $rows);
     }
     /**
-     * 通过当前输出对象写入格式化 JSON。
+     * 把值交给当前绑上的 Output 写成 JSON。值不能编码时，由 Output 抛出 JsonException。必须在 execute 之内调用。
      *
-     * @param mixed $value 可 JSON 编码的输出数据。
+     * @param mixed $value 要编码的数组、标量或对象。
      * @return void 无返回值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->json(['ok' => true]);
      */
     protected function json(mixed $value): void

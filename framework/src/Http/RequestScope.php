@@ -6,16 +6,16 @@ namespace Loom;
 
 // 每个实例管理一个 HTTP 传输对象及其清理过程。
 /**
- * 管理单次 HTTP 请求的传输对象、数据库清理和请求上下文，不允许在活动期间重复打开。
+ * 记下单次请求的传输对象，并在关闭时解除请求绑定。活动期间不能再次打开。
  *
  * 构造参数：
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $requestContext（RequestContext）：当前作用域的请求上下文，负责绑定与恢复请求。
+ * - $database（\Loom\Database）：关闭时调用其 close。不关闭进程级连接池。
+ * - $requestContext（RequestContext）：关闭时把当前请求绑回 null。
  *
- * 返回值：使用 new 构造时得到 RequestScope 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 RequestScope 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $requestScope = $services->get(RequestScope::class);
+ * @example $requestScope = new RequestScope($database, $requestContext);
  */
 final class RequestScope
 {
@@ -23,14 +23,14 @@ final class RequestScope
     private RequestContext $requestContext;
 
     /**
-     * 初始化 RequestScope 实例及其依赖。管理单次 HTTP 请求的传输对象、数据库清理和请求上下文，不允许在活动期间重复打开。
+     * 保存数据库和请求上下文。传输对象留到 open 再记录，构造时不打开请求。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param RequestContext $requestContext 当前作用域的请求上下文，负责绑定与恢复请求。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Database $database 关闭作用域时调用其 close。这里不关闭进程级连接池。
+     * @param RequestContext $requestContext 关闭时把当前请求绑回 null。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $requestScope = $services->get(RequestScope::class);
+     * @example $requestScope = new RequestScope($database, $requestContext);
      */
     public function __construct(\Loom\Database $database, RequestContext $requestContext)
     {
@@ -40,9 +40,9 @@ final class RequestScope
 
     private ?HttpTransport $transport = null;
     /**
-     * 记录当前传输对象；重复打开活动请求作用域时抛出 LogicException。
+     * 记下这次请求的传输对象。已经有活动传输时抛出 LogicException，不会替换它。
      *
-     * @param HttpTransport $transport 负责原生请求转换和响应写出的 HTTP 传输适配器。
+     * @param HttpTransport $transport 本请求使用的传输对象。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -56,11 +56,11 @@ final class RequestScope
         $this->transport = $transport;
     }
     /**
-     * 取得当前 HTTP 传输对象；未打开作用域时抛出 LogicException。
+     * 返回 open 记下的传输对象。尚未打开或已经关闭时抛出 LogicException。
      *
      * 参数：无。
      *
-     * @return HttpTransport 当前 HttpTransport 实例。
+     * @return HttpTransport 当前传输对象。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $transport = $requestScope->transport();
@@ -73,7 +73,7 @@ final class RequestScope
         return $this->transport;
     }
     /**
-     * 关闭请求上下文和传输引用。连接池属于进程，这里不关闭它。
+     * 调用 database->close()，再解除请求绑定并丢掉传输引用。close 若抛出，清空仍会执行，异常继续向外抛。不关闭进程级连接池。
      *
      * 参数：无。
      *

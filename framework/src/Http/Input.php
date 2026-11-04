@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 对 JSON 对象字段执行严格的存在性、类型、长度和范围校验，失败时抛出带字段原因的 HTTP 422。
+ * 对一份字段表做存在性、类型、长度和范围检查。失败时抛出 HTTP 422，详情里带字段名和原因。
  *
  * 构造参数：
- * - $values（array）：待验证的字段名到值的关联数组，通常来自 JSON 对象。
+ * - $values（array）：字段名到原始值的关联数组，通常来自已解码的 JSON 对象。
  *
- * 返回值：使用 new 构造时得到 Input 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 Input 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $input = new Input(['name' => '小明', 'age' => 18]);
@@ -19,10 +19,10 @@ final class Input
 {
     private array $values;
     /**
-     * 初始化 Input 实例及其依赖。对 JSON 对象字段执行严格的存在性、类型、长度和范围校验，失败时抛出带字段原因的 HTTP 422。
+     * 保存待检查的字段表。构造时不校验字段，检查由后续方法执行。
      *
-     * @param array $values 待验证的字段名到值的关联数组，通常来自 JSON 对象。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param array $values 字段名到原始值的关联数组。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $input = new Input(['name' => '小明', 'age' => 18]);
@@ -32,10 +32,10 @@ final class Input
         $this->values = $values;
     }
     /**
-     * 判断字段是否存在；值为 null 的字段也算存在。
+     * 判断字段名是否出现。值为 null 也算存在。
      *
-     * @param string $key 待验证字段的名称。
-     * @return bool 存在返回 true，否则 false。
+     * @param string $key 要检查的字段名。
+     * @return bool 字段名存在时为 true。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $hasName = $input->has('name');
@@ -45,11 +45,11 @@ final class Input
         return array_key_exists($key, $this->values);
     }
     /**
-     * 读取必填列表，拒绝关联数组及超出数量上限的列表。
+     * 读取必填列表。关联数组、非数组或元素个数超过上限时以 list 失败。缺失和 null 分别报告 missing、null。
      *
-     * @param string $key 待验证字段的名称。
-     * @param int $max 列表元素数量上限或整数允许的最大值，具体含义取决于方法。默认值为 100。
-     * @return array 保持原始元素类型的顺序数组。
+     * @param string $key 要读取的字段名。
+     * @param int $max 允许的最多元素个数。默认 100。
+     * @return array 保持原元素和顺序的列表。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $ids = $input->items('ids', 100);
@@ -63,10 +63,10 @@ final class Input
         return $value;
     }
     /**
-     * 拒绝白名单以外的字段，不会静默丢弃多余字段。
+     * 拒绝白名单以外的字段。遇到未知字段时以 unknown 失败，不会删掉多余字段后继续。
      *
      * @param array $fields 允许出现的字段名列表。
-     * @return self 校验通过后的当前 Input 实例。
+     * @return self 通过检查后的当前实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $input->only(['name', 'age']);
@@ -81,12 +81,12 @@ final class Input
         return $this;
     }
     /**
-     * 读取必填且非 null 的字段，分别报告 missing 和 null 原因。
+     * 读取必填且非 null 的字段。键不存在时以 missing 失败，值为 null 时以 null 失败。
      *
-     * @param string $key 待验证字段的名称。
-     * @return mixed 字段的原始值。
+     * @param string $key 要读取的字段名。
+     * @return mixed 该字段的原始值。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = $this->required('name');
      */
     private function required(string $key): mixed
@@ -100,13 +100,13 @@ final class Input
         return $this->values[$key];
     }
     /**
-     * 统一抛出 HTTP 422，携带 field 和 reason 供客户端定位错误。
+     * 抛出 HTTP 422，没有正常返回。详情包含 field 和 reason。
      *
-     * @param string $key 待验证字段的名称。
-     * @param string $reason 错误原因，如 missing、null、type、length 或 range。
-     * @return void 无正常返回；始终抛出 HttpError。
+     * @param string $key 出错的字段名，写入详情的 field。
+     * @param string $reason 失败原因，例如 missing、null、type、length、range、list 或 unknown。
+     * @return void 无正常返回，始终抛出 HttpError。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->invalid('age', 'range');
      */
     private function invalid(string $key, string $reason): void
@@ -114,12 +114,12 @@ final class Input
         throw new HttpError(422, 'Invalid input', ['field' => $key, 'reason' => $reason]);
     }
     /**
-     * 读取严格字符串，并按字节数校验长度；长度边界配置错误时抛出 LogicException。
+     * 读取字符串并按字节数检查闭区间长度。不 trim，也不把其它类型转成字符串。边界不合法时抛出 LogicException，类型或长度不对分别以 type、length 失败。
      *
-     * @param string $key 待验证字段的名称。
-     * @param int $minBytes 字符串允许的最少字节数，不能为负数。默认值为 0。
-     * @param int $maxBytes 字符串允许的最多字节数，不能小于 minBytes。默认值为 4096。
-     * @return string 校验后的原字符串，不自动 trim 或转换类型。
+     * @param string $key 要读取的字段名。
+     * @param int $minBytes 允许的最少字节数，不能为负。默认 0。
+     * @param int $maxBytes 允许的最多字节数，不能小于 minBytes。默认 4096。
+     * @return string 通过检查的原字符串。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $name = $input->string('name', 1, 80);
@@ -139,12 +139,12 @@ final class Input
         return $value;
     }
     /**
-     * 读取严格整数并检查闭区间范围，不接受数字字符串。
+     * 读取整数并检查闭区间。不接受数字字符串。上限小于下限时抛出 LogicException，类型或越界分别以 type、range 失败。
      *
-     * @param string $key 待验证字段的名称。
-     * @param int $min 允许的最小整数，包含边界。默认值为 PHP_INT_MIN。
-     * @param int $max 列表元素数量上限或整数允许的最大值，具体含义取决于方法。默认值为 PHP_INT_MAX。
-     * @return int 校验后的整数。
+     * @param string $key 要读取的字段名。
+     * @param int $min 允许的最小整数，包含边界。默认 PHP_INT_MIN。
+     * @param int $max 允许的最大整数，包含边界。默认 PHP_INT_MAX。
+     * @return int 通过检查的整数。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $age = $input->integer('age', 0, 150);
@@ -164,10 +164,10 @@ final class Input
         return $value;
     }
     /**
-     * 读取严格布尔值，不将 0、1 或字符串转换为布尔值。
+     * 读取布尔值。0、1 和字符串不会被转换成布尔值，类型不对时以 type 失败。
      *
-     * @param string $key 待验证字段的名称。
-     * @return bool 校验后的 true 或 false。
+     * @param string $key 要读取的字段名。
+     * @return bool 字段中的 true 或 false。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $enabled = $input->boolean('enabled');

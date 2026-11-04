@@ -63,7 +63,7 @@ final class Operations
         $this->admin->require($actor, $resource === 'users' ? 'users.manage' : $resource . '.view');
         if ($resource === 'users') {
             $user = $this->operationsData->user($id);
-            $user['account'] = Account::using($this->database)->whereUserId($id)->firstRow(['enabled', 'verified_at']);
+            $user['account'] = Account::whereUserId($id)->firstRow(['enabled', 'verified_at']);
             $user['roles'] = [];
             foreach (Role::forUser($this->database, $id) as $role) {
                 $user['roles'][] = ['id' => (int)$role->id, 'name' => $role->name];
@@ -88,7 +88,7 @@ final class Operations
             $page = max(1, $page);
             return ['items' => array_slice($items, ($page - 1) * 25, 25), 'total' => count($items), 'page' => $page];
         }
-        $records = $resource === 'orders' ? Order::using($this->database) : Job::using($this->database);
+        $records = $resource === 'orders' ? Order::query() : Job::query();
         $status = $query['status'][0] ?? '';
         $owner = $query['owner'][0] ?? '';
         if ($status !== '') {
@@ -109,11 +109,11 @@ final class Operations
             throw new HttpError(404, '记录不存在');
         }
         if ($id > 0 && $resource === 'orders') {
-            $result['details'] = OrderItem::using($this->database)->whereOrderId($id)->orderBy('id')->rows(['name', 'quantity', 'unit_price']);
-            $result['events'] = OrderEvent::using($this->database)->whereOrderId($id)->orderBy('id')->rows(['actor_id', 'status', 'created']);
+            $result['details'] = OrderItem::whereOrderId($id)->orderBy('id')->rows(['name', 'quantity', 'unit_price']);
+            $result['events'] = OrderEvent::whereOrderId($id)->orderBy('id')->rows(['actor_id', 'status', 'created']);
         }
         if ($id > 0 && $resource === 'queue') {
-            $job = Job::using($this->database)->findOrFail($id)->toArray();
+            $job = Job::findOrFail($id)->toArray();
             // 任意处理器的自由文本输出可能包含凭据，因此仅公开白名单中的结构化字段。
             $result['output'] = self::safeOutput($job['result']);
             $result['error'] = $job['error'] === null ? null : '任务执行失败；原始错误仅供服务器日志诊断';
@@ -168,7 +168,7 @@ final class Operations
                     throw new HttpError(422, '操作无效');
                 }
                 $id = $input->integer('id', 1);
-                $changed = Job::using($this->database)->whereId($id)->whereState('failed')
+                $changed = Job::whereId($id)->whereState('failed')
                     ->update(['state' => 'pending', 'attempts' => 0, 'available' => time(), 'lease' => null, 'lease_until' => null, 'error' => null]);
                 if ($changed !== 1) {
                     throw new HttpError(409, '仅失败任务可以重试，任务状态已变化');
@@ -190,7 +190,7 @@ final class Operations
             if (!preg_match('/^[a-zA-Z0-9-]+$/D', $key)) {
                 throw new HttpError(422, '请求标识无效');
             }
-            if (Order::using($this->database)->whereRequestKey($key)->exists()) {
+            if (Order::whereRequestKey($key)->exists()) {
                 throw new HttpError(409, '订单已经创建，请刷新列表');
             }
             $items = $input->items('items', 100);
@@ -216,11 +216,11 @@ final class Operations
                 }
                 $lines[] = [$name, $quantity, $price];
             }
-            $id = Order::using($this->database)->create(['number' => 'LO' . date('YmdHis') . strtoupper(bin2hex(random_bytes(6))), 'user_id' => $owner, 'total' => $total, 'request_key' => $key])->id;
+            $id = Order::create(['number' => 'LO' . date('YmdHis') . strtoupper(bin2hex(random_bytes(6))), 'user_id' => $owner, 'total' => $total, 'request_key' => $key])->id;
             foreach ($lines as $line) {
-                OrderItem::using($this->database)->create(['order_id' => $id, 'name' => $line[0], 'quantity' => $line[1], 'unit_price' => $line[2]]);
+                OrderItem::create(['order_id' => $id, 'name' => $line[0], 'quantity' => $line[1], 'unit_price' => $line[2]]);
             }
-            OrderEvent::using($this->database)->create(['order_id' => $id, 'actor_id' => $actor, 'status' => 'pending']);
+            OrderEvent::create(['order_id' => $id, 'actor_id' => $actor, 'status' => 'pending']);
             $this->admin->audit($actor, 'orders.create', (string)$id, ['total' => $total, 'user_id' => $owner]);
             return ['ok' => true, 'id' => $id];
         }
@@ -235,12 +235,12 @@ final class Operations
         if (!in_array($status, $allowed[$expected] ?? [], true)) {
             throw new HttpError(422, '不允许的状态变更');
         }
-        $changed = Order::using($this->database)->whereId($id)->whereStatus($expected)->update(['status' => $status]);
+        $changed = Order::whereId($id)->whereStatus($expected)->update(['status' => $status]);
         if ($changed !== 1) {
             throw new HttpError(409, '订单状态已变化');
         }
-        OrderEvent::using($this->database)->create(['order_id' => $id, 'actor_id' => $actor, 'status' => $status]);
-        $order = Order::using($this->database)->findOrFail($id)->toArray();
+        OrderEvent::create(['order_id' => $id, 'actor_id' => $actor, 'status' => $status]);
+        $order = Order::findOrFail($id)->toArray();
         $this->notifications->emit('order:' . $id . ':' . $status, (int)$order['user_id'], '订单状态更新', '订单 ' . $order['number'] . '：' . (['processing' => '处理中', 'completed' => '已完成', 'cancelled' => '已取消'][$status]));
         $this->admin->audit($actor, 'orders.transition', (string)$id, ['from' => $expected, 'to' => $status]);
         return ['ok' => true];

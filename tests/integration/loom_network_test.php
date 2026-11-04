@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 use Loom\TcpServer;
 use Loom\GrpcGenerator;
 use Loom\Config;

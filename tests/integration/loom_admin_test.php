@@ -1,7 +1,7 @@
 <?php
 
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 use App\Services\Access\Admin;
 use App\Services\Identity\Account;

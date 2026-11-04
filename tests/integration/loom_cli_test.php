@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 use Loom\Process;
 use Loom\Config;
 
@@ -69,11 +69,11 @@ file_put_contents($migrationRoot . '/migrations/001_probe.up.sql', 'CREATE TABLE
 file_put_contents($migrationRoot . '/migrations/001_probe.down.sql', 'DROP TABLE console_migration_probe;');
 $migrationScope = new \Loom\ServiceScope(new \Loom\Config($migrationRoot));
 try {
-    $migrationConsole = $migrationScope->services()->get(\Loom\Console\ConsoleKernel::class)->console();
+    $migrationConsole = $migrationScope->container()->get(\Loom\Console\ConsoleKernel::class)->console();
     foreach (['migrate:up', 'migrate:status', 'migrate:down', 'migrate:up'] as $command) {
         checkCli($migrationConsole->call([$command]) === 0, 'Programmatic migration: ' . $command);
     }
-    checkCli(count($migrationScope->services()->get(\Loom\Database::class)->query('SELECT * FROM console_migration_probe')) === 0, 'Migration reapplied after rollback');
+    checkCli(count($migrationScope->container()->get(\Loom\Database::class)->query('SELECT * FROM console_migration_probe')) === 0, 'Migration reapplied after rollback');
 } finally {
     $migrationScope->close();
     foreach (['config/database.php', 'config/migrations.php', 'migrations/001_probe.up.sql', 'migrations/001_probe.down.sql'] as $file) {

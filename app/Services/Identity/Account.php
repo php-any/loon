@@ -40,14 +40,14 @@ final class Account
             }
             $id = $account['id'];
             $token = bin2hex(random_bytes(32));
-            AccountToken::using($this->database)->whereUserId($id)->wherePurpose($purpose)->delete();
-            AccountToken::using($this->database)->where('expires', '<=', time())->delete();
-            AccountToken::using($this->database)->create(['token' => hash('sha256', $token), 'user_id' => $id, 'purpose' => $purpose, 'expires' => time() + 1800]);
+            AccountToken::whereUserId($id)->wherePurpose($purpose)->delete();
+            AccountToken::where('expires', '<=', time())->delete();
+            AccountToken::create(['token' => hash('sha256', $token), 'user_id' => $id, 'purpose' => $purpose, 'expires' => time() + 1800]);
             $label = $purpose === 'reset' ? '重置密码' : '验证邮箱';
-            Mail::using($this->database)->whereRecipient($email)->whereSubject('Loom · ' . $label)->whereIn('state', ['pending', 'failed'])->update(['state' => 'expired', 'body' => '']);
+            Mail::whereRecipient($email)->whereSubject('Loom · ' . $label)->whereIn('state', ['pending', 'failed'])->update(['state' => 'expired', 'body' => '']);
             // 邮件不包含请求中的 Host/Origin，防止伪造主机名窃取令牌。
             $body = '你请求了 Loom ' . $label . '。请在原站点 /admin 的账户安全页面粘贴以下验证码。验证码 30 分钟内有效，仅可使用一次。' . "\n\n" . $token . "\n\n如果不是你本人操作，请忽略此邮件。";
-            Mail::using($this->database)->create(['recipient' => $email, 'subject' => 'Loom · ' . $label, 'body' => $body]);
+            Mail::create(['recipient' => $email, 'subject' => 'Loom · ' . $label, 'body' => $body]);
             $this->admin->audit($id, 'account.' . $purpose . '.requested', (string)$id);
         });
     }
@@ -69,14 +69,14 @@ final class Account
             }
             $this->admin->assertActive($id);
             $this->admin->enroll($id);
-            AccountToken::using($this->database)->whereUserId($id)->wherePurpose($purpose)->delete();
-            $email = User::using($this->database)->findOrFail($id)->email;
-            Mail::using($this->database)->whereRecipient($email)->whereSubject('Loom · ' . ($purpose === 'reset' ? '重置密码' : '验证邮箱'))->whereIn('state', ['pending', 'failed'])->update(['state' => 'expired', 'body' => '']);
+            AccountToken::whereUserId($id)->wherePurpose($purpose)->delete();
+            $email = User::findOrFail($id)->email;
+            Mail::whereRecipient($email)->whereSubject('Loom · ' . ($purpose === 'reset' ? '重置密码' : '验证邮箱'))->whereIn('state', ['pending', 'failed'])->update(['state' => 'expired', 'body' => '']);
             if ($purpose === 'reset') {
-                User::using($this->database)->whereId($id)->update(['password' => $hash]);
+                User::whereId($id)->update(['password' => $hash]);
                 $this->auth->revoke($id);
             } else {
-                AccountRecord::using($this->database)->whereUserId($id)->update(['verified_at' => time()]);
+                AccountRecord::whereUserId($id)->update(['verified_at' => time()]);
             }
             $this->admin->audit($id, 'account.' . $purpose . '.completed', (string)$id);
         });
@@ -86,8 +86,8 @@ final class Account
     {
         $mail = $this->database->transaction(function (): array {
             // 清理过期令牌，以及验证码已不可用的排队消息。
-            AccountToken::using($this->database)->where('expires', '<=', time())->delete();
-            Mail::using($this->database)->where('created', '<=', time() - 1800)->whereIn('state', ['pending', 'sending', 'failed'])->update(['state' => 'expired', 'body' => '']);
+            AccountToken::where('expires', '<=', time())->delete();
+            Mail::where('created', '<=', time() - 1800)->whereIn('state', ['pending', 'sending', 'failed'])->update(['state' => 'expired', 'body' => '']);
             return Mail::claim($this->database, time());
         });
         if ($mail === []) {
@@ -103,7 +103,7 @@ final class Account
         if ($result['ok']) {
             $attributes['body'] = '';
         }
-        Mail::using($this->database)->whereId($mail['id'])->update($attributes);
+        Mail::whereId($mail['id'])->update($attributes);
         return ['id' => (int)$mail['id'], 'state' => $state];
     }
 }

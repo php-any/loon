@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom\Models;
 
 /**
- * 保存周期或 Cron 计划及下次执行时间，映射到 loom_schedules；继承 Model 的查询方法，实例本身不自动持久化。
- *
- * 构造参数：本声明未定义构造参数；继承类型沿用父类的构造约定。
- *
- * 返回值：使用 new 构造时得到 ScheduledJob 实例；注册到容器时由容器管理实例的创建与复用。
+ * loom_schedules 的一行。保存计划名、任务种类、间隔或 Cron，以及下次运行时间。new 出来的对象不会自己写库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $rows = \Loom\Models\ScheduledJob::using($database)->limit(10)->rows();
+ * @example $schedule = new ScheduledJob();
  */
 #[\Database\Annotation\Table('loom_schedules')]
 final class ScheduledJob extends \Loom\Model
@@ -20,8 +16,8 @@ final class ScheduledJob extends \Loom\Model
     /**
      * 按编号 SELECT FOR UPDATE 锁定计划，调用方负责持有事务直到更新提交。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param int $id 计划记录主键。
+     * @param \Loom\Database $database 执行这条 SELECT ... FOR UPDATE 的数据库。调用方需要已经处在事务里。
+     * @param int $id 要锁定的计划主键。
      * @return ?array 计划记录；不存在时为 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -36,14 +32,14 @@ final class ScheduledJob extends \Loom\Model
     /**
      * 插入或更新 Cron 计划；表达式及时区不变时保留原 next_run。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param string $name 计划唯一名称。
-     * @param string $kind 执行时投递的 Job 种类。
-     * @param string $payload 已经编码为 JSON 的任务载荷字符串。
-     * @param int $owner 任务所属用户编号。
-     * @param int $next 下次运行的 Unix 时间戳，单位秒。
-     * @param string $expression 五字段 Cron 表达式，应在调用前完成校验。
-     * @param string $timezone 用于 Cron 的明确 IANA 时区。
+     * @param \Loom\Database $database 执行这条 Cron 计划插入或更新的数据库。
+     * @param string $name 计划的唯一名称，冲突时按它更新。
+     * @param string $kind 到期后要投递的任务种类。
+     * @param string $payload 已经编码好的 JSON 载荷。
+     * @param int $owner 生成任务时使用的用户编号。
+     * @param int $next 新计划或规则变化时写入的下次运行时间，单位秒。规则没变则保留原值。
+     * @param string $expression 要保存的五字段 Cron。本方法不再解析它。
+     * @param string $timezone 和表达式一起保存的 IANA 时区。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -57,13 +53,13 @@ final class ScheduledJob extends \Loom\Model
     /**
      * 保存固定间隔计划；间隔不变时保留下次时间，切换模式时清除 Cron 字段。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param string $name 计划唯一名称。
-     * @param string $kind 执行时投递的 Job 种类。
-     * @param string $payload 已经编码为 JSON 的任务载荷字符串。
-     * @param int $owner 任务所属用户编号。
-     * @param int $seconds 固定运行间隔，单位秒，应由上层先校验。
-     * @param int $next 下次运行的 Unix 时间戳，单位秒。
+     * @param \Loom\Database $database 执行这条间隔计划插入或更新的数据库。
+     * @param string $name 计划的唯一名称，冲突时按它更新。
+     * @param string $kind 到期后要投递的任务种类。
+     * @param string $payload 已经编码好的 JSON 载荷。
+     * @param int $owner 生成任务时使用的用户编号。
+     * @param int $seconds 要保存的固定间隔，单位秒。本方法不检查范围。
+     * @param int $next 新计划、刚从 Cron 改过来或间隔变了时写入的下次运行时间，单位秒。间隔没变则保留原值。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -77,8 +73,8 @@ final class ScheduledJob extends \Loom\Model
     /**
      * 在调用方事务内锁定最多 100 条已到期的启用计划，跳过其他工作进程已锁定的记录。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param int $now 用于筛选到期计划的 Unix 时间戳，单位秒。
+     * @param \Loom\Database $database 在调用方事务里锁定到期行的数据库。
+     * @param int $now 用来和 next_run 比较的秒级时间戳。
      * @return array 可由当前工作进程推进的计划行列表。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：

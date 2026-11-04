@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Loom\Console\Commands;
 
 /**
- * 执行运行时依赖检查，成功后打印检查结果。由控制台容器解析依赖并调用。
+ * doctor 命令。调用已保存的 Doctor 做运行时检查，通过后写一行 Origami std: OK 并返回 0。检查失败时不会写这一行。
  *
  * 构造参数：
- * - $doctor（\Loom\Doctor）：运行时依赖检查服务。
+ * - $doctor（\Loom\Doctor）：要执行的运行时检查。
  *
- * 返回值：使用 new 构造时得到 DoctorCommand 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：尚未开始检查的 DoctorCommand。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $console->run(['doctor']);
@@ -21,24 +21,24 @@ final class DoctorCommand extends \Loom\Console\Command
     protected string $description = '验证 Origami 标准库能力';
 
     /**
-     * 初始化 DoctorCommand 实例及其依赖。执行运行时依赖检查，成功后打印检查结果。由控制台容器解析依赖并调用。
+     * 保存运行时检查服务。不调用 check。
      *
-     * @param \Loom\Doctor $doctor 运行时依赖检查服务。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Doctor $doctor 要保存的 Doctor。
+     * @return void 无返回值，检查服务已保存在实例上。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $console->run(['doctor']);
+     * @example $command = new \Loom\Console\Commands\DoctorCommand($doctor);
      */
     public function __construct(private \Loom\Doctor $doctor)
     {
     }
 
     /**
-     * 执行运行时依赖检查，成功后打印检查结果。
+     * 调用保存的 Doctor::check。通过后写一行 Origami std: OK 并返回 0。check 抛出时这一行不会写出，异常交给控制台。
      *
      * 参数：无。
      *
-     * @return int 成功返回 0；异常交给控制台转换为非零退出码。
+     * @return int 检查通过后为 0。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $console->run(['doctor']);

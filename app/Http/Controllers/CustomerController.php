@@ -10,6 +10,7 @@ use Loom\HttpError;
 use App\Models\Customers\Customer;
 use App\Models\Customers\CustomerSession;
 use App\Models\Customers\Purchase;
+use App\Services\Customers\CheckoutOffer;
 
 #[\Loom\Attributes\Controller]
 final class CustomerController
@@ -17,20 +18,25 @@ final class CustomerController
     #[\Loom\Attributes\Route('GET', '/account')]
     public function page(Request $request): Response
     {
-        return \App\Presentation\SitePages::page('customer', '用户中心');
+        return \App\Presentation\SitePages::page('customer', '用户中心', [
+            'planName' => $this->offer->name(),
+            'planPrice' => $this->offer->price(),
+        ]);
     }
 
     private \App\Services\Customers\CustomerAuth $customers;
     private \Loom\Auth $auth;
     private \Loom\Database $database;
     private \App\Services\Access\Admin $admin;
+    private CheckoutOffer $offer;
 
-    public function __construct(\App\Services\Customers\CustomerAuth $customers, \Loom\Auth $auth, \Loom\Database $database, \App\Services\Access\Admin $admin)
+    public function __construct(\App\Services\Customers\CustomerAuth $customers, \Loom\Auth $auth, \Loom\Database $database, \App\Services\Access\Admin $admin, CheckoutOffer $offer)
     {
         $this->customers = $customers;
         $this->auth = $auth;
         $this->database = $database;
         $this->admin = $admin;
+        $this->offer = $offer;
     }
 
     #[\Loom\Attributes\Route('GET', '/api/customer/session')]
@@ -62,7 +68,7 @@ final class CustomerController
     public function orders(Request $request): Response
     {
         $user = $this->customers->guard();
-        $items = Purchase::using($this->database)->whereCustomerId($user['id'])->orderBy('id', 'DESC')->limit(25)->rows(['id', 'number', 'total', 'status', 'created']);
+        $items = Purchase::whereCustomerId($user['id'])->orderBy('id', 'DESC')->limit(25)->rows(['id', 'number', 'total', 'status', 'created']);
         return Response::json(['items' => $items])->withHeader('Cache-Control', 'no-store');
     }
 
@@ -92,12 +98,12 @@ final class CustomerController
         $result = $this->database->transaction(function () use ($actor, $input, $id, $name, $enabled): array {
             if ($id === 0) {
                 $id = $this->customers->create($name, $input->string('email', 3, 254), $input->string('password', 10, 72));
-            } elseif (!Customer::using($this->database)->whereId($id)->exists()) {
+            } elseif (!Customer::whereId($id)->exists()) {
                 throw new HttpError(404, '用户不存在');
             }
-            Customer::using($this->database)->whereId($id)->update(['name' => $name, 'enabled' => $enabled ? 1 : 0]);
+            Customer::whereId($id)->update(['name' => $name, 'enabled' => $enabled ? 1 : 0]);
             if (!$enabled) {
-                CustomerSession::using($this->database)->whereCustomerId($id)->delete();
+                CustomerSession::whereCustomerId($id)->delete();
             }
             $this->admin->audit($actor['id'], 'customers.save', (string)$id, ['name' => $name, 'enabled' => $enabled]);
             return ['ok' => true, 'id' => $id];

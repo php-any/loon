@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 $scope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$services = $scope->services();
+$services = $scope->container();
 $database = $services->get(\Loom\Database::class);
-$database->connect($services->get(\Loom\Config::class)->get('database.dsn'));
+$database->connect($database->pdoDsn());
 
 function checkModelCoverage(bool $condition, string $message): void
 {

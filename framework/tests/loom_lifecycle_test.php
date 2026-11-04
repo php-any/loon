@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 require __DIR__ . '/fixtures/modules/components.php';
 
 /**
@@ -63,7 +63,7 @@ class AlternateMatcher implements Loom\RouteMatcher
         }, ['id' => 'alternate']);
     }
 }
-$kernel = new Loom\HttpKernel(new AlternateMatcher(), (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->services());
+$kernel = new Loom\HttpKernel(new AlternateMatcher(), (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container());
 lifecycleCheck($kernel->handle(new Loom\Request(['method' => 'GET', 'path' => '/']))->toArray()['body'] === 'alternate', 'Kernel accepts an independent matcher');
 
 // 工厂可以复用发现结果，但各应用拥有独立的容器和路由。
@@ -73,13 +73,13 @@ $modules->register(ModuleFixtures\Endpoint::class);
 $factory = new Loom\ApplicationFactory($modules);
 $factory->routes(function (Loom\Router $routes, Loom\Application $app) use ($runtimeServices): void {
     $routes->get('/factory', function ($request) use ($app, $runtimeServices) {
-        return new Loom\Response($app->services()->get('module.value')->text());
+        return new Loom\Response($app->container()->get('module.value')->text());
     });
 });
 $first = $factory->create();
 $second = $factory->create();
 lifecycleCheck($second->handle(new Loom\Request(['method' => 'GET', 'path' => '/factory']))->toArray()['body'] === 'injected', 'Factory callback receives the current application');
-lifecycleCheck($first->services()->get('module.value') !== $second->services()->get('module.value'), 'Factory applications must isolate services');
+lifecycleCheck($first->container()->get('module.value') !== $second->container()->get('module.value'), 'Factory applications must isolate services');
 $first->router()->get('/first-only', function ($request) use ($runtimeServices) {
     return new Loom\Response('first');
 });

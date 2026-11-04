@@ -5,28 +5,28 @@ declare(strict_types=1);
 namespace Loom\Attributes;
 
 /**
- * 为构造参数指定服务标识，替代按类型自动解析；不能与 InjectConfig 同时用于同一参数。
+ * 标在构造参数上，让 ConfigInjector 按标识取服务。同一参数不能再标 InjectConfig，这项冲突由注入器拒绝。
  *
  * 构造参数：
- * - $id（string）：非空服务标识，必须能由当前容器解析。
+ * - $id（string）：要保存的服务标识。构造时不检查它是否为空，也不查询容器。
  *
- * 返回值：使用 new 构造时得到 Inject 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 Inject。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example public function __construct(#[\Loom\Attributes\Inject('clock')] \DateTimeImmutable $clock) {}
+ * @example $inject = new Inject('clock');
  */
 #[\Attribute(\Attribute::TARGET_PARAMETER)]
 final class Inject
 {
     public string $id;
     /**
-     * 初始化 Inject 实例及其依赖。为构造参数指定服务标识，替代按类型自动解析；不能与 InjectConfig 同时用于同一参数。
+     * 把服务标识写入公开属性。不向容器查询这个标识能否解析。
      *
-     * @param string $id 非空服务标识，必须能由当前容器解析。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $id 构造该参数时要向容器 get 的服务标识。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example public function __construct(#[\Loom\Attributes\Inject('clock')] \DateTimeImmutable $clock) {}
+     * @example $inject = new Inject('clock');
      */
     public function __construct(string $id)
     {

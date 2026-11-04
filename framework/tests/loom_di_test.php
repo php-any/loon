@@ -34,24 +34,24 @@ $root = new Loom\ServiceScope(new Loom\Config(), function (Loom\Container $c) us
 });
 $a = $root->fork();
 $b = $a->fork();
-$c = $a->services();
-$d = $b->services();
+$c = $a->container();
+$d = $b->container();
 diCheck($calls === 1, 'Registration callback runs once');
 diReject(static function () use ($root): void {
     new Loom\ServiceScope(new Loom\Config(), static function (): void {
-    }, $root->services());
+    }, $root->container());
 }, 'root scope');
 diCheck($c->resolved('shared') === null, 'Singleton is lazy');
 diCheck($c->resolvedLocal('shared') === null, 'Scope cleanup excludes singleton cache');
-diCheck($c->get('shared') === $d->get('shared') && $c->get('shared') === $root->services()->get('shared.alias'), 'Singleton spans nested scopes');
+diCheck($c->get('shared') === $d->get('shared') && $c->get('shared') === $root->container()->get('shared.alias'), 'Singleton spans nested scopes');
 diCheck($c->get(DiContract::class) === $c->get('scoped.alias') && $c->get(DiContract::class) !== $d->get(DiContract::class), 'Scoped identity');
 diCheck($c->get('fresh') !== $c->get('fresh.alias') && $c->get('fresh') !== $d->get('fresh'), 'Transient identity');
 diCheck($c->get(DiDependency::class)->service === $c->get(DiContract::class), 'Constructor uses current scope binding');
 diCheck($c->get(DiDependency::class) !== $d->get(DiDependency::class), 'Unregistered concrete classes default to scoped');
 diCheck($c->get(Loom\Container::class) === $c && $c->get(Loom\ServiceScope::class) === $a, 'Local host bindings');
 $other = new Loom\ServiceScope(new Loom\Config());
-$other->services()->singleton('shared', DiService::class);
-diCheck($other->services()->get('shared') !== $c->get('shared'), 'Independent application singletons are isolated');
+$other->container()->singleton('shared', DiService::class);
+diCheck($other->container()->get('shared') !== $c->get('shared'), 'Independent application singletons are isolated');
 $c->singleton('bad.direct', fn ($services) => $services->get(DiContract::class));
 $c->transient('bridge', fn ($services) => $services->get('scoped.alias'));
 $c->singleton('bad.indirect', fn ($services) => $services->get('bridge'));
@@ -79,7 +79,7 @@ $invalid = new Loom\Container();
 $invalid->scoped(DiContract::class, DiResource::class);
 diReject(fn () => $invalid->get(DiContract::class), 'must implement');
 $singletonResource = $c->get('singleton.resource');
-diCheck($root->services()->resolvedLocal('singleton.resource') === null, 'Root cleanup also excludes application singleton');
+diCheck($root->container()->resolvedLocal('singleton.resource') === null, 'Root cleanup also excludes application singleton');
 $scopedResource = $c->get('scoped.resource');
 $transientResource = $c->get('transient.resource');
 $a->close(); $a->close();
@@ -97,7 +97,7 @@ $c->singleton('concurrent', function () use ($state) {
 $workers = [];
 for ($i = 0; $i < 12; $i++) {
     $worker = new stdClass();
-    $worker->services = $root->fork()->services();
+    $worker->services = $root->fork()->container();
     $worker->result = null;
     $worker->error = null;
     $worker->done = false;
@@ -120,8 +120,8 @@ foreach ($workers as $worker) {
     diCheck($worker->result === $c->get('concurrent'), 'Concurrent requests share one singleton');
 }
 diCheck($state->calls === 1, 'Concurrent first resolution constructs exactly once');
-$root->services()->get(Loom\Config::class)->setRoot(dirname(__DIR__, 2));
-$modules = $root->services()->get(Loom\ModuleRegistry::class);
+$root->container()->get(Loom\Config::class)->setRoot(dirname(__DIR__, 2));
+$modules = $root->container()->get(Loom\ModuleRegistry::class);
 foreach ([DiModuleSingleton::class, DiModuleScoped::class, DiModuleTransient::class] as $class) { $modules->register($class); }
 $modules->services($c);
 $modules->services($d);

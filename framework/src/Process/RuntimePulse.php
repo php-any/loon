@@ -6,18 +6,10 @@ namespace Loom;
 
 // 使用专用连接，避免后台遥测参与请求事务。
 /**
- * 记录指定后台进程的启动时间和心跳计数，每次写入使用专用数据库连接，避免参与请求事务。
- *
- * 构造参数：
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- * - $database（\Loom\Database）：注入的作用域数据库服务；beat 的遥测写入仍另建专用连接。
- * - $name（string）：后台进程标识，例如 queue 或 scheduler。
- * - $interval（int）：预期心跳间隔，单位秒，用于状态展示。
- *
- * 返回值：使用 new 构造时得到 RuntimePulse 实例；注册到容器时由容器管理实例的创建与复用。
+ * 记住一个后台进程的名字、启动时间和心跳节拍。写库时另开连接，不进调用方的事务。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $pulse = new RuntimePulse($config, $database, 'queue', 1); $pulse->beat();
+ * @example $pulse = new RuntimePulse($config, $database, 'queue', 1);
  */
 final class RuntimePulse
 {
@@ -28,16 +20,16 @@ final class RuntimePulse
     private int $ticks = 0;
 
     /**
-     * 初始化 RuntimePulse 实例及其依赖。记录指定后台进程的启动时间和心跳计数，每次写入使用专用数据库连接，避免参与请求事务。
+     * 保存配置、数据库、进程名和间隔，并把启动时间记为现在。节拍从 0 开始。这里不写心跳。
      *
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @param \Loom\Database $database 注入的作用域数据库服务；beat 的遥测写入仍另建专用连接。
-     * @param string $name 后台进程标识，例如 queue 或 scheduler。
-     * @param int $interval 预期心跳间隔，单位秒，用于状态展示。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Config $config 以后用它另建一条数据库连接。
+     * @param \Loom\Database $database 只保存。beat 不读取它，避免写进调用方的事务。
+     * @param string $name 心跳行使用的进程名，例如 queue。
+     * @param int $interval 预期节拍间隔，单位秒，以后原样写入。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $pulse = new RuntimePulse($config, $database, 'queue', 1); $pulse->beat();
+     * @example $pulse = new RuntimePulse($config, $database, 'queue', 1);
      */
     public function __construct(\Loom\Config $config, \Loom\Database $database, private string $name, private int $interval)
     {

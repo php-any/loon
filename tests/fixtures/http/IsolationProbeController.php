@@ -29,9 +29,9 @@ final class IsolationProbeController implements Action
         $observed = '';
         try {
             $this->database->transaction(function () use ($token, &$observed): void {
-                IsolationRecord::using($this->database)->create(['token' => $token]);
+                IsolationRecord::create(['token' => $token]);
                 usleep(10000);
-                $observed = IsolationRecord::using($this->database)->where('token', $token)->first()->token;
+                $observed = IsolationRecord::where('token', $token)->first()->token;
                 throw new \RuntimeException('rollback probe');
             });
         } catch (\RuntimeException $error) {
@@ -39,7 +39,7 @@ final class IsolationProbeController implements Action
                 throw $error;
             }
         }
-        $rolledBack = IsolationRecord::using($this->database)->where('token', $token)->count() === 0;
+        $rolledBack = IsolationRecord::where('token', $token)->count() === 0;
         return Response::json(['token' => $this->context->current()->header('x-loom-probe'), 'counter' => $this->visits,
             'modelToken' => $observed, 'rolledBack' => $rolledBack])
             ->withHeader('Cache-Control', 'no-store');

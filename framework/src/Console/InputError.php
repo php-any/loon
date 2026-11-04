@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 区分命令行输入错误与程序内部错误，Console 将该异常转换为退出码 2。无自定义构造参数，沿用 RuntimeException。
+ * 表示命令行用法或签名解析失败。Console::run 捕获后把消息写到错误输出并返回退出码 2，不把它收成内部错误的退出码 1。本类没有自己的构造函数，消息、代码和前一个异常沿用 RuntimeException。
  *
- * 构造参数：本声明未定义构造参数；继承类型沿用父类的构造约定。
+ * 构造参数：无自身构造参数，使用父类 RuntimeException 的消息、代码和前一个异常。
  *
- * 返回值：使用 new 构造时得到 InputError 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：可被 Console::run 识别为输入错误的异常。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example throw new \Loom\Console\InputError('缺少必填参数');

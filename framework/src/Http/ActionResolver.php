@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 验证路由处理器定义，并在真正分发时从容器解析控制器，避免路由匹配阶段构造业务对象。
+ * 检查路由处理器的形状，并在分发时才从容器取出控制器。
  *
  * 构造参数：
- * - $container（Container）：服务容器；允许 null 时由当前对象创建或选择默认容器。
+ * - $container（Container）：按类名取出控制器的服务容器。
  *
- * 返回值：使用 new 构造时得到 ActionResolver 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 ActionResolver 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $resolver = new ActionResolver($services);
@@ -19,10 +19,10 @@ final class ActionResolver
 {
     private Container $container;
     /**
-     * 初始化 ActionResolver 实例及其依赖。验证路由处理器定义，并在真正分发时从容器解析控制器，避免路由匹配阶段构造业务对象。
+     * 保存服务容器。构造时不创建控制器。
      *
-     * @param Container $container 服务容器；允许 null 时由当前对象创建或选择默认容器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param Container $container 按类名取出控制器的服务容器。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $resolver = new ActionResolver($services);
@@ -32,10 +32,10 @@ final class ActionResolver
         $this->container = $container;
     }
     /**
-     * 检查处理器是否为类名、可调用对象或 [控制器, 方法名] 结构；不实例化控制器。
+     * 检查处理器是 [控制器, 方法名]、类名字符串或可调用对象。数组长度不是 2、方法名为空，或控制器既不是字符串也不是对象时抛出 LogicException。这里不实例化控制器。
      *
-     * @param mixed $action 路由处理目标，可为容器中的类名、可调用对象或控制器方法。
-     * @return void 无返回值；结构无效时抛出 LogicException。
+     * @param mixed $action 待检查的处理器定义。
+     * @return void 无返回值。结构无效时抛出 LogicException。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example ActionResolver::validate([\App\Http\Controllers\HomeController::class, '__invoke']);
@@ -55,13 +55,13 @@ final class ActionResolver
         }
     }
     /**
-     * 把控制器类名或方法定义解析为公开可调用对象，类实例由容器提供。
+     * 把类名或 [类名, 方法] 变成可调用对象。字符串类名通过容器取出，数组中的对象控制器保持原实例。结果不可调用时抛出 LogicException。
      *
-     * @param mixed $action 路由处理目标，可为容器中的类名、可调用对象或控制器方法。
-     * @return callable 可接受 Request 的处理器；不可调用时抛出 LogicException。
+     * @param mixed $action 类名、可调用对象，或 [控制器类名或实例, 方法名]。
+     * @return callable 可接受 Request 的公开可调用对象。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $handler = $resolver->resolve($controllerClass);
+     * @example $handler = $resolver->resolve([\App\Http\Controllers\HomeController::class, '__invoke']);
      */
     public function resolve(mixed $action): callable
     {

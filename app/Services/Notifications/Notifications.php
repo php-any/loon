@@ -31,14 +31,14 @@ final class Notifications
     // 事务由调用方管理，因此业务状态及其发件箱会一起提交。
     public function emit(string $event, int $user, string $title, string $body): void
     {
-        $created = Notification::using($this->database)->insertOrIgnore(['event_key' => $event, 'user_id' => $user, 'title' => $title, 'body' => $body], ['event_key', 'user_id']);
+        $created = Notification::insertOrIgnore(['event_key' => $event, 'user_id' => $user, 'title' => $title, 'body' => $body], ['event_key', 'user_id']);
         if ($created->rowsAffected !== 1) {
             return;
         }
         // 持久化队列记录与通知及业务事务一起提交。
         $this->queue->dispatch('notification.push', ['notification_id' => $created->insertId], $user);
-        foreach (Channel::using($this->database)->whereEnabled(1)->rows(['channel']) as $channel) {
-            Delivery::using($this->database)->create(['notification_id' => $created->insertId, 'channel' => $channel['channel']]);
+        foreach (Channel::whereEnabled(1)->rows(['channel']) as $channel) {
+            Delivery::create(['notification_id' => $created->insertId, 'channel' => $channel['channel']]);
         }
     }
     public function inbox(int $actor, int $page, string $status = 'all'): array
@@ -46,19 +46,19 @@ final class Notifications
         if (!in_array($status, ['all', 'unread', 'read'], true)) {
             throw new HttpError(422, '通知状态无效');
         }
-        $query = Notification::using($this->database)->whereUserId($actor);
+        $query = Notification::whereUserId($actor);
         if ($status !== 'all') {
             $query = $query->where('read_at', $status === 'unread' ? '=' : '!=', null);
         }
         $result = $query->orderBy('id', 'DESC')->paginate($page, ['id', 'title', 'body', 'read_at', 'created']);
-        $result['unread'] = Notification::using($this->database)->whereUserId($actor)->whereReadAt(null)->count();
+        $result['unread'] = Notification::whereUserId($actor)->whereReadAt(null)->count();
         return $result;
     }
     public function read(int $actor, Input $input): array
     {
         if ($input->string('action') === 'read_all') {
             $input->only(['action']);
-            Notification::using($this->database)->whereUserId($actor)->whereReadAt(null)->update(['read_at' => time()]);
+            Notification::whereUserId($actor)->whereReadAt(null)->update(['read_at' => time()]);
             return ['ok' => true];
         }
         $input->only(['action', 'id']);
@@ -66,8 +66,8 @@ final class Notifications
             throw new HttpError(422, '操作无效');
         }
         $id = $input->integer('id', 1);
-        $changed = Notification::using($this->database)->whereId($id)->whereUserId($actor)->whereReadAt(null)->update(['read_at' => time()]);
-        if ($changed !== 1 && !Notification::using($this->database)->whereId($id)->whereUserId($actor)->exists()) {
+        $changed = Notification::whereId($id)->whereUserId($actor)->whereReadAt(null)->update(['read_at' => time()]);
+        if ($changed !== 1 && !Notification::whereId($id)->whereUserId($actor)->exists()) {
             throw new HttpError(404, '通知不存在');
         }
         return ['ok' => true];
@@ -75,7 +75,7 @@ final class Notifications
     public function channelStatus(): array
     {
         $out = [];
-        foreach (Channel::using($this->database)->orderBy('channel')->rows() as $row) {
+        foreach (Channel::orderBy('channel')->rows() as $row) {
             $configured = $row['channel'] === 'mail' ? (getenv('LOOM_SMTP_ADDRESS') !== false && getenv('LOOM_SMTP_ADDRESS') !== '' && getenv('LOOM_SMTP_FROM') !== false && getenv('LOOM_SMTP_FROM') !== '') : ($row['url'] !== '' && $row['secret_env'] !== '' && strlen((string)getenv($row['secret_env'])) >= 32);
             $out[] = ['channel' => $row['channel'], 'enabled' => (bool)$row['enabled'], 'configured' => $configured];
         }
@@ -83,7 +83,7 @@ final class Notifications
     }
     public function channels(): array
     {
-        return ['items' => Channel::using($this->database)->orderBy('channel')->rows(['channel', 'enabled', 'url', 'secret_env']), 'status' => $this->channelStatus()];
+        return ['items' => Channel::orderBy('channel')->rows(['channel', 'enabled', 'url', 'secret_env']), 'status' => $this->channelStatus()];
     }
     public function configure(int $actor, Input $input): array
     {
@@ -114,7 +114,7 @@ final class Notifications
             throw new HttpError(422, '请先配置 SMTP 环境变量');
         }
         return $this->database->transaction(function () use ($actor, $channel, $enabled, $url, $secret): array {
-            Channel::using($this->database)->whereChannel($channel)->update(['enabled' => $enabled ? 1 : 0, 'url' => $url, 'secret_env' => $secret]);
+            Channel::whereChannel($channel)->update(['enabled' => $enabled ? 1 : 0, 'url' => $url, 'secret_env' => $secret]);
             $this->admin->audit($actor, 'channels.save', $channel, ['enabled' => $enabled]);
             return ['ok' => true];
         });
@@ -146,7 +146,7 @@ final class Notifications
         $input->only(['action', 'id']);
         $id = $input->integer('id', 1);
         return $this->database->transaction(function () use ($actor, $id): array {
-            $changed = Delivery::using($this->database)->whereId($id)->whereState('failed')->update(['state' => 'pending', 'attempts' => 0, 'available' => time(), 'lease' => null, 'lease_until' => null, 'error' => null]);
+            $changed = Delivery::whereId($id)->whereState('failed')->update(['state' => 'pending', 'attempts' => 0, 'available' => time(), 'lease' => null, 'lease_until' => null, 'error' => null]);
             if ($changed !== 1) {
                 throw new HttpError(409, '仅失败投递可以重试');
             }
@@ -171,7 +171,7 @@ final class Notifications
                 foreach ($recipients as $user) {
                     $this->emit('job.failed:' . $job['id'], $user, '任务最终失败', '任务 #' . $job['id'] . ' 已达到失败状态，请在队列管理中查看。');
                 }
-                FailureEvent::using($this->database)->create(['job_id' => (int)$job['id']]);
+                FailureEvent::create(['job_id' => (int)$job['id']]);
             }
         });
     }
@@ -191,7 +191,7 @@ final class Notifications
             } elseif ($delivery['channel'] === 'mail') {
                 $ok = (bool)json_decode(\Loom\Native\sendMail($message['email'], $message['title'], $message['body']), true)['ok'];
             } else {
-                $channel = Channel::using($this->database)->whereChannel('webhook')->firstOrFail()->toArray();
+                $channel = Channel::whereChannel('webhook')->firstOrFail()->toArray();
                 $body = json_encode(['event_id' => 'notification-' . $message['id'], 'user_id' => (int)$message['user_id'], 'title' => $message['title'], 'body' => $message['body']], JSON_THROW_ON_ERROR);
                 $ok = (bool)json_decode(\Loom\Native\webhook('send', $channel['url'], $channel['secret_env'], $body), true)['ok'];
             }
@@ -199,7 +199,7 @@ final class Notifications
             $ok = false;
         }
         $state = $ok ? 'sent' : ((int)$delivery['attempts'] >= 3 ? 'failed' : 'pending');
-        $changed = Delivery::using($this->database)->whereId($delivery['id'])->whereLease($lease)->update(['state' => $state, 'available' => time() + 30 * (int)$delivery['attempts'], 'lease' => null, 'lease_until' => null, 'error' => $ok ? null : '渠道投递失败，请检查服务配置或接收端']);
+        $changed = Delivery::whereId($delivery['id'])->whereLease($lease)->update(['state' => $state, 'available' => time() + 30 * (int)$delivery['attempts'], 'lease' => null, 'lease_until' => null, 'error' => $ok ? null : '渠道投递失败，请检查服务配置或接收端']);
         return ['id' => (int)$delivery['id'], 'state' => $changed === 1 ? $state : 'stale'];
     }
 }

@@ -105,7 +105,8 @@
     status.textContent = '正在处理模拟支付…';
     try {
       const data = await api('/api/checkout/simulate', { request_key: requestKey });
-      status.textContent = `模拟支付成功！订单 ${data.order.number}，¥99.00，未实际扣款。`;
+      const amount = (Number(data.order.total) / 100).toFixed(2);
+      status.textContent = `模拟支付成功！订单 ${data.order.number}，¥${amount}，未实际扣款。`;
       pay.textContent = '模拟支付已完成';
       try { await loadOrders(); } catch (error) { orderList.textContent = error.message; }
     } catch (error) {

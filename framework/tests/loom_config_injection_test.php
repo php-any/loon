@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
 $runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 use Loom\InjectConfig;
 use Loom\Container;
@@ -31,7 +31,7 @@ mkdir($root . '/config', 0777, true);
 try {
     file_put_contents($root . '/config/probe.php', '<?php return ["name"=>"configured", "timeout"=>30, "enabled"=>false, "nullable"=>null, "zero"=>0];');
     $runtimeServices->get(\Loom\Config::class)->setRoot($root);
-    $container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->services();
+    $container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
     $constructed = $container->get(ConfigConstructorProbe::class);
     checkInjection($constructed->received === [30, false, null, 17, null, 'ordinary'], 'configuration available inside constructor');
     checkInjection($constructed->property === 'configured', 'constructor and property injection coexist');

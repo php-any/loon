@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 $scope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$database = $scope->services()->get(\Loom\Database::class);
-$database->connect($scope->services()->get(\Loom\Config::class)->get('database.dsn'));
+$database = $scope->container()->get(\Loom\Database::class);
+$database->connect($database->pdoDsn());
 function projectionCheck(bool $ok, string $message): void
 {
     if (!$ok) {

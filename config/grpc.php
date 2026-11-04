@@ -19,7 +19,7 @@ return [
      * 每次 RPC 调用加载的 PHP 入口，字符串路径，相对项目根目录或使用绝对路径。
      * 默认入口注册模块服务，再通过 routes/grpc.php 与生成的清单分发调用。
      * 示例：'entry' => 'bootstrap/grpc.php'（需先创建脚本）。
-     * 自定义入口可使用 $scope、$services、$config，必须返回一个接收数组的可调用对象。
+     * 自定义入口可使用 $scope、$container、$config，必须返回一个接收数组的可调用对象。
      * 输入包含 method（RPC 完整路径）和 request（JSON 解码值）；
      * 返回 ['data' => $result]，或 ['error' => ['code' => 'invalid_argument', 'message' => '原因']]。
      */

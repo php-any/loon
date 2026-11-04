@@ -5,41 +5,41 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 在独立服务作用域中注册内置、模块及应用命令，统一处理退出码并关闭作用域。
+ * 在一次服务作用域里装好控制台并执行一条命令，结束时无论成败都关闭该作用域。
  *
  * 构造参数：
- * - $scope（\Loom\ServiceScope）：本次命令拥有的服务作用域，handle 结束时关闭。
- * - $output（Output）：命令的标准输出及错误输出适配器。
+ * - $scope（\Loom\ServiceScope）：这次命令独占的作用域，由 handle 在结束时关闭。
+ * - $output（Output）：交给内部 Console 的输出，作用域外的异常也写到这里。
  *
- * 返回值：使用 new 构造时得到 ConsoleKernel 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：尚未装入命令的 ConsoleKernel。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $code = $kernel->handle(['list']);
+ * @example $kernel = new \Loom\Console\ConsoleKernel($scope, $output); $code = $kernel->handle(['list']);
  */
 final class ConsoleKernel
 {
     private ?Console $console = null;
 
     /**
-     * 初始化 ConsoleKernel 实例及其依赖。在独立服务作用域中注册内置、模块及应用命令，统一处理退出码并关闭作用域。
+     * 保存这次命令的服务作用域和输出。不登记命令，也不关闭作用域。
      *
-     * @param \Loom\ServiceScope $scope 本次命令拥有的服务作用域，handle 结束时关闭。
-     * @param Output $output 命令的标准输出及错误输出适配器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\ServiceScope $scope 要保存的服务作用域。
+     * @param Output $output 要保存的输出。
+     * @return void 无返回值，作用域和输出已收进实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $code = $kernel->handle(['list']);
+     * @example $kernel = new \Loom\Console\ConsoleKernel($scope, $output);
      */
     public function __construct(private \Loom\ServiceScope $scope, private Output $output)
     {
     }
 
     /**
-     * 延迟构建并缓存命令注册表，加载内置、模块命令并调用已绑定的 CommandRegistrar。
+     * 第一次调用时用作用域里的容器创建 Console，登记内置命令，加载 framework/bootstrap/commands.php，再登记模块命令。容器里若有 CommandRegistrar，就再调用它一次；取出来的对象不是该接口时抛出 LogicException。之后一直返回同一个 Console，不会重复登记。
      *
      * 参数：无。
      *
-     * @return Console 当前作用域复用的 Console。
+     * @return Console 本作用域内复用的控制台。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $console = $kernel->console();
@@ -49,7 +49,7 @@ final class ConsoleKernel
         if ($this->console !== null) {
             return $this->console;
         }
-        $services = $this->scope->services();
+        $services = $this->scope->container();
         $modules = $services->get(\Loom\ModuleRegistry::class)->configured();
         $modules->services($services);
         $console = new Console($this->output, $services);
@@ -81,10 +81,10 @@ final class ConsoleKernel
     }
 
     /**
-     * 运行命令并将异常转换为退出码，最终关闭服务作用域。
+     * 取出控制台并执行 run。run 没有接住的异常写到输出并返回 1。成功、失败或写错误之后，finally 都会关闭构造时保存的作用域。
      *
-     * @param array $args 去除解释器和脚本路径后的参数列表，例如 ['help', 'serve']。
-     * @return int 命令退出码；未处理异常返回 1。
+     * @param array $args 已去掉解释器和脚本名的参数，第一项是命令名。
+     * @return int 命令退出码；控制台之外冒出来的异常为 1。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $code = $kernel->handle(['list']);

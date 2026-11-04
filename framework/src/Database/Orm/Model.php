@@ -5,25 +5,26 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 模型基类，连接选择和便利查询由 Loom 包装，表及列映射仍使用 Origami 原生注解。静态方法应在具体模型子类上调用。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：抽象类不能直接实例化；创建具体子类后获得符合本类约定的对象。
+ * 具体模型的公共查询入口。表和列仍由子类上的 Origami 注解声明。没有显式 Database 时，只接受进程里唯一的活动作用域。不能直接 new 这个抽象类。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $user = \Loom\Models\User::find(1);
+ * @example $user = new \Loom\Models\User();
  */
 abstract class Model
 {
     /**
+     * 这个模型使用的连接名。null 或空字符串表示 config/database.php 的 default。
+     */
+    protected static ?string $connection = null;
+
+    /**
      * 基于当前模型表创建原生投影。在 transaction() 回调里创建时绑定该事务，否则使用进程池。
      *
-     * @param Database $database 提供 DSN 的数据库服务。投影注册并使用进程池。
-     * @param string $resultClass 接收投影结果的完整类名，其公共属性应对应查询别名。
-     * @return \Database\DB 绑定当前模型表及结果类的原生 DB 构建器。
+     * @param Database $database 提供连接名。它正处在事务回调里时，投影绑到那个事务。
+     * @param string $resultClass 承接一行结果的类名，公共属性对应查询别名。
+     * @return \Database\DB 绑定当前模型表及结果类的原生 DB 构建器。没有 Table 注解时抛 LogicException。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $query = static::project($database, \Loom\Results\CountResult::class);
      */
     protected static function project(Database $database, string $resultClass): \Database\DB
@@ -32,11 +33,32 @@ abstract class Model
         if ($table === null) {
             throw new \LogicException('Projection requires a mapped model');
         }
+        $database = static::resolveDatabase($database);
         return $database->bind(\Database\DB::model($resultClass, $database->modelConnectionName())->table($table->name));
     }
 
     /**
-     * 使用唯一活动作用域中的数据库创建查询。多个作用域同时存在时，改用 using() 传入该作用域的 Database。
+     * 选择模型要使用的数据库。未声明连接名时使用配置里的 default；声明了则使用同名连接。
+     * 解析结果若就是传入的那个实例，事务仍留在该实例上。
+     *
+     * @param Database $database 当前作用域里的数据库。从它取出 default 或模型声明的连接。
+     * @return Database 这次模型查询要绑定的数据库。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $database = static::resolveDatabase($database);
+     */
+    protected static function resolveDatabase(Database $database): Database
+    {
+        $name = static::$connection;
+        if ($name === null || $name === '') {
+            return $database->connection();
+        }
+        return $database->connection($name);
+    }
+
+    /**
+     * 使用唯一活动作用域中的数据库创建查询。未声明 $connection 时使用 default。
+     * 多个作用域同时存在时，改用 using() 传入该作用域的 Database。
      *
      * 参数：无。
      *
@@ -52,8 +74,9 @@ abstract class Model
 
     /**
      * 在指定数据库上注册或复用模型适配器并创建查询，避免隐式跨作用域连接。
+     * 模型未声明连接名时改用 default；声明了则改用该连接。传入实例已经是目标连接时保持原对象。
      *
-     * @param Database $database 显式数据库服务，保证 ORM 与原始 SQL 使用同一事务；查询构造时可为 null。
+     * @param Database $database 查询要绑定的数据库。连接名和当前事务都从它取，不能为 null。
      * @return ModelQuery 绑定指定数据库的 ModelQuery。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -61,6 +84,7 @@ abstract class Model
      */
     public static function using(Database $database): ModelQuery
     {
+        $database = static::resolveDatabase($database);
         $connection = $database->modelConnectionName();
         return new ModelQuery(static::class, \Database\DB::model(static::class, $connection), $connection, $database);
     }
@@ -143,12 +167,12 @@ abstract class Model
     }
 
     /**
-     * 添加映射字段的比较条件；双参数调用表示等值，null 仅允许等于或不等于。
+     * 在唯一活动作用域上新建查询，并加上这一条比较。两个实参时第二个是值；三个实参时第二个是运算符。没有唯一作用域时抛 LogicException。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
-     * @param mixed $operator 三参数形式为比较运算符：=、!=、<>、<、<=、>、>=、LIKE；双参数形式为等值比较的值。
-     * @param mixed $value 比较值，布尔值转为 0/1，null 仅用于相等或不等谓词。默认值为 null。
-     * @return ModelQuery 带新条件的 ModelQuery；不修改原查询。
+     * @param string $field 这次比较的模型属性或列名，不能是 SQL 表达式。
+     * @param mixed $operator 三个实参时是 =、!=、<>、<、<=、>、>=、LIKE 之一；两个实参时它就是要比较的值。
+     * @param mixed $value 三个实参时的比较值。布尔会变成 0 或 1。省略时为 null，这时只允许等于或不等于。
+     * @return ModelQuery 带上这条条件的新查询。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $query = \Loom\Models\User::where('id', '>=', 1);
@@ -199,9 +223,9 @@ abstract class Model
     }
 
     /**
-     * 按单主键或完整复合主键读取首条记录。
+     * 用唯一活动作用域按主键取第一条。复合主键必须给出全部字段。没有记录时返回 null。
      *
-     * @param mixed $id 单主键值，或完整的主键属性名到值的映射。
+     * @param mixed $id 单主键的值，或主键属性名到值的完整映射。
      * @return ?object 匹配的模型实例；未找到时为 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -213,9 +237,9 @@ abstract class Model
     }
 
     /**
-     * 按主键读取记录，未找到时抛出 HTTP 404。
+     * 用唯一活动作用域按主键取记录。没有记录时抛 HTTP 404。
      *
-     * @param mixed $id 单主键值，或完整的主键属性名到值的映射。
+     * @param mixed $id 单主键的值，或主键属性名到值的完整映射。
      * @return object 匹配的模型实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -231,7 +255,7 @@ abstract class Model
     }
 
     /**
-     * 查询当前模型全部记录并恢复声明的属性类型。
+     * 读取唯一活动作用域里这个模型的全部记录。没有记录时是空数组。
      *
      * 参数：无。
      *
@@ -246,10 +270,10 @@ abstract class Model
     }
 
     /**
-     * 插入具体模型对象，保留已初始化的假值；自动生成且为 null 的字段不写入。
+     * 确认对象是当前模型后，用唯一活动作用域插入。类型不符抛 InvalidArgumentException。
      *
-     * @param object $entity 当前模型类型的已构造实体。
-     * @return object 原生执行结果对象，包含 insertId 和 rowsAffected，并非模型实体。
+     * @param object $entity 要插入的当前模型实例。
+     * @return object 插入结果，含 insertId 和 rowsAffected，不是模型实体。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $result = \Loom\Models\User::insert($user);
@@ -289,16 +313,16 @@ abstract class Model
     /**
      * 将受支持的查询快捷方法委托给查询器，其他方法按 whereXxx 条件解析。
      *
-     * @param string $method 动态方法名称，例如 whereEmail。
-     * @param array $arguments 动态方法的位置参数列表，whereXxx 要求恰好一个值。
-     * @return mixed 被委托方法的结果；动态 whereXxx 返回 ModelQuery。
+     * @param string $method 要转发的名字。get、first、firstOrFail、rows、firstRow、select、groupBy、orderBy、limit、offset、count、exists、sum、pluck、paginate、whereIn、update、delete、insertOrIgnore、upsert、aggregate 原样交给查询；其余按 whereXxx 解析。
+     * @param array $arguments 原样展开给被转发的方法。走 whereXxx 时必须恰好有一个值。
+     * @return mixed 转发结果。whereXxx 得到 ModelQuery；名单里的方法得到那个方法自己的返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $query = \Loom\Models\User::whereEmail('user@example.com');
      */
     public static function __callStatic(string $method, array $arguments): mixed
     {
-        if (in_array($method, ['get', 'first', 'firstOrFail', 'select', 'groupBy', 'orderBy', 'limit', 'offset', 'count', 'exists', 'insertOrIgnore', 'upsert'], true)) {
+        if (in_array($method, ['get', 'first', 'firstOrFail', 'rows', 'firstRow', 'select', 'groupBy', 'orderBy', 'limit', 'offset', 'count', 'exists', 'sum', 'pluck', 'paginate', 'whereIn', 'update', 'delete', 'insertOrIgnore', 'upsert', 'aggregate'], true)) {
             return static::query()->{$method}(...$arguments);
         }
         return static::where(static::dynamicField($method, $arguments), $arguments[0]);
@@ -324,10 +348,10 @@ abstract class Model
         return $row;
     }
     /**
-     * 按属性构造并插入记录，然后按主键重新读取，取得数据库生成字段。
+     * 用唯一活动作用域按这些属性插入，再按主键回读生成后的行。未声明的字段抛 InvalidArgumentException。要靠数据库生成的主键多于一个时抛 LogicException。
      *
-     * @param array $attributes 模型属性名到待写入值的映射；字段必须存在于模型声明。
-     * @return object 持久化后重新读取的模型实例。
+     * @param array $attributes 属性名到初值。未给出的主键里只能有一个靠自增回填。
+     * @return object 回读到的模型实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $record = \Loom\Models\User::create($attributes);

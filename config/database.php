@@ -3,29 +3,50 @@
 declare(strict_types=1);
 
 /**
- * 数据库连接配置。Loom 把它转换成进程级 database/sql 连接池使用的 DSN。
- * 当前只接受 mysql: 开头的 DSN。
- * 配置先读取 LOOM_DATABASE；未设置或为空时使用下方默认 DSN。
- * loom.php 先加载根目录 .env（或 LOOM_ENV_FILE 指定的文件），其中的值覆盖进程环境变量。
- * 配置加载后会缓存，修改文件或环境变量后应重启相关服务和工作进程。
+ * 数据库连接，写法与 Laravel 的 config/database.php 相同，环境变量用 env() 读取。
+ * default 是连接名，connections 里每一项是一个库。未声明连接的模型使用 default。
+ * 当前驱动使用 MySQL。mysql 与 mariadb 都走 MySQL 协议；sqlite、pgsql、sqlsrv 会拒绝。
  *
- * 本地环境示例（写入 .env，凭据使用实际值）：
- * LOOM_DATABASE="mysql:host=127.0.0.1;port=13306;dbname=loom_test;charset=utf8mb4"
- * LOOM_MYSQL_USER=loom
- * LOOM_MYSQL_PASSWORD=your-local-password
+ * 连接读取 url、host、port、database、username、password、unix_socket、charset、dsn。
+ * url 例如 mysql://user:secret@127.0.0.1:3306/loom?charset=utf8mb4，没有 dsn 时覆盖同名的主机、库名和账号。
+ * dsn 为 env('LOOM_DATABASE')。它是非空的 mysql:host=...;dbname=... 时，连接直接使用这条 DSN，并优先于 url。
+ * collation、prefix、prefix_indexes、strict、engine、options 可以按 Laravel 原样保留，连接建立不使用表前缀。
+ * DB_* 未设置时回退到 LOOM_DB_*、LOOM_MYSQL_USER、LOOM_MYSQL_PASSWORD。不要把密码写进 url 以外的 DSN。
+ * 配置加载后会缓存，修改后重启相关服务和工作进程。
  *
- * 用户名和密码由数据库服务直接读取上述环境变量，不是此数组中的配置键。
- * 添加 username、password、driver、pool 等键不会改变当前连接行为。
+ * 再加一个库时按同样的键追加，例如 connections.reporting，模型声明 protected static ?string $connection = 'reporting'。
  */
 return [
-    /**
-     * PDO 风格的 MySQL DSN，类型为非空字符串。运行时会把它转成 database/sql DSN。
-     * host：数据库主机，例如 127.0.0.1、mysql 或数据库服务器域名。
-     * port：MySQL 端口，例如默认 3306，或本地容器映射端口 13306。
-     * dbname：已创建的数据库名称，例如 loom、loom_test；此配置不会自动创建数据库。
-     * charset：连接字符集，当前使用 utf8mb4；其他字符集需由运行时和数据库共同支持。
-     * 示例：'dsn' => 'mysql:host=mysql;port=3306;dbname=loom;charset=utf8mb4'。
-     * 不要将账号密码拼入 DSN；更换数据库时也应检查 Redis 前缀等环境配置。
-     */
-    'dsn' => (getenv('LOOM_DATABASE') ?: 'mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4'),
+    /*
+    |--------------------------------------------------------------------------
+    | Default Database Connection Name
+    |--------------------------------------------------------------------------
+    */
+    'default' => env('DB_CONNECTION', env('LOOM_DB_CONNECTION', 'mysql')),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Database Connections
+    |--------------------------------------------------------------------------
+    */
+    'connections' => [
+        'mysql' => [
+            'driver' => 'mysql',
+            'url' => env('DB_URL'),
+            'host' => env('DB_HOST', env('LOOM_DB_HOST', '127.0.0.1')),
+            'port' => env('DB_PORT', env('LOOM_DB_PORT', '3306')),
+            'database' => env('DB_DATABASE', env('LOOM_DB_DATABASE', 'loom')),
+            'username' => env('DB_USERNAME', env('LOOM_MYSQL_USER', '')),
+            'password' => env('DB_PASSWORD', env('LOOM_MYSQL_PASSWORD', '')),
+            'unix_socket' => env('DB_SOCKET', env('LOOM_DB_SOCKET', '')),
+            'charset' => env('DB_CHARSET', env('LOOM_DB_CHARSET', 'utf8mb4')),
+            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => [],
+            'dsn' => env('LOOM_DATABASE'),
+        ],
+    ],
 ];

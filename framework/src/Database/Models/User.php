@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom\Models;
 
 /**
- * 保存框架账号、密码散列和会话撤销版本，映射到 loom_users；继承 Model 的查询方法，实例本身不自动持久化。
- *
- * 构造参数：本声明未定义构造参数；继承类型沿用父类的构造约定。
- *
- * 返回值：使用 new 构造时得到 User 实例；注册到容器时由容器管理实例的创建与复用。
+ * loom_users 的一行。保存显示名、邮箱、密码散列和 auth_version。new 出来的对象不会自己写库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $rows = \Loom\Models\User::using($database)->limit(10)->rows();
+ * @example $user = new User();
  */
 #[\Database\Annotation\Table('loom_users')]
 final class User extends \Loom\Model
@@ -20,8 +16,8 @@ final class User extends \Loom\Model
     /**
      * 在 SQL 中原子递增账号 auth_version，使旧会话在下次验证时失效；参与当前连接事务。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param int $id 当前处理对象的整数标识。
+     * @param \Loom\Database $database 执行这条 auth_version 自增的数据库。
+     * @param int $id 要让旧会话失效的用户主键。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：

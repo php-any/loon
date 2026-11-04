@@ -7,12 +7,10 @@ namespace App\Jobs;
 #[\Loom\Attributes\Job('notification.push')]
 final class PushNotification
 {
-    private \Loom\Database $database;
     private \App\Services\Notifications\NotificationStream $stream;
 
-    public function __construct(\Loom\Database $database, \App\Services\Notifications\NotificationStream $stream)
+    public function __construct(\App\Services\Notifications\NotificationStream $stream)
     {
-        $this->database = $database;
         $this->stream = $stream;
     }
 
@@ -20,7 +18,7 @@ final class PushNotification
     {
         $job = json_decode($request->body(), true, 64, JSON_THROW_ON_ERROR);
         $id = (int)$job['payload']['notification_id'];
-        $notification = \App\Models\Notifications\Notification::using($this->database)->whereId($id)->firstOrFail()->toArray();
+        $notification = \App\Models\Notifications\Notification::whereId($id)->firstOrFail()->toArray();
         if ((int)$notification['user_id'] !== (int)$job['owner']) {
             throw new \LogicException('Notification owner mismatch');
         }

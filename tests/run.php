@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__) . '/framework/bootstrap/autoload.php')(dirname(__DIR__));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 $tests = array_merge(glob(dirname(__DIR__) . '/framework/tests/*_test.php'), glob(__DIR__ . '/integration/*_test.php'));
 sort($tests, SORT_STRING);
 if (getenv('LOOM_TEST_MYSQL') !== '1') {
     throw new LogicException('Run scripts/test-storage.ps1 -Suites scripts with disposable MySQL and Redis services');
 }
 $database = $runtimeServices->get(\Loom\Database::class);
-$dsn = $runtimeServices->get(\Loom\Config::class)->get('database.dsn');
+$dsn = $database->pdoDsn();
 $prefix = getenv('LOOM_REDIS_PREFIX') ?: 'loom-test:';
 $failures = [];
 foreach ($tests as $test) {

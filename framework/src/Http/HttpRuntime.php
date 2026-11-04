@@ -6,18 +6,18 @@ namespace Loom;
 
 // 原生 I/O 适配器。应用创建由组合根提供。
 /**
- * 协调原生 HTTP 输入、静态资源、应用加载、异常响应和请求作用域清理。
+ * 处理一次原生 HTTP 调用：读正文、分流静态资源或应用、把异常写成响应，并关闭请求作用域。
  *
  * 构造参数：
- * - $network（\Loom\Network）：网络限制配置服务，读取并校验协议参数。
- * - $requestScope（\Loom\RequestScope）：负责建立单次请求生命周期的作用域服务。
- * - $application（callable）：无参应用加载回调，每次调用应返回 Loom\Application。
- * - $assets（StaticFiles）：仅负责 public 目录静态资源的处理器。
+ * - $network（\Loom\Network）：提供 http 正文大小等协议限制。
+ * - $requestScope（\Loom\RequestScope）：本请求要打开和关闭的作用域。
+ * - $application（callable）：无参回调，每次调用应返回 Application。
+ * - $assets（StaticFiles）：处理 /assets/ 路径的静态文件对象。
  *
- * 返回值：使用 new 构造时得到 HttpRuntime 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 HttpRuntime 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $runtime = new HttpRuntime($network, $requestScope, fn () => $app, new StaticFiles($publicRoot));
+ * @example $runtime = new HttpRuntime($network, $requestScope, $loader, $assets);
  */
 final class HttpRuntime
 {
@@ -27,16 +27,16 @@ final class HttpRuntime
     private mixed $application;
     private StaticFiles $assets;
     /**
-     * 初始化 HttpRuntime 实例及其依赖。协调原生 HTTP 输入、静态资源、应用加载、异常响应和请求作用域清理。
+     * 保存网络限制、请求作用域、应用加载回调和静态文件处理器。构造时不读取请求。
      *
-     * @param \Loom\Network $network 网络限制配置服务，读取并校验协议参数。
-     * @param \Loom\RequestScope $requestScope 负责建立单次请求生命周期的作用域服务。
-     * @param callable $application 无参应用加载回调，每次调用应返回 Loom\Application。
-     * @param StaticFiles $assets 仅负责 public 目录静态资源的处理器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Network $network 提供 http 正文大小等协议限制。
+     * @param \Loom\RequestScope $requestScope 本请求要打开和关闭的作用域。
+     * @param callable $application 无参回调，每次调用应返回 Application。
+     * @param StaticFiles $assets 处理 /assets/ 路径的静态文件对象。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runtime = new HttpRuntime($network, $requestScope, fn () => $app, new StaticFiles($publicRoot));
+     * @example $runtime = new HttpRuntime($network, $requestScope, $loader, $assets);
      */
     public function __construct(\Loom\Network $network, \Loom\RequestScope $requestScope, callable $application, StaticFiles $assets)
     {
@@ -47,11 +47,11 @@ final class HttpRuntime
         $this->assets = $assets;
     }
     /**
-     * 读取正文，分发 /assets/ 静态请求或动态应用请求，将异常转换为响应并始终清理作用域。
+     * 打开请求作用域，读取正文并生成 Request。路径以 /assets/ 开头时交给静态文件，否则调用应用回调。HttpError 写成对应状态的问题 JSON，其它异常写成 500 并记到标准错误。HEAD 不写正文。结束时总会关闭作用域。
      *
-     * @param mixed $native 原生 HTTP 请求对象。
-     * @param mixed $writer 原生 HTTP 响应写入器。
-     * @return void 无返回值；响应直接写入 writer。
+     * @param mixed $native 原生 HTTP 请求，异常响应会读取它的 method。
+     * @param mixed $writer 原生响应写入器，交给 HttpTransport。
+     * @return void 无返回值。响应写入 writer。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $runtime->handle($native, $writer);

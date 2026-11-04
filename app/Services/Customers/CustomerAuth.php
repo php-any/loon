@@ -60,7 +60,7 @@ final class CustomerAuth
         if ($name === '' || strlen($name) > 80 || !preg_match('/^[^\s@]+@[^\s@]+\.[^\s@]+$/D', $email) || strlen($email) > 254 || strlen($password) < 10 || strlen($password) > 72) {
             throw new HttpError(422, '请填写姓名、有效邮箱和 10–72 字节密码');
         }
-        $result = Customer::using($this->database)->insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]), 'enabled' => 1, 'created' => time()], ['email']);
+        $result = Customer::insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]), 'enabled' => 1, 'created' => time()], ['email']);
         if ($result->rowsAffected !== 1) {
             throw new HttpError(409, '此用户邮箱已注册');
         }
@@ -77,7 +77,7 @@ final class CustomerAuth
         if ($register) {
             $id = $this->create($name, $email, $password);
         } else {
-            $rows = Customer::using($this->database)->whereEmail($email)->rows(['id', 'password', 'enabled']);
+            $rows = Customer::whereEmail($email)->rows(['id', 'password', 'enabled']);
             $hash = $rows[0]['password'] ?? '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
             if (!password_verify($password, $hash) || $rows === [] || (int)$rows[0]['enabled'] !== 1) {
                 throw new HttpError(401, '用户邮箱或密码不正确，或账号已停用');
@@ -87,9 +87,9 @@ final class CustomerAuth
         $token = bin2hex(random_bytes(32));
         $csrf = bin2hex(random_bytes(32));
         $this->database->transaction(function () use ($token, $csrf, $id): void {
-            CustomerSession::using($this->database)->whereToken(hash('sha256', $this->token()))->delete();
-            CustomerSession::using($this->database)->where('expires', '<=', time())->delete();
-            CustomerSession::using($this->database)->create(['token' => hash('sha256', $token), 'customer_id' => $id, 'csrf' => $csrf, 'expires' => time() + 86400]);
+            CustomerSession::whereToken(hash('sha256', $this->token()))->delete();
+            CustomerSession::where('expires', '<=', time())->delete();
+            CustomerSession::create(['token' => hash('sha256', $token), 'customer_id' => $id, 'csrf' => $csrf, 'expires' => time() + 86400]);
         });
         return ['cookie' => $this->cookie($token, 86400), 'csrf' => $csrf];
     }
@@ -97,7 +97,7 @@ final class CustomerAuth
     public function logout(): string
     {
         $this->guard();
-        CustomerSession::using($this->database)->whereToken(hash('sha256', $this->token()))->delete();
+        CustomerSession::whereToken(hash('sha256', $this->token()))->delete();
         return $this->cookie('', 0);
     }
 }

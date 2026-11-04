@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 use Loom\Database;
 use Loom\Input;
 use Loom\HttpError;
@@ -30,7 +30,7 @@ function opChange(string $resource, array $body, int $actor = 1): array
     global $runtimeServices;
     return $runtimeServices->get(\App\Services\Operations\Operations::class)->mutate($resource, $actor, new Input($body));
 }
-$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Config::class)->get('database.dsn'));
+$runtimeServices->get(\Loom\Database::class)->connect($runtimeServices->get(\Loom\Database::class)->pdoDsn());
 try {
     $runtimeServices->get(\Loom\Migrations::class)->initialize();
     $migrationPlan = $runtimeServices->get(\Loom\Migrations::class)->files(dirname(__DIR__, 2) . '/database/migrations');

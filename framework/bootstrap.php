@@ -34,6 +34,7 @@ foreach ([
     'Http/Middleware/RequestLog.php',
     'Config/Config.php',
     'Config/Environment.php',
+    'Config/helpers.php',
     'Config/InjectConfig.php',
     'Config/ConfigInjector.php',
     'Hosting/HostedService.php',

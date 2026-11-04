@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 注册闭包或 Command 类命令，解析输入、显示帮助并把错误转换为稳定退出码。
+ * 登记闭包或 Command 子类，解析参数后执行，并把输入错误与其它异常收成稳定退出码。list 和 help 是保留命令；run 的嵌套深度达到 16 时不再执行。
  *
  * 构造参数：
- * - $output（?Output）：输出适配器；null 时创建默认 Output。默认值为 null。
- * - $container（?\Loom\Container）：命令实例使用的容器；null 时创建新容器。默认值为 null。
+ * - $output（?Output）：帮助、列表和错误的输出；null 时新建默认 Output。
+ * - $container（?\Loom\Container）：解析 Command 子类的容器；null 时新建空容器。
  *
- * 返回值：使用 new 构造时得到 Console 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：还没有业务命令的 Console。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $console = new \Loom\Console\Console(); $console->command('ping', fn () => 0, '连通性检查'); $console->run(['ping']);
+ * @example $console->command('ping', fn () => 0, '连通性检查'); $code = $console->run(['ping']);
  */
 final class Console
 {
@@ -23,14 +23,14 @@ final class Console
     private Output $output;
     private int $depth = 0;
     /**
-     * 初始化 Console 实例及其依赖。注册闭包或 Command 类命令，解析输入、显示帮助并把错误转换为稳定退出码。
+     * 保存输出和容器。参数为 null 时分别新建 Output 或空 Container。不登记命令，也不读取 argv。
      *
-     * @param ?Output $output 输出适配器；null 时创建默认 Output。默认值为 null。
-     * @param ?\Loom\Container $container 命令实例使用的容器；null 时创建新容器。默认值为 null。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param ?Output $output 帮助、列表和错误要写入的对象；null 表示改用默认 Output。
+     * @param ?\Loom\Container $container 要保存的服务容器；null 表示新建空容器。
+     * @return void 无返回值，两个依赖已写在实例上。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $console = new \Loom\Console\Console(); $console->command('ping', fn () => 0, '连通性检查'); $console->run(['ping']);
+     * @example $console = new \Loom\Console\Console($output, $container);
      */
     public function __construct(?Output $output = null, ?\Loom\Container $container = null)
     {
@@ -38,24 +38,24 @@ final class Console
         $this->output = $output ?? new Output();
     }
     /**
-     * 取得控制台解析命令类时使用的容器。
+     * 返回构造时保存的容器。不新建容器，也不在这里登记服务。
      *
      * 参数：无。
      *
-     * @return \Loom\Container 当前服务容器。
+     * @return \Loom\Container 解析 Command 子类所用的容器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services = $console->services();
+     * @example $container = $console->container();
      */
-    public function services(): \Loom\Container
+    public function container(): \Loom\Container
     {
         return $this->container;
     }
     /**
-     * 检查内置 list/help 或业务命令是否存在。
+     * 判断名称是保留命令 list、help，还是已经登记的命令。不查看参数；隐藏命令也算存在。
      *
-     * @param string $name 要检查的命令名称，不包含参数。
-     * @return bool 存在返回 true，否则 false。
+     * @param string $name 命令名，不含参数和选项。
+     * @return bool 保留名或已登记时为 true，否则为 false。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $exists = $console->has('ping');
@@ -65,12 +65,12 @@ final class Console
         return in_array($name, ['list', 'help'], true) || isset($this->commands[$name]);
     }
     /**
-     * 解析签名并注册闭包命令，拒绝重复名称或占用 list/help。
+     * 解析签名并登记闭包。名称是 list、help 或已被占用时抛出 LogicException；签名不合法时由 Definition 抛出 LogicException。
      *
-     * @param string $signature 命令名称及参数/选项签名。
-     * @param callable $handler 接收 Console\Input 与 Console\Output 的回调，返回 0–255 整数或 null。
-     * @param string $description 显示在命令列表与帮助中的说明。默认值为 ''。
-     * @return self 当前 Console，支持链式注册。
+     * @param string $signature 命令名加上参数、选项字段，例如 greet {name}。
+     * @param callable $handler 执行时收到 Input 和 Output，应返回 0–255 的整数或 null。
+     * @param string $description 列表和帮助里的说明；省略时为空字符串。
+     * @return self 当前 Console，可继续登记。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $console->command('greet {name}', static function (Input $in, Output $out): int { $out->line($in->argument('name')); return 0; }, '问候用户');
@@ -85,13 +85,13 @@ final class Console
         return $this;
     }
     /**
-     * 由容器解析 Command 子类并把其签名、描述和执行回调注册到控制台。
+     * 不调用命令构造函数，只读取子类声明的签名、描述和隐藏标记，再登记一个从容器取实例并 execute 的闭包。类不能实例化或不是 Command 子类时立刻抛出 LogicException。容器以后返回的不是 Command 时，要到该命令真正执行才抛出 LogicException。重复名称由 command 拒绝。
      *
-     * @param string $class 可由容器构造的 Command 子类完整类名。
-     * @return self 当前 Console；非 Command 对象会报错。
+     * @param string $class 容器能够构造的 Command 子类全名。
+     * @return self 当前 Console。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $console->add($commandClass);
+     * @example $console->add(\Loom\Console\Commands\DoctorCommand::class);
      */
     public function add(string $class): self
     {
@@ -114,13 +114,13 @@ final class Console
         return $this;
     }
     /**
-     * 输出命令描述、用法、参数及选项帮助。
+     * 把描述、用法、每个位置参数、每个选项，以及固定的 --help/-h 行写到构造时保存的输出。某一组为空就跳过对应循环，描述和用法仍会写出。
      *
-     * @param Definition $definition 已解析的命令签名定义。
-     * @return void 无返回值。
+     * @param Definition $definition 已经拆好的签名，含描述、参数和选项。
+     * @return void 无返回值，文本已经写出。
      *
-     * 内部调用示例（仅类内使用）：
-     * @example $this->help($definition);
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $this->help(new Definition('greet {name : 用户名} {--loud : 大声}', '问候用户'));
      */
     private function help(Definition $definition): void
     {
@@ -136,13 +136,13 @@ final class Console
         $this->output->line('  --help, -h  显示命令帮助');
     }
     /**
-     * 处理命令列表、帮助或执行请求，限制嵌套深度并统一错误退出码。
+     * 执行 list、help 或已登记命令。$argv 为 null 时改读 $GLOBALS['argv'] 并去掉程序名。进入时深度已达 16 就写错误并返回 1，这次不加深，也不进入后面的 finally。否则先加深，并在 finally 里减回去。list 若还带参数，或 help 不是恰好再跟一个命令名，都按输入错误返回 2；未知命令同样返回 2。在单独的 -- 之前出现 --help 或 -h 时只打印帮助并返回 0，不调用处理器。处理器返回 null 视为 0；不是 0–255 的整数时抛出 LogicException，被本方法收成退出码 1。InputError 返回 2，其它异常返回 1。隐藏命令不会出现在 list 里。
      *
-     * @param ?array $argv 包含命令名及参数的字符串列表；run 传 null 时读取全局 argv 并跳过可执行文件名。默认值为 null。
-     * @return int 成功为处理器退出码或 0；输入错误为 2，其他异常为 1。
+     * @param ?array $argv 第一项是命令名、其余是参数和选项；null 表示改读全局 argv 并跳过可执行文件名。
+     * @return int 成功时为处理器退出码或 0；输入错误为 2；嵌套过深或其它异常为 1。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $code = $console->run(['help', 'greet']);
+     * @example $code = $console->run(['greet', '小明', '--help']);
      */
     public function run(?array $argv = null): int
     {
@@ -214,10 +214,10 @@ final class Console
         }
     }
     /**
-     * 在当前控制台内嵌套执行另一命令，沿用 run 的解析和退出码规则。
+     * 把给定参数原样交给 run，深度、帮助和退出码都按 run 处理。参数不能省略，也不会改读全局 argv。
      *
-     * @param array $argv 包含命令名及参数的字符串列表；run 传 null 时读取全局 argv 并跳过可执行文件名。
-     * @return int 被调用命令的退出码。
+     * @param array $argv 第一项是命令名、其余是参数和选项的字符串列表。
+     * @return int run 返回的退出码。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $code = $console->call(['ping']);

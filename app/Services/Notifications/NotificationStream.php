@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Notifications;
 
+use Loom\Database;
 use Loom\Redis;
 
 final class NotificationStream
@@ -18,7 +19,7 @@ final class NotificationStream
     public function key(int $user): string
     {
         // 隔离共享 Redis 服务器的应用和数据库。键中不包含凭据。
-        return Redis::key('notifications:' . hash('sha256', $this->config->get('database.dsn')) . ':' . $user);
+        return Redis::key('notifications:' . hash('sha256', (new Database($this->config))->pdoDsn()) . ':' . $user);
     }
 
     public function publish(int $user, int $notification): void

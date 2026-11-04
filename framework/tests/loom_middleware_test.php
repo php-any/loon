@@ -79,7 +79,7 @@ class TestMiddleware implements Loom\Middleware
 }
 $app = new Loom\Application();
 $GLOBALS['factories'] = 0;
-$app->services()->bind(TestMiddleware::class, function ($services) {
+$app->container()->bind(TestMiddleware::class, function ($services) {
     $GLOBALS['factories']++;
     return new TestMiddleware('Ada');
 });

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -23,7 +23,7 @@ function checkTimer(bool $condition, string $message): void
 
 require dirname(__DIR__, 2) . '/tests/fixtures/timers/Declarations.php';
 
-$services = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->services();
+$services = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
 $runner = new \Loom\TimerRunner($services);
 $runner->register(NotATimer::class);
 $runner->discover($runtimeServices->get(\Loom\Config::class)->path('app/Timers'));

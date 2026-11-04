@@ -128,8 +128,8 @@ try {
     file_put_contents($root . '/config/services.php', '<?php return static function (): void {};');
     $config = new Loom\Config($root);
     $scope = new Loom\ServiceScope($config);
-    $services = $scope->services();
-    $child = $scope->fork()->services();
+    $services = $scope->container();
+    $child = $scope->fork()->container();
     hostCheck($services->get(Loom\Options::class) === $child->get(Loom\Options::class), 'Options is an application singleton');
     hostCheck($services->get(Loom\Host::class) === $child->get(Loom\Host::class), 'Host is an application singleton');
 

@@ -5,18 +5,10 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 不可变模型查询。条件、排序和分页留在查询对象上，执行时使用进程池，或使用创建查询时正在进行的事务。
- *
- * 构造参数：
- * - $model（string）：可实例化的模型完整类名，必须具有 Table 映射。
- * - $native（\Database\DB）：已绑定模型和连接的原生 Database\DB。
- * - $connection（string）：已经注册的原生连接名称。
- * - $database（?Database）：显式数据库服务，保证 ORM 与原始 SQL 使用同一事务；查询构造时可为 null。默认值为 null。
- *
- * 返回值：使用 new 构造时得到 ModelQuery 实例；注册到容器时由容器管理实例的创建与复用。
+ * 不可变模型查询。条件、排序、分页和投影留在副本上；执行时走创建时记下的事务，没有事务就走进程池。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $query = \Loom\Models\User::using($database)->where('id', 1);
+ * @example $query = new ModelQuery(\Loom\Models\User::class, $native, 'loom', $database);
  */
 final class ModelQuery
 {
@@ -30,16 +22,16 @@ final class ModelQuery
     private ?int $rowOffset = null;
     private ?\Database\Sql\Tx $tx = null;
     /**
-     * 初始化 ModelQuery 实例及其依赖。不可变模型查询链，组合参数化条件并委托原生 SQL 执行；批量更新删除要求显式条件且不能带排序或投影限制。
+     * 保存模型类、原生查询器、连接名和可选的 Database。传入 Database 时只记下它此刻的事务，没有事务则为 null。
      *
-     * @param string $model 可实例化的模型完整类名，必须具有 Table 映射。
-     * @param \Database\DB $native 已绑定模型和连接的原生 Database\DB。
-     * @param string $connection 已经注册的原生连接名称。
-     * @param ?Database $database 显式数据库服务，保证 ORM 与原始 SQL 使用同一事务；查询构造时可为 null。默认值为 null。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $model 查询针对的模型类名，读表和列时用它。
+     * @param \Database\DB $native 已按该类和连接建好的原生查询器，随后只在副本上追加条件。
+     * @param string $connection 执行前要复查是否仍注册的连接名。
+     * @param ?Database $database 非 null 时，插入、更新和自写 SQL 走它的执行器；省略则为 null，改走 $native。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $query = \Loom\Models\User::using($database)->where('id', 1);
+     * @example $query = new ModelQuery(\Loom\Models\User::class, $native, 'loom', $database);
      */
     public function __construct(private string $model, private \Database\DB $native, private string $connection, private ?Database $database = null)
     {
@@ -54,8 +46,8 @@ final class ModelQuery
      *
      * @return self 同一连接上的空查询。
      *
-     * 内部调用示例（仅类内使用）：
-     * @example $record = $this->fresh()->findOrFail($key);
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $copy = $this->fresh();
      */
     private function fresh(): self
     {
@@ -79,7 +71,7 @@ final class ModelQuery
      *
      * @return void 无返回值；连接关闭时抛出 LogicException。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->ensureConnection();
      */
     private function ensureConnection(): void
@@ -95,7 +87,7 @@ final class ModelQuery
      *
      * @return \Database\DB 带有当前条件的原生 DB 查询器。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $native = $this->builder();
      */
     private function builder(): \Database\DB
@@ -110,7 +102,7 @@ final class ModelQuery
     /**
      * 添加映射字段的比较条件；双参数调用表示等值，null 仅允许等于或不等于。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
+     * @param string $field 这次比较用的模型属性或列名，不能是 SQL 表达式。
      * @param mixed $operator 三参数形式为比较运算符：=、!=、<>、<、<=、>、>=、LIKE；双参数形式为等值比较的值。
      * @param mixed $value 比较值，布尔值转为 0/1，null 仅用于相等或不等谓词。默认值为 null。
      * @return self 带新条件的 ModelQuery；不修改原查询。
@@ -159,8 +151,8 @@ final class ModelQuery
     /**
      * 添加映射字段排序，支持独立方向或“字段 ASC/DESC”形式；只允许 ASC、DESC。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
-     * @param string $direction 排序方向 ASC 或 DESC，不区分大小写。默认值为 'ASC'。
+     * @param string $field 排序用的模型属性或列名。也可以是「字段 ASC」或「字段 DESC」这一整段，这时方向从这里拆出。
+     * @param string $direction 排序方向，只接受 ASC 或 DESC，大小写不限。$field 已自带方向时被覆盖。默认值为 'ASC'。
      * @return self 累计排序后的查询副本。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -228,7 +220,7 @@ final class ModelQuery
     /**
      * 将调用方提供的投影表达式传给原生构建器，不对表达式进行字段白名单解析。
      *
-     * @param string $fields 原生 SQL 投影或分组表达式，只能由可信代码提供。
+     * @param string $fields 原样交给原生构建器的投影表达式，本方法不核对列名。
      * @return self 设置投影后的查询副本。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -245,7 +237,7 @@ final class ModelQuery
     /**
      * 将可信分组表达式传给原生构建器，并限制该查询的批量写入。
      *
-     * @param string $fields 原生 SQL 投影或分组表达式，只能由可信代码提供。
+     * @param string $fields 原样交给原生构建器的分组表达式，本方法不核对列名。
      * @return self 设置分组后的查询副本。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -265,7 +257,7 @@ final class ModelQuery
      * @param object $record 原生查询已填充但可能仍含字符串标量的模型对象。
      * @return object 完成类型恢复的同一模型对象。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $record = $this->typed($record);
      */
     private function typed(object $record): object
@@ -405,7 +397,7 @@ final class ModelQuery
     /**
      * 按属性构造并插入记录，然后按主键重新读取，取得数据库生成字段。
      *
-     * @param array $attributes 模型属性名到待写入值的映射；字段必须存在于模型声明。
+     * @param array $attributes 用来构造并插入的属性。未给出的主键里只能有一个靠自增回填，多了抛 LogicException。
      * @return object 持久化后重新读取的模型实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -463,11 +455,11 @@ final class ModelQuery
     /**
      * 对映射字段求和，无匹配值时以 0 返回。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
+     * @param string $field 参与 SUM 的模型属性或列名，不能是 SQL 表达式。
      * @return int|float 整数或浮点数总和。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $total = \Loom\Models\Job::query()->sum('attempts');
+     * @example $total = $query->sum('attempts');
      */
     public function sum(string $field): int|float
     {
@@ -525,7 +517,7 @@ final class ModelQuery
     /**
      * 执行查询并把模型转为关联数组，可按列名筛选输出字段。
      *
-     * @param array $columns 输出数据库列名列表；空列表保留所有字段。默认值为 []。
+     * @param array $columns 要留下的数据库列名。空数组表示不裁列。默认值为 []。
      * @return array 记录数组列表；columns 为空时保留所有已初始化字段。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -542,7 +534,7 @@ final class ModelQuery
     /**
      * 限制为一条结果并转换为关联数组。
      *
-     * @param array $columns 输出数据库列名列表；空列表保留所有字段。默认值为 []。
+     * @param array $columns 传给这次单行读取的列名。空数组表示不裁列。默认值为 []。
      * @return ?array 首条记录数组；无结果时为 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -556,8 +548,8 @@ final class ModelQuery
     /**
      * 追加参数化 IN 条件；空列表生成恒假条件而不是匹配全部记录。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
-     * @param array $values IN 条件的值列表；空列表匹配零条记录。
+     * @param string $field IN 条件作用的模型属性或列名，不能是 SQL 表达式。
+     * @param array $values 绑定到 IN 占位符的值。空数组会改成恒假条件。
      * @return self 包含新条件的查询副本。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -577,7 +569,7 @@ final class ModelQuery
     /**
      * 读取指定映射字段并按记录顺序提取值。
      *
-     * @param string $field 已声明的模型属性名或列名，不接受任意 SQL 表达式。
+     * @param string $field 要从每行取出的模型属性或列名，不能是 SQL 表达式。
      * @return array 字段值列表。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -596,9 +588,9 @@ final class ModelQuery
     /**
      * 读取指定页并计算总数，页码被限制在 1 至 100000 之间。
      *
-     * @param int $page 页码，实际限制到 1 至 100000。默认值为 1。
-     * @param array $columns 输出数据库列名列表；空列表保留所有字段。默认值为 []。
-     * @param int $perPage 每页条数，必须大于 0。默认值为 25。
+     * @param int $page 请求的页码，会先夹到 1 至 100000。默认值为 1。
+     * @param array $columns 这一页要留下的列名。空数组表示不裁列。默认值为 []。
+     * @param int $perPage 每页条数，必须大于 0，同时当作 limit。默认值为 25。
      * @return array 含 items 记录列表和 total 总数的数组。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -611,8 +603,8 @@ final class ModelQuery
     /**
      * 构造实体并执行保留既有冲突行的插入，需要框架数据库适配。
      *
-     * @param array $attributes 模型属性名到待写入值的映射；字段必须存在于模型声明。
-     * @param array $unique 冲突检测所依据的模型字段列表；数据库必须存在对应唯一约束。
+     * @param array $attributes 先做成实体再插入的属性；冲突时不改已有行。
+     * @param array $unique 用来判断冲突的模型字段，对应的唯一约束要在库里存在。
      * @return object 原生执行结果对象，包含 insertId 和 rowsAffected。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -626,9 +618,9 @@ final class ModelQuery
     /**
      * 构造实体并在唯一键冲突时更新指定字段，需要框架数据库适配。
      *
-     * @param array $attributes 模型属性名到待写入值的映射；字段必须存在于模型声明。
-     * @param array $unique 冲突检测所依据的模型字段列表；数据库必须存在对应唯一约束。
-     * @param array $update 冲突时允许更新的模型字段列表。
+     * @param array $attributes 先做成实体再插入的属性。
+     * @param array $unique 用来判断冲突的模型字段，对应的唯一约束要在库里存在。
+     * @param array $update 冲突时改写的模型字段；不在此列的已有值保持不动。
      * @return object 原生执行结果对象，包含 insertId 和 rowsAffected。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -640,11 +632,11 @@ final class ModelQuery
         return $this->insert($class::make($attributes), $unique, $update);
     }
     /**
-     * 插入具体模型对象，保留已初始化的假值；自动生成且为 null 的字段不写入。
+     * 把实体里已初始化的字段参数化插入，0 和空串也会写入；生成列若已初始化且值为 null 则跳过。$unique 非空却没有 Database 时抛 LogicException。类型不对、没有表或没有可写列时抛 InvalidArgumentException。
      *
-     * @param object $entity 当前模型类型的已构造实体。
-     * @param array $unique 冲突检测所依据的模型字段列表；数据库必须存在对应唯一约束。默认值为 []。
-     * @param array $update 冲突时允许更新的模型字段列表。默认值为 []。
+     * @param object $entity 必须是当前模型类的实例，字段从它的已初始化属性读取。
+     * @param array $unique 冲突判断用的模型字段。空数组表示普通插入；非空时要有 Database 才能拼冲突子句。默认值为 []。
+     * @param array $update 冲突时改写的模型字段。只在 $unique 非空时使用。默认值为 []。
      * @return object 原生执行结果对象，包含 insertId 和 rowsAffected，并非模型实体。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -708,7 +700,7 @@ final class ModelQuery
      *
      * @return void 无返回值；不满足条件时抛出 LogicException。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->assertWrite();
      */
     private function assertWrite(): void
@@ -720,11 +712,11 @@ final class ModelQuery
     /**
      * 按当前条件参数化更新字段，保留显式 null；拒绝空更新和未限定写入。
      *
-     * @param array $attributes 模型属性名到待写入值的映射；字段必须存在于模型声明。
+     * @param array $attributes 要赋值的属性。空数组抛 InvalidArgumentException；显式 null 会写成 NULL。
      * @return int 受影响行数。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $affected = $query->where('id', 1)->update(['name' => '小明']);
+     * @example $affected = $query->update(['name' => '小明']);
      */
     public function update(array $attributes): int
     {
@@ -758,7 +750,7 @@ final class ModelQuery
      * @return int 受影响行数。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $affected = $query->where('id', 1)->delete();
+     * @example $affected = $query->delete();
      */
     public function delete(): int
     {
@@ -787,6 +779,16 @@ final class ModelQuery
     {
         return $this->builder();
     }
+    /**
+     * 用当前模型的表名、投影、条件和排序拼出 SELECT。标识符经过引用，条件仍使用已保存的占位符。
+     *
+     * 参数：无。
+     *
+     * @return string 可交给查询执行器的 SELECT 语句。模型没有表注解时抛出 LogicException。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $rows = $this->querySql($this->selectSql(), $this->arguments);
+     */
     private function selectSql(): string
     {
         $class = $this->model;
@@ -812,6 +814,15 @@ final class ModelQuery
         }
         return $sql;
     }
+    /**
+     * 把一行关联数组填进模型对象。列名对应模型声明的列，未知列忽略，随后按属性类型转换值。
+     *
+     * @param array $row 查询返回的一行，键为列名。
+     * @return object 不经构造函数创建、已填入字段的模型实例。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $record = $this->hydrate($row);
+     */
     private function hydrate(array $row): object
     {
         $class = $this->model;
@@ -829,6 +840,16 @@ final class ModelQuery
         }
         return $this->typed($record);
     }
+    /**
+     * 在当前查询绑定的连接或事务上执行读取，并把每一行转成关联数组。
+     *
+     * @param string $sql 已引用标识符的 SQL。
+     * @param array $args 与 SQL 占位符顺序对应的参数。
+     * @return array 行列表。查询没有 Database 时抛出 LogicException。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $rows = $this->querySql($this->selectSql(), $this->arguments);
+     */
     private function querySql(string $sql, array $args): array
     {
         if ($this->database === null) {
@@ -840,6 +861,16 @@ final class ModelQuery
         }
         return $rows;
     }
+    /**
+     * 在当前查询绑定的连接或事务上执行写入，返回这条语句自己的自增主键和影响行数。
+     *
+     * @param string $sql 已引用标识符的 INSERT、UPDATE 或 DELETE。
+     * @param array $args 与 SQL 占位符顺序对应的参数。
+     * @return array 含 id 和 affected 的结果。查询没有 Database 时抛出 LogicException。
+     *
+     * 内部调用示例（仅类内使用）：
+     * @example $result = $this->executeSql($sql, $this->arguments);
+     */
     private function executeSql(string $sql, array $args): array
     {
         if ($this->database === null) {

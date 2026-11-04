@@ -13,7 +13,7 @@ declare(strict_types=1);
 return [
     /**
      * 任务 PHP 脚本路径，类型为字符串；相对路径以项目根目录为基准，也支持绝对路径。
-     * 自定义脚本可访问 $scope、$services、$config，通过 RequestContext 取得任务请求。
+     * 自定义脚本可访问 $scope、$container、$config，通过 RequestContext 取得任务请求。
      * 返回值必须兼容 Response::toArray()，其中 status 为状态码，body 为响应正文；
      * CLI 将 status >= 300 视为失败，成功时将 body 写入标准输出。
      * 示例：'entry' => 'bootstrap/jobs.php'（需实现同样的任务分发和返回约定）。

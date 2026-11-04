@@ -5,15 +5,15 @@ declare(strict_types=1);
 namespace Loom\Grpc;
 
 /**
- * 合并显式与生成的 RPC 路由并调用容器中的服务，显式路由优先，业务异常转为错误信封。
+ * 把显式路由和生成清单合成一张表，再从容器取出服务并调用方法。显式键优先。RpcException 变成错误信封。
  *
  * 构造参数：
- * - $services（\Loom\Container）：提供依赖解析和实例注册的服务容器。
+ * - $services（Container）：按路由里的类名 get 服务。
  *
- * 返回值：使用 new 构造时得到 Dispatcher 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到尚未处理调用的 Dispatcher。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $result = $dispatcher->handle($routes, $manifestPath, ['method' => $rpcPath, 'request' => $requestData]);
+ * @example $dispatcher = new Dispatcher($services);
  */
 final class Dispatcher
 {
@@ -21,13 +21,13 @@ final class Dispatcher
 
 
     /**
-     * 初始化 Dispatcher 实例及其依赖。合并显式与生成的 RPC 路由并调用容器中的服务，显式路由优先，业务异常转为错误信封。
+     * 保存用来解析 RPC 服务的容器。构造时不读清单，也不登记路由。
      *
-     * @param \Loom\Container $services 提供依赖解析和实例注册的服务容器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Container $services 按路由目标类名 get 的容器。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $result = $dispatcher->handle($routes, $manifestPath, ['method' => $rpcPath, 'request' => $requestData]);
+     * @example $dispatcher = new Dispatcher($services);
      */
     public function __construct(\Loom\Container $services)
     {
@@ -36,15 +36,17 @@ final class Dispatcher
     }
 
     /**
-     * 加载清单补齐路由，解析服务并调用指定方法；捕获 RpcException 形成命名错误。
+     * 清单文件存在时，把其中尚未出现在 routes 里的方法补上；调用方已经给出的键保持不变。清单 JSON 不合法时异常来自 json_decode。
+     * 然后按 envelope 的 method 查找目标，从容器 get 服务并调用对应方法。成功时返回 data。
+     * 方法未登记时抛出状态为 unimplemented 的 RpcException。RpcException 收成 error，code 用异常上的 status。其他异常不在这里捕获。
      *
-     * @param array $routes RPC 完整路径到 [服务类名, 方法名] 的映射，优先于生成清单。
-     * @param string $manifestPath 可选生成清单文件路径；文件不存在时仅使用显式路由。
-     * @param array $envelope 包含 method 完整 RPC 路径及 request 解码值的数组。
-     * @return array 成功返回 ['data' => 结果]；业务错误返回 ['error' => ['code' => 状态, 'message' => 说明]]。
+     * @param array $routes 完整 RPC 路径到 [类名, 方法名]。已有项不会被清单覆盖。
+     * @param string $manifestPath 生成清单路径。文件不存在时只用 routes。
+     * @param array $envelope 含 method 和 request 的调用信封。
+     * @return array 成功时为 data；RpcException 时为 error，其中 code 是状态、message 是异常消息。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $result = $dispatcher->handle($routes, $manifestPath, $envelope);
+     * @example $result = $dispatcher->handle($routes, $manifestPath, ['method' => '/billing.Invoice/Get', 'request' => []]);
      */
     public function handle(array $routes, string $manifestPath, array $envelope): array
     {

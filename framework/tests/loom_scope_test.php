@@ -42,25 +42,25 @@ $root = sys_get_temp_dir() . '/loom-scopes-' . bin2hex(random_bytes(6));
 $scopes = [];
 try {
     $lazy = new Loom\ServiceScope(new Loom\Config());
-    $lazy->services()->scoped(Loom\Database::class, function ($services): object {
+    $lazy->container()->scoped(Loom\Database::class, function ($services): object {
         throw new RuntimeException('Cleanup must not resolve unused services');
     });
     $lazy->close();
-    scopeCheck($lazy->services()->resolved(Loom\Database::class) === null, 'Cleanup preserves lazy service registration');
+    scopeCheck($lazy->container()->resolved(Loom\Database::class) === null, 'Cleanup preserves lazy service registration');
     foreach (['first', 'second'] as $name) {
         mkdir($root . '/' . $name . '/config', 0700, true);
         file_put_contents($root . '/' . $name . '/config/probe.php', '<?php return ["label" => "' . $name . '"];');
         file_put_contents($root . '/' . $name . '/config/database.php', '<?php return ["dsn" => getenv("LOOM_DATABASE") ?: "mysql:host=127.0.0.1;dbname=loom_test"];');
         $scope = new Loom\ServiceScope(new Loom\Config($root . '/' . $name));
         $scopes[$name] = $scope;
-        $services = $scope->services();
+        $services = $scope->container();
         $services->get(Loom\Database::class)->connect((string)getenv('LOOM_DATABASE'));
         $services->get(Loom\Migrations::class)->initialize();
         $services->get(Loom\Database::class)->execute('CREATE TEMPORARY TABLE scope_records(id BIGINT PRIMARY KEY AUTO_INCREMENT, name TEXT NOT NULL)');
         $services->get(Loom\RequestContext::class)->bind(scopeRequest('https://' . $name . '.test'));
     }
-    $a = $scopes['first']->services();
-    $b = $scopes['second']->services();
+    $a = $scopes['first']->container();
+    $b = $scopes['second']->container();
     $first = $a->get(ScopedDependencies::class);
     $second = $b->get(ScopedDependencies::class);
     scopeCheck($first->label === 'first' && $second->label === 'second', 'Configuration injection must use the owning scope');

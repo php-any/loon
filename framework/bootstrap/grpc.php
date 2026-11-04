@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$services = $scope->services();
+$services = $scope->container();
 $config = $services->get(\Loom\Config::class);
 $services->get(\Loom\ModuleRegistry::class)->configured()->services($services);
 return static function (array $envelope) use ($services): array {

@@ -5,30 +5,30 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 标记 InjectConfig 未显式提供默认值的内部哨兵；没有输入参数，实例只用于类型判断。
+ * InjectConfig 用来区分「调用方没有写默认值」和「默认值就是 null」的哨兵。没有方法，只供类型判断。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 MissingConfigValue 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到一个空哨兵。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $missing = new MissingConfigValue(); // 仅作为未提供默认值的内部标记
+ * @example $missing = new MissingConfigValue();
  */
 final class MissingConfigValue
 {
 }
 
 /**
- * 配置注入属性，可用于构造参数或实例属性；区分未提供默认值和显式 null。
+ * 标在构造参数或实例属性上的配置注入。resolve 按 key 读配置，没有这个键时使用构造时留下的默认值。
  *
  * 构造参数：
- * - $key（string）：点分配置键，例如 http.address，不能为空。
- * - $default（mixed）：键不存在时返回的值；MissingConfigValue 表示未声明默认值。默认值为 new MissingConfigValue()。
+ * - $key（string）：点分配置键，原样保存。
+ * - $default（mixed）：键不存在时 resolve 返回的值。缺省是 MissingConfigValue，表示没有默认值。
  *
- * 返回值：使用 new 构造时得到 InjectConfig 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到保存了键和默认值的 InjectConfig。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example #[InjectConfig('http.address', '127.0.0.1:8080')] public string $address;
+ * @example $inject = new InjectConfig('http.address', '127.0.0.1:8080');
  */
 #[\Attribute(\Attribute::TARGET_PROPERTY | \Attribute::TARGET_PARAMETER)]
 final class InjectConfig
@@ -37,14 +37,14 @@ final class InjectConfig
     public mixed $default;
 
     /**
-     * 初始化 InjectConfig 实例及其依赖。配置注入属性，可用于构造参数或实例属性；区分未提供默认值和显式 null。
+     * 把配置键和默认值写入公开属性。空键也照样保存，留到 resolve 再拒绝。
      *
-     * @param string $key 点分配置键，例如 http.address，不能为空。
-     * @param mixed $default 键不存在时返回的值；MissingConfigValue 表示未声明默认值。默认值为 new MissingConfigValue()。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $key 之后 resolve 使用的点分配置键。
+     * @param mixed $default 键不存在时的回退值。默认是新的 MissingConfigValue，表示调用方没有提供默认值。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example #[InjectConfig('http.address', '127.0.0.1:8080')] public string $address;
+     * @example $inject = new InjectConfig('http.address', '127.0.0.1:8080');
      */
     public function __construct(string $key, mixed $default = new MissingConfigValue())
     {
@@ -53,11 +53,13 @@ final class InjectConfig
     }
 
     /**
-     * 读取点分配置键并应用显式默认值；键为空或缺失且无默认值时抛出异常。
+     * 键是空字符串时抛出 InvalidArgumentException，消息里带有 target。
+     * 用一个私有哨兵调用 config 的 get：配置里能取到值就返回该值，包括 null。
+     * 缺键时，默认值的类型是 MissingConfigValue 则抛出 LogicException，否则返回默认值，包括显式 null。异常文本含键和 target，不含配置值。
      *
-     * @param string $target 注入目标的可读描述，用于异常定位，不应包含敏感配置值。
-     * @param Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @return mixed 实际配置值或调用方声明的默认值，保持原类型。
+     * @param string $target 写进异常的注入位置。
+     * @param Config $config 按本对象的 key 读取的配置。
+     * @return mixed 配置中的值，或构造时保存的默认值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = (new InjectConfig('http.address'))->resolve('Server::$address', $config);

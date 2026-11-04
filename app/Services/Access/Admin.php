@@ -35,13 +35,13 @@ final class Admin
 
     public function enroll(int $id): void
     {
-        Account::using($this->database)->insertOrIgnore(['user_id' => $id], ['user_id']);
+        Account::insertOrIgnore(['user_id' => $id], ['user_id']);
         UserRole::ensureMember($this->database, $id);
     }
 
     public function assertActive(int $id): void
     {
-        $account = Account::using($this->database)->whereUserId($id)->rows(['enabled']);
+        $account = Account::whereUserId($id)->rows(['enabled']);
         if ($account !== [] && (int)$account[0]['enabled'] !== 1) {
             throw new HttpError(403, '账号已停用');
         }
@@ -77,13 +77,13 @@ final class Admin
 
     public function audit(?int $actor, string $action, string $target, array $detail = []): void
     {
-        AuditEvent::using($this->database)->create(['actor_id' => $actor, 'action' => $action, 'target' => $target, 'detail' => json_encode($detail, JSON_THROW_ON_ERROR)]);
+        AuditEvent::create(['actor_id' => $actor, 'action' => $action, 'target' => $target, 'detail' => json_encode($detail, JSON_THROW_ON_ERROR)]);
     }
 
     public function settings(): array
     {
         $settings = [];
-        foreach (Setting::using($this->database)->orderBy('key')->rows(['key', 'value']) as $row) {
+        foreach (Setting::orderBy('key')->rows(['key', 'value']) as $row) {
             $settings[$row['key']] = $row['value'];
         }
         return $settings;
@@ -91,7 +91,7 @@ final class Admin
 
     public function menus(array $grants): array
     {
-        $rows = Menu::using($this->database)->orderBy('sort_order')->orderBy('id')->rows();
+        $rows = Menu::orderBy('sort_order')->orderBy('id')->rows();
         $visible = [];
         foreach ($rows as $row) {
             if ((int)$row['enabled'] === 1 && (($row['path'] === '' && $row['permission'] === '') || self::allows($grants, $row['permission']))) {
@@ -136,15 +136,15 @@ final class Admin
         }
         if ($resource === 'users') {
             $result = Account::listing($this->database, $page, $search);
-            $result['assignments'] = UserRole::using($this->database)->rows(['user_id', 'role_id']);
-            $result['roles'] = Role::using($this->database)->orderBy('id')->rows(['id', 'name']);
+            $result['assignments'] = UserRole::rows(['user_id', 'role_id']);
+            $result['roles'] = Role::orderBy('id')->rows(['id', 'name']);
             return $result;
         }
         if ($resource === 'roles') {
-            return ['items' => Role::using($this->database)->orderBy('id')->rows(), 'permissions' => self::permissions()];
+            return ['items' => Role::orderBy('id')->rows(), 'permissions' => self::permissions()];
         }
         if ($resource === 'menus') {
-            return ['items' => Menu::using($this->database)->orderBy('sort_order')->orderBy('id')->rows(), 'permissions' => self::permissions()];
+            return ['items' => Menu::orderBy('sort_order')->orderBy('id')->rows(), 'permissions' => self::permissions()];
         }
         return AuditEvent::listing($this->database, $page, $search);
     }
@@ -192,7 +192,7 @@ final class Admin
                 }
                 $values = ['site_name' => self::text($input, 'site_name', 100), 'site_description' => $input->string('site_description', 0, 500), 'registration_enabled' => $input->boolean('registration_enabled') ? 'true' : 'false'];
                 foreach ($values as $key => $value) {
-                    Setting::using($this->database)->where('key', $key)->update(['value' => $value, 'updated_at' => time()]);
+                    Setting::where('key', $key)->update(['value' => $value, 'updated_at' => time()]);
                 }
                 $this->audit($actor, 'settings.save', 'system', $values);
                 return ['ok' => true];
@@ -206,19 +206,19 @@ final class Admin
                         throw new HttpError(422, '邮箱格式无效');
                     }
                     $password = $input->string('password', 10, 72);
-                    $created = User::using($this->database)->insertOrIgnore(['name' => self::text($input, 'name', 80), 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
+                    $created = User::insertOrIgnore(['name' => self::text($input, 'name', 80), 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
                     if ($created->rowsAffected !== 1) {
                         throw new HttpError(409, '邮箱已存在');
                     }
                     $id = $created->insertId;
                 }
-                if ($action !== 'save' || $id === 0 || !User::using($this->database)->whereId($id)->exists()) {
+                if ($action !== 'save' || $id === 0 || !User::whereId($id)->exists()) {
                     throw new HttpError(422, '用户不存在；请停用账号而非删除业务数据');
                 }
                 $name = self::text($input, 'name', 80);
                 $enabled = $input->boolean('enabled');
                 $roleIds = [];
-                foreach (Role::using($this->database)->rows(['id']) as $role) {
+                foreach (Role::rows(['id']) as $role) {
                     $roleIds[] = (string)$role['id'];
                 }
                 $roles = self::list($input, 'roles', $roleIds);
@@ -226,35 +226,35 @@ final class Admin
                     throw new HttpError(422, '至少分配一个角色');
                 }
                 // 仅 root 可以授予或移除 root；用户管理员不能自行提权。
-                $wasRoot = UserRole::using($this->database)->whereUserId($id)->whereRoleId(1)->exists();
+                $wasRoot = UserRole::whereUserId($id)->whereRoleId(1)->exists();
                 $isRoot = in_array('1', $roles, true);
                 if (($wasRoot || $isRoot) && !in_array('*', $this->grants($actor), true)) {
                     throw new HttpError(403, '仅超级管理员可以管理超级管理员');
                 }
                 if (!in_array('*', $this->grants($actor), true)) {
                     foreach ($roles as $roleId) {
-                        $role = Role::using($this->database)->findOrFail($roleId)->toArray();
+                        $role = Role::findOrFail($roleId)->toArray();
                         foreach (json_decode($role['permissions'], true) as $permission) {
                             $this->require($actor, $permission);
                         }
                     }
                 }
                 $this->enroll($id);
-                User::using($this->database)->whereId($id)->update(['name' => $name]);
-                Account::using($this->database)->whereUserId($id)->update(['enabled' => $enabled ? 1 : 0]);
-                UserRole::using($this->database)->whereUserId($id)->delete();
+                User::whereId($id)->update(['name' => $name]);
+                Account::whereUserId($id)->update(['enabled' => $enabled ? 1 : 0]);
+                UserRole::whereUserId($id)->delete();
                 foreach ($roles as $roleId) {
-                    UserRole::using($this->database)->create(['user_id' => $id, 'role_id' => (int)$roleId]);
+                    UserRole::create(['user_id' => $id, 'role_id' => (int)$roleId]);
                 }
                 $this->keepRoot();
                 if (!$enabled) {
                     $this->auth->revoke($id);
-                    AccountToken::using($this->database)->whereUserId($id)->delete();
+                    AccountToken::whereUserId($id)->delete();
                 }
                 $this->audit($actor, 'users.save', (string)$id, ['name' => $name, 'enabled' => $enabled, 'roles' => $roles]);
                 return ['ok' => true, 'id' => $id];
             }
-            $records = $resource === 'roles' ? Role::using($this->database) : Menu::using($this->database);
+            $records = $resource === 'roles' ? Role::query() : Menu::query();
             $before = $id === 0 ? null : $records->whereId($id)->firstRow();
             if ($id !== 0 && $before === null) {
                 throw new HttpError(404, '记录不存在');
@@ -267,7 +267,7 @@ final class Admin
                 if ($id === 0) {
                     throw new HttpError(422, '请选择记录');
                 }
-                $references = $resource === 'roles' ? UserRole::using($this->database)->whereRoleId($id)->exists() : Menu::using($this->database)->whereParentId($id)->exists();
+                $references = $resource === 'roles' ? UserRole::whereRoleId($id)->exists() : Menu::whereParentId($id)->exists();
                 if ($references) {
                     throw new HttpError(409, '记录仍被使用，请先移除关联');
                 }
@@ -281,18 +281,18 @@ final class Admin
                 }
                 // 修改现有角色时，不得允许权限受限的角色管理员接管高权限角色。
                 if ($id !== 0) {
-                    foreach (json_decode(Role::using($this->database)->findOrFail($id)->permissions, true) as $permission) {
+                    foreach (json_decode(Role::findOrFail($id)->permissions, true) as $permission) {
                         $this->require($actor, $permission);
                     }
                 }
-                if (Role::using($this->database)->whereName($name)->where('id', '<>', $id)->exists()) {
+                if (Role::whereName($name)->where('id', '<>', $id)->exists()) {
                     throw new HttpError(409, '角色名称已存在');
                 }
                 $json = json_encode($permissions, JSON_THROW_ON_ERROR);
                 if ($id === 0) {
-                    $id = Role::using($this->database)->create(['name' => $name, 'permissions' => $json])->id;
+                    $id = Role::create(['name' => $name, 'permissions' => $json])->id;
                 } else {
-                    Role::using($this->database)->whereId($id)->update(['name' => $name, 'permissions' => $json]);
+                    Role::whereId($id)->update(['name' => $name, 'permissions' => $json]);
                 }
             } else {
                 $input->only(['action', 'id', 'label', 'path', 'permission', 'parent_id', 'sort_order', 'enabled']);
@@ -314,7 +314,7 @@ final class Admin
                         throw new HttpError(422, '菜单不能形成循环');
                     }
                     $seen[] = $ancestor;
-                    $rows = Menu::using($this->database)->whereId($ancestor)->rows(['parent_id']);
+                    $rows = Menu::whereId($ancestor)->rows(['parent_id']);
                     if ($rows === []) {
                         throw new HttpError(422, '父菜单不存在');
                     }
@@ -322,9 +322,9 @@ final class Admin
                 }
                 $values = ['label' => $label, 'path' => $path, 'permission' => $permission, 'parent_id' => $parent === 0 ? null : $parent, 'sort_order' => $input->integer('sort_order', -10000, 10000), 'enabled' => $input->boolean('enabled') ? 1 : 0];
                 if ($id === 0) {
-                    $id = Menu::using($this->database)->create($values)->id;
+                    $id = Menu::create($values)->id;
                 } else {
-                    Menu::using($this->database)->whereId($id)->update($values);
+                    Menu::whereId($id)->update($values);
                 }
             }
             $after = $action === 'delete' ? null : $records->whereId($id)->firstRow();
@@ -343,14 +343,14 @@ final class Admin
     public function bootstrap(string $email): int
     {
         return $this->database->transaction(function () use ($email): int {
-            $rows = User::using($this->database)->whereEmail(strtolower(trim($email)))->rows(['id']);
+            $rows = User::whereEmail(strtolower(trim($email)))->rows(['id']);
             if ($rows === []) {
                 throw new \RuntimeException('请先使用 admin:create 创建管理员账号，再指定该邮箱');
             }
             $id = (int)$rows[0]['id'];
             $this->enroll($id);
-            Account::using($this->database)->whereUserId($id)->update(['enabled' => 1]);
-            UserRole::using($this->database)->insertOrIgnore(['user_id' => $id, 'role_id' => 1], ['user_id', 'role_id']);
+            Account::whereUserId($id)->update(['enabled' => 1]);
+            UserRole::insertOrIgnore(['user_id' => $id, 'role_id' => 1], ['user_id', 'role_id']);
             $this->audit(null, 'admin.bootstrap', (string)$id, ['source' => 'console']);
             return $id;
         });

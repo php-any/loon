@@ -6,39 +6,39 @@ namespace Loom;
 
 // CLI 仅处理历史参数兼容；命令注册、执行和清理由 Kernel 管理。
 /**
- * 兼容历史 command 前缀，将命令交给 ConsoleKernel 统一执行和清理。
+ * 去掉历史调用里可选的 command 前缀，再把剩下的参数交给 ConsoleKernel 执行并清理作用域。
  *
  * 构造参数：
- * - $kernel（\Loom\Console\ConsoleKernel）：负责命令注册、执行和作用域清理的控制台内核。
+ * - $kernel（\Loom\Console\ConsoleKernel）：负责登记命令、执行并关闭作用域的内核。
  *
- * 返回值：使用 new 构造时得到 Cli 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：只转发参数的 Cli。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $code = $cli->run(['command', 'list']);
+ * @example $cli = new \Loom\Cli($kernel);
  */
 final class Cli
 {
     /**
-     * 初始化 Cli 实例及其依赖。兼容历史 command 前缀，将命令交给 ConsoleKernel 统一执行和清理。
+     * 保存控制台内核。不改参数，也不运行命令。
      *
-     * @param \Loom\Console\ConsoleKernel $kernel 负责命令注册、执行和作用域清理的控制台内核。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Console\ConsoleKernel $kernel 之后 run 要委托的内核。
+     * @return void 无返回值，内核已保存。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $code = $cli->run(['command', 'list']);
+     * @example $cli = new \Loom\Cli($kernel);
      */
     public function __construct(private \Loom\Console\ConsoleKernel $kernel)
     {
     }
 
     /**
-     * 移除可选的 command 前缀，然后将参数交给控制台内核。
+     * 第一项若是 command 就丢掉它，再把剩余列表交给内核 handle。列表为空，或第一项不是 command 时，原样转发。返回值就是内核的退出码。
      *
-     * @param array $args 不含可执行文件名的命令及参数列表，例如 ['queue:work', '--once']。
-     * @return int 内核返回的命令退出码。
+     * @param array $args 不含可执行文件名的参数；第一项可以是历史前缀 command。
+     * @return int ConsoleKernel::handle 返回的退出码。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $code = $cli->run(['list']);
+     * @example $code = $cli->run(['command', 'list']);
      */
     public function run(array $args): int
     {

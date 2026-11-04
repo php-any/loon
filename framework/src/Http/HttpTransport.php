@@ -6,14 +6,14 @@ namespace Loom;
 
 // 传输状态属于单个原生请求，包括 WebSocket 所有权。
 /**
- * 适配原生 HTTP 写入器与 WebSocket 升级操作，一个实例只属于当前请求。
+ * 保存当前请求的原生 HTTP 写入器，并负责这次连接的响应写出和 WebSocket 升级。
  *
  * 构造参数：
- * - $network（\Loom\Network）：网络限制配置服务，读取并校验协议参数。
- * - $native（mixed）：当前 Origami 原生 HTTP 请求对象。
- * - $writer（mixed）：当前原生响应写入器，需支持 header()、writeHeader() 和 write()。
+ * - $network（\Loom\Network）：读取 websocket 等协议限制。
+ * - $native（mixed）：当前 Origami 原生 HTTP 请求。
+ * - $writer（mixed）：当前原生响应写入器，send 时调用 header、writeHeader 和 write。
  *
- * 返回值：使用 new 构造时得到 HttpTransport 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 HttpTransport 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $transport = new HttpTransport($network, $native, $writer);
@@ -26,12 +26,12 @@ final class HttpTransport
     private mixed $writer;
     private bool $upgraded = false;
     /**
-     * 初始化 HttpTransport 实例及其依赖。适配原生 HTTP 写入器与 WebSocket 升级操作，一个实例只属于当前请求。
+     * 保存网络限制、原生请求和响应写入器。升级标记初始为 false，构造时不写响应。
      *
-     * @param \Loom\Network $network 网络限制配置服务，读取并校验协议参数。
-     * @param mixed $native 当前 Origami 原生 HTTP 请求对象。
-     * @param mixed $writer 当前原生响应写入器，需支持 header()、writeHeader() 和 write()。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Network $network 读取 websocket 协议限制的配置服务。
+     * @param mixed $native 当前 Origami 原生 HTTP 请求，升级时传给 Websocket\upgrade。
+     * @param mixed $writer 原生响应写入器，send 时调用 header、writeHeader 和 write。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $transport = new HttpTransport($network, $native, $writer);
@@ -44,11 +44,11 @@ final class HttpTransport
         $this->writer = $writer;
     }
     /**
-     * 将当前 HTTP 连接升级为 WebSocket，并应用 websocket 网络限制。
+     * 把当前连接升级为 WebSocket，并套用 websocket 网络限制。缺少原生请求或写入器时抛出 LogicException。configure 失败会先关闭连接，再抛出原来的异常。
      *
      * 参数：无。
      *
-     * @return \Net\Websocket\Conn 升级后的原生 WebSocket 连接；配置失败会关闭连接并抛出异常。
+     * @return \Net\Websocket\Conn 已套用限制的连接。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $connection = $transport->upgrade();
@@ -70,11 +70,11 @@ final class HttpTransport
         return $connection;
     }
     /**
-     * 将响应写入原生传输，自动添加 nosniff；HEAD 不写正文，已升级连接不再发送 HTTP 响应。
+     * 把响应头和正文写到原生写入器，并加上 X-Content-Type-Options: nosniff。已经升级的连接直接返回。正文超过 4 MiB 时抛出 RuntimeException。head 为 true 时不写正文。
      *
-     * @param Response $response 准备发送的 Loom 响应。
-     * @param bool $head 是否为 HEAD 请求；true 时仅写状态码和响应头。默认值为 false。
-     * @return void 无返回值；正文超过 4 MiB 时抛出 RuntimeException。
+     * @param Response $response 要写出的响应。
+     * @param bool $head 为 true 时只写状态码和响应头。默认 false。
+     * @return void 无返回值。正文超过 4194304 字节时抛出 RuntimeException。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $transport->send(Response::json(['ok' => true]), false);

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 function protoAssert(bool $ok, string $message): void
 {
@@ -36,7 +36,7 @@ mkdir($fixture . '/config', 0700, true);
 mkdir($fixture . '/routes', 0700, true);
 mkdir($fixture . '/bin', 0700, true);
 $entry = $fixture . '/loom.php';
-file_put_contents($entry, '<?php $scope = (require ' . var_export($root . '/framework/bootstrap/autoload.php', true) . ')(' . var_export($fixture, true) . '); exit($scope->services()->get(\\Loom\\Cli::class)->run(array_slice($argv,1)));');
+file_put_contents($entry, '<?php $scope = (require ' . var_export($root . '/framework/bootstrap/autoload.php', true) . ')(' . var_export($fixture, true) . '); exit($scope->container()->get(\\Loom\\Cli::class)->run(array_slice($argv,1)));');
 file_put_contents($fixture . '/routes/console.php', '<?php');
 foreach (['database' => ['dsn' => 'mysql:host=127.0.0.1;dbname=loom_test'], 'grpc' => ['import_paths' => ['proto'], 'proto_files' => [], 'package_prefix' => 'app']] as $name => $values) {
     file_put_contents($fixture . '/config/' . $name . '.php', '<?php return ' . var_export($values, true) . ';');

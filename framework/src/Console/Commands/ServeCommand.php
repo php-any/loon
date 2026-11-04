@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Loom\Console\Commands;
 
 /**
- * 检查运行时依赖后启动 HTTP 服务。由控制台容器解析依赖并调用。
+ * serve 命令。先做运行时检查，再调用已保存的 HTTP 服务。检查失败时不会启动服务。run 返回之后退出码才是 0。
  *
  * 构造参数：
- * - $server（\Loom\Server）：对应协议的服务器实例，run 会进入监听循环。
- * - $doctor（\Loom\Doctor）：运行时依赖检查服务。
+ * - $server（\Loom\Server）：要启动的 HTTP 服务。
+ * - $doctor（\Loom\Doctor）：启动前要执行的运行时检查。
  *
- * 返回值：使用 new 构造时得到 ServeCommand 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：尚未监听的 ServeCommand。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $console->run(['serve']);
@@ -22,25 +22,25 @@ final class ServeCommand extends \Loom\Console\Command
     protected string $description = '启动 HTTP 与 WebSocket 服务';
 
     /**
-     * 初始化 ServeCommand 实例及其依赖。检查运行时依赖后启动 HTTP 服务。由控制台容器解析依赖并调用。
+     * 保存 HTTP 服务和运行时检查。不调用 check，也不调用 run。
      *
-     * @param \Loom\Server $server 对应协议的服务器实例，run 会进入监听循环。
-     * @param \Loom\Doctor $doctor 运行时依赖检查服务。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Server $server 要保存的 HTTP 服务。
+     * @param \Loom\Doctor $doctor 要保存的运行时检查。
+     * @return void 无返回值，两个依赖已保存在实例上。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $console->run(['serve']);
+     * @example $command = new \Loom\Console\Commands\ServeCommand($server, $doctor);
      */
     public function __construct(private \Loom\Server $server, private \Loom\Doctor $doctor)
     {
     }
 
     /**
-     * 检查运行时依赖后启动 HTTP 服务。
+     * 先调用 Doctor::check，通过后再调用 HTTP 服务的 run。run 返回之后才返回 0。检查失败时不会启动服务；run 抛出的异常本方法不接住。
      *
      * 参数：无。
      *
-     * @return int 成功返回 0；异常交给控制台转换为非零退出码。
+     * @return int 服务 run 正常返回时为 0。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $console->run(['serve']);

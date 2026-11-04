@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Release;
 
-use Loom\Database;
 use Loom\HttpError;
 use Loom\Request;
 use App\Models\Release\ReleaseSession;
@@ -18,12 +17,10 @@ use Loom\Models\ScheduledJob;
 
 final class ReleaseWorkspace
 {
-    private \Loom\Database $database;
     private \Loom\RuntimeStatus $runtimeStatus;
 
-    public function __construct(\Loom\Database $database, \Loom\RuntimeStatus $runtimeStatus)
+    public function __construct(\Loom\RuntimeStatus $runtimeStatus)
     {
-        $this->database = $database;
         $this->runtimeStatus = $runtimeStatus;
     }
 
@@ -36,7 +33,7 @@ final class ReleaseWorkspace
                 $token = $parts[1] ?? '';
             }
         }
-        $rows = ReleaseSession::using($this->database)->whereToken(hash('sha256', $token))->where('expires', '>', time())->rows(['owner', 'csrf', 'created', 'expires']);
+        $rows = ReleaseSession::whereToken(hash('sha256', $token))->where('expires', '>', time())->rows(['owner', 'csrf', 'created', 'expires']);
         if ($rows === []) {
             throw new HttpError(401, '体验空间尚未创建或已经过期');
         }
@@ -64,7 +61,7 @@ final class ReleaseWorkspace
 
     public function event(int $owner, string $kind, string $detail): void
     {
-        ReleaseEvent::using($this->database)->create(['owner' => $owner, 'kind' => $kind, 'detail' => $detail]);
+        ReleaseEvent::create(['owner' => $owner, 'kind' => $kind, 'detail' => $detail]);
     }
 
     public function state(array $session): array
@@ -73,13 +70,13 @@ final class ReleaseWorkspace
         return [
             'workspace' => ['id' => $owner, 'expires' => (int)$session['expires']],
             'csrf' => $session['csrf'],
-            'exchanges' => ProtocolExchange::using($this->database)->whereOwner($owner)->orderBy('id', 'DESC')->limit(20)->rows(['id', 'job_id', 'protocol', 'ok', 'request', 'response', 'elapsed_ms', 'created']),
-            'project' => Project::using($this->database)->whereUserId($owner)->orderBy('id')->firstRow(['id', 'name', 'created']),
-            'tasks' => Task::using($this->database)->whereUserId($owner)->orderBy('id')->rows(['id', 'title', 'completed', 'created']),
-            'jobs' => Job::using($this->database)->whereOwner($owner)->orderBy('id', 'DESC')->limit(20)->rows(['id', 'kind', 'state', 'attempts', 'available', 'created', 'error']),
-            'reports' => Report::using($this->database)->whereUserId($owner)->orderBy('id', 'DESC')->limit(10)->rows(['id', 'job_id', 'total', 'completed', 'created']),
-            'schedule' => ScheduledJob::using($this->database)->whereOwner($owner)->firstRow(['name', 'interval_seconds', 'next_run']),
-            'events' => ReleaseEvent::using($this->database)->whereOwner($owner)->orderBy('id', 'DESC')->limit(40)->rows(['id', 'kind', 'detail', 'created']),
+            'exchanges' => ProtocolExchange::whereOwner($owner)->orderBy('id', 'DESC')->limit(20)->rows(['id', 'job_id', 'protocol', 'ok', 'request', 'response', 'elapsed_ms', 'created']),
+            'project' => Project::whereUserId($owner)->orderBy('id')->firstRow(['id', 'name', 'created']),
+            'tasks' => Task::whereUserId($owner)->orderBy('id')->rows(['id', 'title', 'completed', 'created']),
+            'jobs' => Job::whereOwner($owner)->orderBy('id', 'DESC')->limit(20)->rows(['id', 'kind', 'state', 'attempts', 'available', 'created', 'error']),
+            'reports' => Report::whereUserId($owner)->orderBy('id', 'DESC')->limit(10)->rows(['id', 'job_id', 'total', 'completed', 'created']),
+            'schedule' => ScheduledJob::whereOwner($owner)->firstRow(['name', 'interval_seconds', 'next_run']),
+            'events' => ReleaseEvent::whereOwner($owner)->orderBy('id', 'DESC')->limit(40)->rows(['id', 'kind', 'detail', 'created']),
             'services' => $this->runtimeStatus->snapshot(),
             'now' => time(),
         ];

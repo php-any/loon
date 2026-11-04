@@ -1,6 +1,6 @@
 # Loom 框架能力
 
-首次阅读建议先看 [框架原理与 PHP 文件加载流程](framework-principles.md)，再按本文查阅各项能力。
+首次阅读建议先看 [框架原理与 PHP 文件加载流程](framework-principles.md)，再按本文查阅各项能力。选项绑定和后台服务生命周期见 [宿主与选项](hosting.md)。
 
 Loom 由 `framework/src/` 下的 Origami 脚本实现，`loom.php` 是唯一命令入口。框架直接调用标准库，应用使用 `App\` 命名空间。Go 不参与 Loom 应用装配和业务调用。
 
@@ -8,7 +8,7 @@ Loom 是具体应用项目，`framework/` 是随项目开发的内部框架，�
 
 ## 实例服务与作用域
 
-`Config`、`Database`、`Auth` 不再支持静态调用。应用加载函数返回 `ServiceScope`；引导脚本通过 `$scope->load($entry)` 执行，显式获得 `$scope`、`$services` 与 `$config`。直接 require 这些脚本不再是支持的入口。
+`Config`、`Database`、`Auth` 不再支持静态调用。应用加载函数返回 `ServiceScope`；引导脚本通过 `$scope->load($entry)` 执行，显式获得 `$scope`、`$container` 与 `$config`。直接 require 这些脚本不再是支持的入口。
 
 业务使用普通类型化构造参数；容器自动解析非内置类型，服务别名仍可使用 `#[Inject('service.id')]`。不要在业务类中注入容器再查找依赖。
 
@@ -40,7 +40,7 @@ Config 的根目录与缓存属于实例。Database 携带配置，不持有连�
 
 ```php
 $scope = (require $root . '/framework/bootstrap/autoload.php')($root);
-$modules = $scope->services()->get(\Loom\ModuleRegistry::class)->configured();
+$modules = $scope->container()->get(\Loom\ModuleRegistry::class)->configured();
 $factory = new \Loom\ApplicationFactory($modules);
 $factory->routes(static function (\Loom\Router $routes, \Loom\Application $app): void {
     $routes->get('/health', static function ($request) {
@@ -50,7 +50,7 @@ $factory->routes(static function (\Loom\Router $routes, \Loom\Application $app):
 return $factory->create();
 ```
 
-`Application::router()` 提供路由注册，`Application::kernel()` 提供 HTTP 执行入口，`services()` 提供当前应用容器。原有 `get/post/group/handle` 等便捷方法保留为委托入口。通过 Router 或 RouteRegistrar 注册分组时，回调参数为 `Router`；直接调用 `Application::group()` 时仍传入 Application。
+`Application::router()` 提供路由注册，`Application::kernel()` 提供 HTTP 执行入口，`container()` 提供当前应用容器。原有 `get/post/group/handle` 等便捷方法保留为委托入口。通过 Router 或 RouteRegistrar 注册分组时，回调参数为 `Router`；直接调用 `Application::group()` 时仍传入 Application。
 
 `Router::match($method, $path)` 只返回 `RouteMatch`，不会创建控制器或执行中间件。`HttpKernel` 接受 `RouteMatcher` 接口，因此可独立替换匹配实现。全局中间件包裹 404、405 和路由 HttpError 响应；路由中间件在参数绑定之后执行，短路时不会解析后续处理器。WebSocket 连接在路由中间件放行之后才建立。
 
@@ -69,11 +69,7 @@ $services->scoped(Database::class, static fn (Container $c) => new Database($c->
 
 singleton 工厂及其依赖在根容器解析，直接或经 transient、alias 间接依赖 scoped 都会抛出 `LogicException`。Go 侧按应用串行保护单例构造，失败不缓存，后续解析可重试；单例自身的方法和可变业务状态仍需自行保证并发安全。`close()` 保留现有数据库、请求上下文清理行为，不会关闭其他作用域使用的 singleton，也不推断任意业务对象的析构协议。
 
-根作用域另外注册两个 singleton：`Options` 和 `Host`。这是 .NET 通用宿主里的选项绑定和后台服务生命周期，接在现有 singleton、scoped、transient 之上。
-
-`Options::bind($class, $section)` 把配置节的数组写进具体类的公开属性，并返回新对象。`null`、`false`、`0` 和空字符串原样保留；多余的键忽略。没有默认值的类型化属性必须存在，类型必须匹配，整数可以写入 `float`。属性类型是具体类且值是数组时递归绑定。类需要能无必填构造参数地创建。`Container::options($class, $section, $validate = null)` 把绑定结果注册为 singleton：第一次解析时绑定并执行可选校验，之后复用该对象；校验失败不缓存。直接 `bind()` 每次读取当前配置，已解析的选项对象不会随 `setRoot()` 更新。
-
-`HostedService` 提供同步的 `start()` 和 `stop()`。`Host::service()` 在启动前登记实例或服务标识；启动时尚未注册的具体类会登记为 singleton，scoped、transient 以及会依赖 scoped 的 singleton 都会拒绝。`start()` 按登记顺序调用，中途失败则按相反顺序停止已经启动的服务，并抛出原来的异常。`stop()` 按相反顺序停止；某个 `stop()` 失败时其余服务仍会停止，然后抛出第一个停止异常。`run($work)` 包住一次启动、回调和停止。HTTP 服务在监听前把定时器运行器装进 `TimerHostedService`，和其他后台服务一起交给 `Host::run()`。队列和调度进程不启动这个 Host。`config/services.php` 在 `serve` 监听前执行，可以在那里登记后台服务或替换 `HttpServerOptions`。
+根作用域另外注册 singleton `Options` 和 `Host`。配置节绑定、后台服务的启停顺序，以及 `serve` 如何把定时器装进 Host，见 [宿主与选项](hosting.md)。
 
 `#[Loom\Attributes\Service(id: CacheInterface::class, lifetime: 'singleton')]` 可为模块服务选择生命周期，默认 `scoped`。`new Container($objectFactory)` 可替换对象创建策略，默认 `ConfiguredObjectFactory` 负责构造参数及配置属性注入。
 
@@ -134,7 +130,7 @@ $data = $stored->toArray();
 
 `ConsoleCommand` 标记继承 `Loom\Console\Command` 的类，沿用 signature/description/handle 契约。命令生成器自动添加此注解，手写闭包命令由实现 `Loom\Console\CommandRegistrar` 的应用类注册。
 
-`Timer` 同样由模块发现。HTTP 服务把它装成 `TimerHostedService`，由 `Host` 在监听前启动、退出时停止；每次 HTTP 请求只装配路由与服务，不启动定时器。固定周期、超时跳过、不补跑、同一定时器不重叠的语义保持不变。
+`Timer` 同样由模块发现。HTTP 服务把它装成 `TimerHostedService`，由 `Host` 在监听前启动、退出时停止；每次 HTTP 请求只装配路由与服务，不启动定时器。固定周期、超时跳过、不补跑、同一定时器不重叠的语义保持不变。启动顺序见 [宿主与选项](hosting.md)。
 
 各入口共享注册规则，而非共享业务实例：每个 HTTP 请求、队列子进程、协议调用分别创建容器，每个模块定时器使用独立容器，每次执行结束关闭该定时器的连接，处理器实例保留自身计数等状态，Console 使用命令容器。发现阶段不实例化控制器或服务，也不启动后台任务。手动 HTTP/WebSocket 路由通过 `Loom\Http\RouteProvider::register(Router $routes)` 注册，应用实现位于 `app/Http/ApplicationRoutes.php`，在 `loom.php` 中显式绑定；不能重复注册已声明的注解路由。默认 HTTP 引导和 `ApplicationFactory` 都使用当前应用容器解析该接口，未绑定时仅安装模块注解路由。HTTP 启动时预先校验路由，修改注解后需重启长期运行的进程。
 

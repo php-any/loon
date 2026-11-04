@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom\Results;
 
 /**
- * 接收按任务状态分组的聚合投影，state 和 total 由数据库填充。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：使用 new 构造时得到 StateCount 实例；注册到容器时由容器管理实例的创建与复用。
+ * 承接按任务状态分组的一行。state 和 total 由查询填入，这个类自己不查库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $rows = \Loom\Models\Job::countsByState($database);
+ * @example $row = new StateCount();
  */
 final class StateCount
 {

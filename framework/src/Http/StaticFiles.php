@@ -5,37 +5,37 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 从指定根目录提供 /assets/ 下的静态资源，限制路径越界、请求方法和文件大小。
+ * 从指定根目录提供 /assets/ 下的文件。拒绝越出根目录的路径、非 GET/HEAD 方法和超过 4 MiB 的文件。
  *
  * 构造参数：
- * - $root（string）：项目根目录路径，配置和业务文件以此为基础定位。
+ * - $root（string）：静态文件根目录。请求路径去掉 /assets/ 后相对这个目录查找。
  *
- * 返回值：使用 new 构造时得到 StaticFiles 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 StaticFiles 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $assets = new StaticFiles($config->path('public'));
+ * @example $assets = new StaticFiles($publicRoot);
  */
 final class StaticFiles
 {
     private string $root;
     /**
-     * 初始化 StaticFiles 实例及其依赖。从指定根目录提供 /assets/ 下的静态资源，限制路径越界、请求方法和文件大小。
+     * 保存静态文件根目录字符串。目录是否存在留到 handle 再用 realpath 检查。
      *
-     * @param string $root 项目根目录路径，配置和业务文件以此为基础定位。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $root 静态文件根目录，对应 /assets/ 之后的相对路径。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $assets = new StaticFiles($config->path('public'));
+     * @example $assets = new StaticFiles($publicRoot);
      */
     public function __construct(string $root)
     {
         $this->root = $root;
     }
     /**
-     * 解析 /assets/ 后的相对路径并返回文件内容；仅允许 GET/HEAD、根目录内文件且不超过 4 MiB。
+     * 读取 /assets/ 后的文件并返回 200 响应。路径不是该前缀、根目录或文件不存在、路径越出根目录时抛出 HTTP 404。方法不是 GET 或 HEAD 时抛出 405。文件大于 4 MiB 时抛出 413。按扩展名设置 Content-Type，未知扩展名为 application/octet-stream。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Response 带推断 Content-Type 的文件响应；非法路径、方法或大小抛出 HttpError。
+     * @param Request $request 路径以 /assets/ 开头的请求。
+     * @return Response 正文为文件内容的 200 响应。HEAD 也包含正文，由传输层决定是否写出。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $assets->handle($request);

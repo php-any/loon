@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
 $runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 $unconfigured = false;
 try {

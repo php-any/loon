@@ -3,7 +3,7 @@
 declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
 $runtimeScope = new \Loom\ServiceScope(new \Loom\Config(dirname(__DIR__, 2)));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 use Loom\Database;
 use Loom\Migrations;
 use Loom\Auth;

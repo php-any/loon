@@ -6,16 +6,10 @@ namespace Loom;
 
 // MySQL 提供事务性发件箱与归档；Redis Streams 负责投递和待处理消息。
 /**
- * 用 MySQL 发件箱恢复 Redis Streams 投递，通过 Lua 与数据库 CAS 共同校验租约，隔离不同数据库的队列。
- *
- * 构造参数：
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- *
- * 返回值：使用 new 构造时得到 RedisQueue 实例；注册到容器时由容器管理实例的创建与复用。
+ * 用 MySQL 发件箱补 Redis Streams。认领时 Lua 和数据库 CAS 一起核对租约，不同数据库的队列键互相分开。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $job = $redisQueue->claim(time());
+ * @example $redisQueue = new RedisQueue($database, $config);
  */
 final class RedisQueue
 {
@@ -23,14 +17,14 @@ final class RedisQueue
     private string $cursor = '0-0';
 
     /**
-     * 初始化 RedisQueue 实例及其依赖。用 MySQL 发件箱恢复 Redis Streams 投递，通过 Lua 与数据库 CAS 共同校验租约，隔离不同数据库的队列。
+     * 保存数据库和配置，并把消费游标设为 0-0。这里不连接 Redis。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Database $database 认领时用来读发件箱、做租约 CAS。
+     * @param \Loom\Config $config 用来解析 default 连接，把队列键隔开。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $job = $redisQueue->claim(time());
+     * @example $redisQueue = new RedisQueue($database, $config);
      */
     public function __construct(\Loom\Database $database, private \Loom\Config $config)
     {
@@ -50,7 +44,7 @@ final class RedisQueue
     public function keys(): array
     {
         // 即使共享 Redis 及其前缀，任务 ID 仍仅在各数据库内有效。
-        $base = '{queue:' . hash('sha256', $this->config->get('database.dsn')) . '}';
+        $base = '{queue:' . hash('sha256', (new Database($this->config))->pdoDsn()) . '}';
         return [Redis::key($base . ':stream'), Redis::key($base . ':published'), Redis::key($base . ':leases')];
     }
     /**
@@ -72,7 +66,7 @@ final class RedisQueue
      * @param string $name 框架队列 Lua 脚本名，不带 .lua，例如 initialize、publish、claim、ack。
      * @return string Lua 源码字符串。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $lua = self::script('claim');
      */
     private static function script(string $name): string
@@ -86,7 +80,7 @@ final class RedisQueue
      * @param array $args 按对应 Lua 脚本 ARGV 顺序传入的字符串参数列表。
      * @return array 可交给 Redis::execute 的命令数组。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $command = $this->command('initialize', []);
      */
     private function command(string $name, array $args): array
@@ -100,12 +94,12 @@ final class RedisQueue
      * @param int $now 当前 Unix 时间戳，单位秒。
      * @return ?array 带租约和 message_id 的任务；未取得有效租约返回 null。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $job = $this->claimUsing($client, time());
      */
     private function claimUsing(\Redis $client, int $now): ?array
     {
-        Models\Job::using($this->database)->whereState('running')->where('lease_until', '<=', $now)->where('attempts', '>=', 3)->update(['state' => 'failed', 'error' => 'Worker lease expired after final attempt', 'lease' => null]);
+        Models\Job::whereState('running')->where('lease_until', '<=', $now)->where('attempts', '>=', 3)->update(['state' => 'failed', 'error' => 'Worker lease expired after final attempt', 'lease' => null]);
         // 恢复操作有数量限制。Redis 数据丢失或重启后，也可通过持久化发件箱重建。
         Redis::execute($client, $this->command('initialize', []));
         $rows = Models\Job::readyForRedis($this->database, $now);

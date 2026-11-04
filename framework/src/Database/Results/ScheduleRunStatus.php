@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom\Results;
 
 /**
- * 接收调度执行记录与任务状态的连接查询结果；由 ORM 填充全部公共字段后转换为数组。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：使用 new 构造时得到 ScheduleRunStatus 实例；注册到容器时由容器管理实例的创建与复用。
+ * 承接调度记录和任务状态连表后的一行。字段由查询填入，这个类自己不查库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $rows = \Loom\Models\ScheduleRun::recent($database, 1);
+ * @example $row = new ScheduleRunStatus();
  */
 final class ScheduleRunStatus
 {

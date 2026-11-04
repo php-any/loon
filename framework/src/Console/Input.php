@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 保存命令签名解析后的参数与选项，按名称读取并拒绝未知名称。
+ * 按名称保存一次解析得到的位置参数和选项。读取未知名称时抛出 LogicException，不用 null 代替缺失项。
  *
  * 构造参数：
- * - $arguments（array）：位置参数名称到解析后值的映射。
- * - $options（array）：选项名称到解析后值的映射。
+ * - $arguments（array）：位置参数名到值的映射。
+ * - $options（array）：选项名到值的映射。
  *
- * 返回值：使用 new 构造时得到 Input 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：只按这两份映射读取的 Input。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $input = new \Loom\Console\Input(['name' => '小明'], ['force' => false]);
@@ -21,11 +21,11 @@ final class Input
     private array $arguments;
     private array $options;
     /**
-     * 初始化 Input 实例及其依赖。保存命令签名解析后的参数与选项，按名称读取并拒绝未知名称。
+     * 原样保存位置参数映射和选项映射。不检查名称是否重复，也不补默认值。
      *
-     * @param array $arguments 位置参数名称到解析后值的映射。
-     * @param array $options 选项名称到解析后值的映射。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param array $arguments 位置参数名到已解析值的映射。
+     * @param array $options 选项名到已解析值的映射；布尔开关用 bool。
+     * @return void 无返回值，两份映射已存入实例。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $input = new \Loom\Console\Input(['name' => '小明'], ['force' => false]);
@@ -36,10 +36,10 @@ final class Input
         $this->options = $options;
     }
     /**
-     * 读取已经解析的位置参数，名称不在签名定义中时抛出 LogicException。
+     * 按名称返回位置参数。名称不在构造时的参数映射里时抛出 LogicException。同名选项存在也不读取选项。
      *
-     * @param string $name 签名中声明的参数或选项名称，不带 --。
-     * @return mixed 参数值，可能为字符串、数组或默认值。
+     * @param string $name 位置参数名，不带花括号。
+     * @return mixed 该参数保存的字符串、数组或默认值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $name = $input->argument('name');
@@ -51,10 +51,10 @@ final class Input
         } return $this->arguments[$name];
     }
     /**
-     * 读取已经解析的命名选项，名称未知时抛出 LogicException。
+     * 按名称返回选项。名称不在构造时的选项映射里时抛出 LogicException。不读取位置参数。
      *
-     * @param string $name 签名中声明的参数或选项名称，不带 --。
-     * @return mixed 选项值，布尔开关为 bool，带值选项为字符串、数组或默认值。
+     * @param string $name 选项全名，不带 --。
+     * @return mixed 布尔开关、字符串、数组或该选项的默认值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $force = $input->option('force');

@@ -27,8 +27,8 @@ final class Digest
             throw new \LogicException('Unknown job kind');
         }
         $this->database->transaction(function () use ($job): void {
-            $counts = Task::using($this->database)->whereUserId($job['owner'])->aggregate(['total' => ['COUNT', '*'], 'completed' => ['SUM', 'completed']]);
-            Report::using($this->database)->insertOrIgnore(['user_id' => $job['owner'], 'job_id' => $job['id'], 'total' => (int)$counts['total'], 'completed' => (int)$counts['completed']], ['job_id']);
+            $counts = Task::whereUserId($job['owner'])->aggregate(['total' => ['COUNT', '*'], 'completed' => ['SUM', 'completed']]);
+            Report::insertOrIgnore(['user_id' => $job['owner'], 'job_id' => $job['id'], 'total' => (int)$counts['total'], 'completed' => (int)$counts['completed']], ['job_id']);
         });
         return Response::json(['report' => 'ready', 'job' => $job['id']]);
     }

@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 根据目录和命名空间推导类名，不 require 源码，扫描时跳过符号链接并保持确定顺序。
+ * 按目录和命名空间拼出类名。扫描时跳过符号链接，同级路径按字符串排序，并且不加载文件。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 ClassDiscovery 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：本类型只有静态 scan，不需要为扫描去构造实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $classes = ClassDiscovery::scan($config->path('app'), 'App');
@@ -17,11 +17,13 @@ namespace Loom;
 final class ClassDiscovery
 {
     /**
-     * 递归扫描 PHP 文件并按相对路径推导类名；不实例化类，也不验证文件内声明是否匹配。
+     * 列出目录对应的类名。glob 失败时抛出 LogicException。得到的路径先按字符串排序。
+     * 符号链接跳过。子目录用目录名追加命名空间后递归。扩展名为 php 的文件用文件名当作类名，其他文件忽略。
+     * 不 require 文件，也不检查类声明是否与文件名一致。
      *
-     * @param string $directory 待扫描目录路径。
-     * @param string $namespace 待发现类使用的命名空间前缀。
-     * @return array 按排序后的目录遍历顺序得到的完整类名列表。
+     * @param string $directory 要扫描的目录。
+     * @param string $namespace 该目录对应的命名空间前缀。
+     * @return array 完整类名。同级路径按字符串排序后逐个处理，目录递归展开，php 文件用文件名作为类名。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $classes = ClassDiscovery::scan($config->path('app'), 'App');

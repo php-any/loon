@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Loom\Attributes;
 
 /**
- * 标记控制器类并声明公共路由前缀和中间件，方法路由在此基础上组合。
+ * 标在控制器类上，保存路由前缀和类级中间件。发现器把前缀拼到每条路由路径前面。
  *
  * 构造参数：
- * - $prefix（string）：控制器所有路由的公共路径前缀，例如 /api。默认值为 ''。
- * - $middleware（array）：控制器级中间件列表，先于方法级中间件执行。默认值为 []。
+ * - $prefix（string）：路径前缀。默认空字符串。
+ * - $middleware（array）：类级中间件。默认空数组。
  *
- * 返回值：使用 new 构造时得到 Controller 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 Controller。构造时不检查前缀格式。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example #[\Loom\Attributes\Controller('/api')] final class ExampleController {}
+ * @example $controller = new Controller('/api');
  */
 #[\Attribute(\Attribute::TARGET_CLASS)]
 final class Controller
@@ -22,14 +22,14 @@ final class Controller
     public string $prefix;
     public array $middleware;
     /**
-     * 初始化 Controller 实例及其依赖。标记控制器类并声明公共路由前缀和中间件，方法路由在此基础上组合。
+     * 把前缀和类级中间件写入公开属性。不解析中间件，也不要求前缀以斜杠开头。
      *
-     * @param string $prefix 控制器所有路由的公共路径前缀，例如 /api。默认值为 ''。
-     * @param array $middleware 控制器级中间件列表，先于方法级中间件执行。默认值为 []。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $prefix 发现路由时拼在路径前面的前缀。默认空字符串。
+     * @param array $middleware 与每条路由中间件合并的类级中间件。默认空数组。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example #[\Loom\Attributes\Controller('/api')] final class ExampleController {}
+     * @example $controller = new Controller('/api');
      */
     public function __construct(string $prefix = '', array $middleware = [])
     {

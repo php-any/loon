@@ -12,10 +12,15 @@ foreach ($names as $name) {
 try {
     putenv('LOOM_ENV_TEST_OVERRIDE=process');
     putenv('LOOM_ENV_TEST_KEEP=retained');
+    $_ENV['LOOM_ENV_TEST_OVERRIDE'] = 'stale';
+    $_SERVER['LOOM_ENV_TEST_OVERRIDE'] = 'stale-server';
     file_put_contents($path, "# comment\nLOOM_ENV_TEST_OVERRIDE=file # comment\nLOOM_ENV_TEST_EMPTY=\nexport LOOM_ENV_TEST_QUOTED=\" a # b = c \" # comment\nLOOM_ENV_TEST_LITERAL='literal\$value'\n");
     Loom\Environment::load($path);
     if (getenv($names[0]) !== 'file' || getenv($names[1]) !== '' || getenv($names[2]) !== ' a # b = c ' || getenv($names[3]) !== 'literal$value' || getenv($names[4]) !== 'retained') {
         throw new RuntimeException('Environment values or precedence incorrect');
+    }
+    if (env('LOOM_ENV_TEST_OVERRIDE') !== 'file' || env('LOOM_ENV_TEST_EMPTY', 'fallback') !== '' || ($_ENV['LOOM_ENV_TEST_OVERRIDE'] ?? null) !== 'file' || ($_SERVER['LOOM_ENV_TEST_OVERRIDE'] ?? null) !== 'file') {
+        throw new RuntimeException('env() must see the file value stored for Laravel readers');
     }
     foreach (["INVALID-NAME=secret", "LOOM_ENV_TEST_QUOTED='secret", 'LOOM_ENV_TEST_QUOTED="secret"suffix'] as $invalid) {
         file_put_contents($path, $invalid);
@@ -30,6 +35,47 @@ try {
         }
     }
     Loom\Environment::load($path . '.missing');
+    putenv('LOOM_ENV_FN');
+    if (env('LOOM_ENV_FN', 'fallback') !== 'fallback' || env('LOOM_ENV_FN', static fn (): string => 'called') !== 'called') {
+        throw new RuntimeException('env() must return the default when the variable is absent');
+    }
+    putenv('LOOM_ENV_FN=(true)');
+    if (env('LOOM_ENV_FN') !== true) {
+        throw new RuntimeException('env() must cast true');
+    }
+    putenv('LOOM_ENV_FN=(false)');
+    if (env('LOOM_ENV_FN') !== false) {
+        throw new RuntimeException('env() must cast false');
+    }
+    putenv('LOOM_ENV_FN=(null)');
+    if (env('LOOM_ENV_FN', 'fallback') !== null) {
+        throw new RuntimeException('env() must cast null');
+    }
+    putenv('LOOM_ENV_FN=(empty)');
+    if (env('LOOM_ENV_FN', 'fallback') !== '') {
+        throw new RuntimeException('env() must cast empty');
+    }
+    putenv('LOOM_ENV_FN=plain');
+    if (env('LOOM_ENV_FN') !== 'plain') {
+        throw new RuntimeException('env() must return the raw string');
+    }
+    putenv('LOOM_ENV_FN');
+    $_ENV['LOOM_ENV_FN'] = '(true)';
+    if (env('LOOM_ENV_FN') !== true) {
+        throw new RuntimeException('env() must read $_ENV when getenv has no value');
+    }
+    unset($_ENV['LOOM_ENV_FN']);
+    $_SERVER['LOOM_ENV_FN'] = '(false)';
+    if (env('LOOM_ENV_FN') !== false) {
+        throw new RuntimeException('env() must read $_SERVER when getenv and $_ENV have no value');
+    }
+    unset($_SERVER['LOOM_ENV_FN']);
+    putenv('LOOM_ENV_FN=""');
+    if (env('LOOM_ENV_FN', 'fallback') !== '') {
+        throw new RuntimeException('env() must unwrap quotes and keep an empty string');
+    }
+    putenv('LOOM_ENV_FN');
+    unset($_ENV['LOOM_ENV_FN'], $_SERVER['LOOM_ENV_FN']);
     $bootRoot = sys_get_temp_dir() . '/loom-env-boot-' . bin2hex(random_bytes(4));
     mkdir($bootRoot . '/config', 0700, true);
     $bootPrevious = getenv('LOOM_BOOT_PROBE');
@@ -39,7 +85,7 @@ try {
     $boot = require dirname(__DIR__) . '/bootstrap/autoload.php';
     $bootScope = $boot($bootRoot, null, $bootRoot . '/.env');
     try {
-        if ($bootScope->services()->get(Loom\Config::class)->get('probe.value') !== 'file') {
+        if ($bootScope->container()->get(Loom\Config::class)->get('probe.value') !== 'file') {
             throw new RuntimeException('Bootstrap must load the environment file before config');
         }
     } finally {
@@ -52,7 +98,10 @@ try {
     }
 } finally {
     unlink($path);
+    putenv('LOOM_ENV_FN');
+    unset($_ENV['LOOM_ENV_FN'], $_SERVER['LOOM_ENV_FN']);
     foreach ($previous as $name => $value) {
+        unset($_ENV[$name], $_SERVER[$name]);
         putenv($value === false ? $name : $name . '=' . $value);
     }
 }
@@ -95,8 +144,8 @@ $first = new Loom\ServiceScope($config, static function (Loom\Container $service
 });
 $second = $first->fork();
 try {
-    $a = $first->services();
-    $b = $second->services();
+    $a = $first->container();
+    $b = $second->container();
     $child = $a->get(Loom\ModuleRegistry::class)->container();
     try {
         if ($b->get(ScopeRegistrationProbe::class)->value !== 'from entry' || $child->get(ScopeRegistrationProbe::class)->value !== 'from entry' || $a->get(ScopeRegistrationProbe::class) === $child->get(ScopeRegistrationProbe::class)) {

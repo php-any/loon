@@ -5,18 +5,18 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 合并配置与生成清单中的协议，启动 gRPC 服务并把调用转换为脚本信封，逐调用隔离作用域。
+ * 按 grpc 配置启动原生服务。每次调用 fork 一个作用域，把 RPC 收成脚本信封交给入口，再把结果写回调用。
  *
  * 构造参数：
- * - $scope（\Loom\ServiceScope）：当前执行单元拥有的服务作用域。
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $network（\Loom\Network）：网络限制配置服务，读取并校验协议参数。
+ * - $scope（ServiceScope）：run 时每个调用 fork 的父作用域，handle 时用来 load 入口。
+ * - $config（Config）：读取 grpc 段，schema 时还读取生成清单。
+ * - $database（Database）：handle 结束时关闭。
+ * - $network（Network）：run 时读取 grpc 限制。
  *
- * 返回值：使用 new 构造时得到 GrpcServer 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到尚未监听的 GrpcServer。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $services->get(GrpcServer::class)->run();
+ * @example $server = new GrpcServer($scope, $config, $database, $network);
  */
 final class GrpcServer
 {
@@ -27,16 +27,16 @@ final class GrpcServer
     private \Loom\Network $network;
 
     /**
-     * 初始化 GrpcServer 实例及其依赖。合并配置与生成清单中的协议，启动 gRPC 服务并把调用转换为脚本信封，逐调用隔离作用域。
+     * 保存作用域、配置、数据库和网络限制。构造时不读取 grpc 配置，也不启动服务。
      *
-     * @param \Loom\ServiceScope $scope 当前执行单元拥有的服务作用域。
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param \Loom\Network $network 网络限制配置服务，读取并校验协议参数。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\ServiceScope $scope 每个 RPC fork 以及加载入口时使用的父作用域。
+     * @param \Loom\Config $config 提供 grpc 地址、协议文件和入口的配置。
+     * @param \Loom\Database $database 单次 handle 结束时关闭的数据库。
+     * @param \Loom\Network $network run 时提供 grpc 限制。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services->get(GrpcServer::class)->run();
+     * @example $server = new GrpcServer($scope, $config, $database, $network);
      */
     public function __construct(\Loom\ServiceScope $scope, \Loom\Config $config, \Loom\Database $database, \Loom\Network $network)
     {
@@ -48,11 +48,12 @@ final class GrpcServer
     }
 
     /**
-     * 合并并去重 proto 文件和导入目录，将目录解析为项目绝对路径。
+     * 从 grpc 配置取出 proto_files 和 import_paths。项目根下的 generated/grpc/routes.json 存在时，把清单里每个文件的 proto 和导入目录并进去。
+     * 导入目录经配置转成绝对路径。协议文件和导入目录各自去重后交给 Net\Grpc\Schema。清单 JSON 不合法时，异常来自 json_decode。
      *
      * 参数：无。
      *
-     * @return \Net\Grpc\Schema 可供原生服务注册使用的 Net\Grpc\Schema。
+     * @return \Net\Grpc\Schema 合并后的协议描述。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $schema = $server->schema();
@@ -78,11 +79,12 @@ final class GrpcServer
         return new \Net\Grpc\Schema(array_values(array_unique($files)), $absolute);
     }
     /**
-     * 读取地址、Schema、反射和网络限制，安装每次 RPC 的作用域回调并阻塞监听。
+     * 用 grpc 地址和 schema 创建原生服务，套上 grpc 限制和 reflection 开关。先 echo 地址，再阻塞 serve。
+     * 每个调用 fork 父作用域，在子容器里解析 GrpcServer 并 handle，最后关闭子作用域。
      *
      * 参数：无。
      *
-     * @return void 无返回值，直到服务结束或异常。
+     * @return void 无返回值。配置缺失或限制不合法时在开始监听前抛出。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $server->run();
@@ -98,17 +100,21 @@ final class GrpcServer
         $server->serve(static function ($call) use ($parentScope): void {
             $scope = $parentScope->fork();
             try {
-                $scope->services()->get(\Loom\GrpcServer::class)->handle($call);
+                \Loom\ModelContext::during($scope, static function () use ($scope, $call): void {
+                    $scope->container()->get(\Loom\GrpcServer::class)->handle($call);
+                });
             } finally {
                 $scope->close();
             }
         });
     }
     /**
-     * 将原生 RPC 请求 JSON 解码为信封并调用入口，将 data 或命名错误转换回原生响应。
+     * load grpc 入口，把 method 以及 requestJson 解码后的请求交给它。
+     * 结果含 error 时按命名状态 fail，未知状态码按 2；否则用 respondJson 写出 data。
+     * 任何 Throwable，包括请求 JSON 不合法，都把消息写入标准错误并 fail(13)。finally 关闭数据库。异常不抛回监听循环。
      *
-     * @param mixed $call 原生 RPC 调用对象，提供 method、requestJson、respondJson 和 fail。
-     * @return void 无返回值；未知异常写日志并返回 gRPC internal，最后关闭数据库。
+     * @param mixed $call 提供 method、requestJson、respondJson 和 fail 的原生调用。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $server->handle($call);

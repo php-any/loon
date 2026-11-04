@@ -21,7 +21,7 @@ return [
      * PHP 应用入口路径，类型为字符串；相对于项目根目录，也支持绝对路径。
      * 默认入口注册模块服务、注解路由、请求日志中间件并调用显式绑定的 Loom\Http\RouteProvider。
      * 启动检查与每次动态请求都会加载入口；必须返回 Loom\Application 实例。
-     * 自定义脚本可访问 $scope、$services、$config。
+     * 自定义脚本可访问 $scope、$container、$config。
      * 示例：'entry' => 'bootstrap/http.php'（需先创建脚本并返回应用实例）。
      */
     'entry' => 'framework/bootstrap/http.php',

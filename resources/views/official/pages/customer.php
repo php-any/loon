@@ -13,8 +13,8 @@
             <button id="official-logout" class="button" type="button" hidden>退出用户登录</button>
         </div>
         <div class="feature feature-sage" id="checkout">
-            <span class="feature-number mono">SIMULATED PAYMENT</span><h3>Loom 体验套餐</h3><p class="plan-price">¥99.00 <span>/ 次</span></p><p>仅用于体验支付流程，不会实际扣款。<br>支付成功后，可在下方查看订单。</p>
-            <button id="official-pay" type="button" class="button primary" disabled>确认模拟支付 ¥99.00</button>
+            <span class="feature-number mono">SIMULATED PAYMENT</span><h3><?php echo \Loom\escape($data['planName']); ?></h3><p class="plan-price"><?php echo \Loom\escape($data['planPrice']); ?> <span>/ 次</span></p><p>仅用于体验支付流程，不会实际扣款。<br>支付成功后，可在下方查看订单。</p>
+            <button id="official-pay" type="button" class="button primary" disabled>确认模拟支付 <?php echo \Loom\escape($data['planPrice']); ?></button>
             <p id="official-payment" role="status">请先登录或注册用户账号。</p>
         </div>
     </div>

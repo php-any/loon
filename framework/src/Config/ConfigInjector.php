@@ -5,26 +5,30 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 反射构造函数和继承属性，解析 Inject、InjectConfig 及类类型依赖，并报告不可解析或冲突的声明。
+ * 按构造参数上的 Inject、InjectConfig 或类类型从容器取值并 new 出对象，再按继承链给带 InjectConfig 的实例属性赋值。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 ConfigInjector 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：本类型的 create 和 inject 都是静态方法，不需要先构造注入器。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = ConfigInjector::create($serviceClass, $services); ConfigInjector::inject($instance, $services);
+ * @example $instance = ConfigInjector::create($class, $services);
  */
 final class ConfigInjector
 {
     /**
-     * 按构造参数注解、类类型及默认值解析依赖；不支持对可变参数使用注入注解。
+     * 没有构造函数时直接 new。否则按参数顺序取值。
+     * 同一参数上有多个 Inject，或 Inject 与 InjectConfig 同时存在，抛出 LogicException。Inject 的标识为空，或标在可变参数上，同样失败。
+     * 有 Inject 时从容器 get 该标识。有 InjectConfig 时调用它的 resolve；可变参数上的 InjectConfig 会失败。
+     * 两者都没有时，非可变的类类型参数按类型名向容器 get；再否则使用参数默认值。仍然无法决定且该参数不是可变参数时抛出 LogicException。
+     * 返回值只完成构造，属性上的 InjectConfig 还没有写入。
      *
-     * @param string $id 需要反射构造的可实例化完整类名。
-     * @param Container $services 提供依赖解析和实例注册的服务容器。
-     * @return object 新构造对象；属性注入需单独调用 inject。
+     * @param string $id 要 new 的完整类名。
+     * @param Container $services 解析 Inject、类类型参数以及 Config 服务的容器。
+     * @return object 已按构造参数创建的对象。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $instance = ConfigInjector::create($serviceClass, $services);
+     * @example $instance = ConfigInjector::create($class, $services);
      */
     public static function create(string $id, Container $services): object
     {
@@ -70,11 +74,13 @@ final class ConfigInjector
     }
 
     /**
-     * 遍历当前类和父类的实例属性并注入配置，拒绝重复注解或静态配置属性。
+     * 从对象的类走到父类，只处理当前这一层声明的属性。同名的非私有属性只处理子类那一次。
+     * 没有 InjectConfig 的属性跳过。重复注解或标在静态属性上时抛出 LogicException。
+     * 赋值失败时改抛 LogicException，消息含配置键和属性位置，不含配置值。
      *
-     * @param object $instance 需要注入配置属性的已构造对象。
-     * @param Container $services 提供依赖解析和实例注册的服务容器。
-     * @return void 无返回值；无法赋值时抛出不包含敏感配置值的 LogicException。
+     * @param object $instance 要写入配置属性的对象。
+     * @param Container $services 用来取出 Config 的容器。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example ConfigInjector::inject($instance, $services);

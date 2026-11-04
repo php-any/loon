@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Loom\Http;
 
 /**
- * 声明应用 HTTP 路由注册契约，由应用实现并通过容器绑定，集中安装业务路由。
+ * 应用实现此接口，把业务路由集中登记到传入的 Router。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：接口不能直接实例化；由实现类提供本契约，操作结果见各方法的返回值。
+ * 返回值：接口不能直接实例化。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $provider->register($router);
@@ -17,10 +17,10 @@ namespace Loom\Http;
 interface RouteProvider
 {
     /**
-     * 向给定路由器注册应用路由及中间件。
+     * 把本应用的路由和中间件登记到传入的路由器上。实现直接修改该路由器。
      *
-     * @param \Loom\Router $routes 接收应用路由定义的 Router 实例。
-     * @return void 无返回值，修改传入路由器的注册表。
+     * @param \Loom\Router $routes 接收路由定义的 Router。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $provider->register($router);

@@ -5,28 +5,23 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 保存 Cron 或固定间隔计划，并在事务内把到期计划推进为持久化队列任务及运行记录。
- *
- * 构造参数：
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- *
- * 返回值：使用 new 构造时得到 Schedule 实例；注册到容器时由容器管理实例的创建与复用。
+ * 保存 Cron 或固定间隔计划。到期时在一个事务里写成队列任务和运行记录，并推进下次时间。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $schedule->every('report', 60, 'report.build', ['project' => 1], 1);
+ * @example $schedule = new Schedule($database);
  */
 final class Schedule
 {
     private \Loom\Database $database;
 
     /**
-     * 初始化 Schedule 实例及其依赖。保存 Cron 或固定间隔计划，并在事务内把到期计划推进为持久化队列任务及运行记录。
+     * 只保存数据库。这里不写入计划，也不推进到期任务。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Database $database 以后读写 loom_schedules、任务和运行记录。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $schedule->every('report', 60, 'report.build', ['project' => 1], 1);
+     * @example $schedule = new Schedule($database);
      */
     public function __construct(\Loom\Database $database)
     {
@@ -36,9 +31,9 @@ final class Schedule
     /**
      * 使用与调度器一致的 Cron 解析器预览未来五次执行时间。
      *
-     * @param string $expression 五字段 Cron 表达式，例如 0 9 * * 1-5。
-     * @param string $timezone 明确 IANA 时区，例如 Asia/Shanghai。
-     * @return array 五个带 UTC 偏移的 ISO 8601 本地时间字符串。
+     * @param string $expression 用来向后推五次的五字段表达式。
+     * @param string $timezone 计算这五次时间所用的 IANA 时区。
+     * @return array 五个带 UTC 偏移的 ISO 8601 本地时间字符串。时区无效、表达式不合法，或八年内没有下一次时抛 HTTP 422 或 503。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $times = Schedule::preview('0 9 * * 1-5', 'Asia/Shanghai');
@@ -57,10 +52,10 @@ final class Schedule
     /**
      * 校验名称、任务种类、Cron 与时区后保存计划，相同规则保留下次运行时间。
      *
-     * @param string $name 非空且稳定的计划名称，用于唯一识别和更新。
-     * @param string $expression 五字段 Cron 表达式，例如 0 9 * * 1-5。
-     * @param string $timezone 明确 IANA 时区，例如 Asia/Shanghai。
-     * @param string $kind 非空任务种类，需有对应 Job 处理器。
+     * @param string $name 要写入或覆盖的 Cron 计划名。空串抛 HTTP 422。
+     * @param string $expression 要保存的五字段表达式。非法时构造 Cron 会抛 HTTP 422。
+     * @param string $timezone 和表达式一起保存的 IANA 时区。
+     * @param string $kind 到期后投递的任务种类。空串抛 HTTP 422。
      * @param array $payload 可 JSON 编码的任务参数数组。
      * @param int $owner 生成任务所属的用户编号。
      * @return void 无返回值，写入或更新计划。
@@ -80,9 +75,9 @@ final class Schedule
     /**
      * 保存固定秒数间隔的计划，允许 10 秒至 30 天。
      *
-     * @param string $name 非空且稳定的计划名称，用于唯一识别和更新。
-     * @param int $seconds 固定间隔秒数，允许 10 至 2592000。
-     * @param string $kind 非空任务种类，需有对应 Job 处理器。
+     * @param string $name 要写入或覆盖的间隔计划名。空串抛 HTTP 422。
+     * @param int $seconds 固定间隔秒数。小于 10 或大于 2592000 抛 HTTP 422。
+     * @param string $kind 到期后投递的任务种类。空串抛 HTTP 422。
      * @param array $payload 可 JSON 编码的任务参数数组。
      * @param int $owner 生成任务所属的用户编号。
      * @return void 无返回值，写入或更新计划。
@@ -112,9 +107,9 @@ final class Schedule
         $this->database->transaction(function () use ($now): void {
             foreach (Models\ScheduledJob::due($this->database, $now) as $schedule) {
                 $next = $schedule['expression'] !== null ? (new Cron($schedule['expression'], $schedule['timezone']))->next($now) : $now + (int)$schedule['interval_seconds'];
-                $job = Models\Job::using($this->database)->create(['kind' => $schedule['kind'], 'payload' => $schedule['payload'], 'owner' => (int)$schedule['owner'], 'available' => $now, 'created' => $now]);
-                Models\ScheduleRun::using($this->database)->create(['schedule_name' => $schedule['name'], 'job_id' => $job->id, 'created' => $now]);
-                Models\ScheduledJob::using($this->database)->whereName($schedule['name'])->update(['next_run' => $next]);
+                $job = Models\Job::create(['kind' => $schedule['kind'], 'payload' => $schedule['payload'], 'owner' => (int)$schedule['owner'], 'available' => $now, 'created' => $now]);
+                Models\ScheduleRun::create(['schedule_name' => $schedule['name'], 'job_id' => $job->id, 'created' => $now]);
+                Models\ScheduledJob::whereName($schedule['name'])->update(['next_run' => $next]);
             }
         });
     }

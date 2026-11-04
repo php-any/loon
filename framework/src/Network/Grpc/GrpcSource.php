@@ -6,26 +6,28 @@ namespace Loom;
 
 // 检查直接声明的方法，不自动加载或执行业务代码。
 /**
- * 使用 PHP token 检查指定类直接声明的方法体，不自动加载或执行业务源码。
+ * 用 token 找出某个类直接声明的方法体。不加载类，也不执行方法。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 GrpcSource 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：本类型只有静态 methods，不需要为检查去构造实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $methods = GrpcSource::methods(file_get_contents($path), $serviceClass);
+ * @example $methods = GrpcSource::methods($source, $class);
  */
 final class GrpcSource
 {
     /**
-     * 定位类声明并提取其直接方法体，忽略注释，不包括继承或 trait 提供的方法。
+     * 没有 token_get_all 时抛出 RuntimeException。丢掉空白和注释后，按类名最后一段、大小写不敏感地进入源码中的第一处 class。不核对命名空间。
+     * 只收集该类花括号深度为 1 的 function。只有分号、没有方法体的声明跳过。同名方法以后出现的为准。
+     * 返回小写方法名到方法体的映射，方法体不含花括号。继承和 trait 里的方法不在结果中。类没找到时返回空数组。
      *
-     * @param string $source 待检查的完整 PHP 源码字符串。
-     * @param string $class 目标完整类名，扫描按最后一段类名定位直接声明。
-     * @return array 小写方法名到去除空白注释后的方法体字符串映射。
+     * @param string $source 完整 PHP 源码，不需要已经加载。
+     * @param string $class 完整类名。定位时只用最后一段。
+     * @return array 小写方法名到方法体字符串。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $methods = GrpcSource::methods(file_get_contents($path), $serviceClass);
+     * @example $methods = GrpcSource::methods(file_get_contents($path), \App\Grpc\Services\Invoice::class);
      */
     public static function methods(string $source, string $class): array
     {

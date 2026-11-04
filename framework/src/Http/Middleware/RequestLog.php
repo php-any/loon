@@ -10,12 +10,12 @@ use Loom\Request;
 use Loom\Response;
 
 /**
- * 记录请求方法、路径、状态码和耗时的 JSON 行日志；日志失败不覆盖原响应或异常。
+ * 在请求处理结束后写一行 JSON 日志，内容为方法、路径、状态码和耗时。写日志失败不替换响应，也不掩盖原来的异常。
  *
  * 构造参数：
- * - $writer（?callable）：接收一行 JSON 字符串的日志回调；null 时写入标准错误流。默认值为 null。
+ * - $writer（?callable）：接收一行 JSON 字符串的回调。null 时写入标准错误。默认 null。
  *
- * 返回值：使用 new 构造时得到 RequestLog 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 RequestLog 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $logger = new RequestLog(static function (string $line): void { echo $line; });
@@ -25,10 +25,10 @@ final class RequestLog implements Middleware
     private mixed $writer;
 
     /**
-     * 初始化 RequestLog 实例及其依赖。记录请求方法、路径、状态码和耗时的 JSON 行日志；日志失败不覆盖原响应或异常。
+     * 保存日志回调。null 留到 handle 时再写标准错误，构造时不打开流。
      *
-     * @param ?callable $writer 接收一行 JSON 字符串的日志回调；null 时写入标准错误流。默认值为 null。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param ?callable $writer 接收一行 JSON 字符串的回调。null 时改写 php://stderr。默认 null。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $logger = new RequestLog(static function (string $line): void { echo $line; });
@@ -39,11 +39,11 @@ final class RequestLog implements Middleware
     }
 
     /**
-     * 执行后续处理，在 finally 中写入包含 time、event、method、path、status、duration_ms 的日志。
+     * 调用下游并返回它的响应。finally 中写一行 JSON，字段为 time、event、method、path、status 和 duration_ms。HttpError 记下它的状态码后继续抛出。其它异常按状态 500 记录并继续抛出。写日志失败被吞掉。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @param callable $next 下游处理器，接收 Request 并返回 Response。
-     * @return Response 原处理链返回的响应；业务异常仍向上传播。
+     * @param Request $request 本次请求。日志使用它的方法和路径。
+     * @param callable $next 下游回调，接收 Request 并返回 Response。
+     * @return Response next 返回的响应。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $logger->handle($request, $next);

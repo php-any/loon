@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 按显式操作打开并关闭 Redis 连接，统一前缀、认证、命令错误及 nil 返回值。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：使用 new 构造时得到 Redis 实例；注册到容器时由容器管理实例的创建与复用。
+ * 每次操作单独连接 Redis，结束时关闭。nil 收成 null；0、空字符串和空数组保留。连接或命令失败抛 HTTP 503。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $value = Redis::command(['GET', Redis::key('example')]);
+ * @example $redis = new Redis();
  */
 final class Redis
 {
@@ -33,11 +29,11 @@ final class Redis
     /**
      * 为一条原始 Redis 命令创建短生命周期连接并执行。
      *
-     * @param array $args 原始命令及其参数列表；eval 中为 ARGV 对应的脚本参数列表。
-     * @return mixed 规范化后的 Redis 返回值，nil 表示为 null。
+     * @param array $args 第一项是命令名，后面是这条命令自己的参数。
+     * @return mixed 规范化后的返回值；Redis 的 nil 或 false 为 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $value = Redis::command(['GET', Redis::key('example')]);
+     * @example $value = Redis::command(['PING']);
      */
     public static function command(array $args): mixed
     {
@@ -47,11 +43,11 @@ final class Redis
     /**
      * 解析 redis/rediss URL，连接、认证、选择数据库，执行回调后始终关闭连接。
      *
-     * @param callable $operation 接收已连接原生 Redis 客户端的回调，不应将客户端带出作用域。
-     * @return mixed operation 返回值；RedisException 转为 HTTP 503。
+     * @param callable $operation 接收这一次连接的回调。不要把客户端留到回调外面。
+     * @return mixed 回调的返回值。URL 非法抛 LogicException，认证失败抛 RuntimeException，RedisException 变成 HTTP 503。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $value = Redis::using(fn (\Redis $client) => Redis::execute($client, ['PING']));
+     * @example $value = Redis::using(fn (\Redis $client) => $client);
      */
     public static function using(callable $operation): mixed
     {
@@ -86,12 +82,12 @@ final class Redis
     /**
      * 在已有连接执行原始命令，检查服务端错误并规范 nil。
      *
-     * @param \Redis $client 已连接并选择数据库的原生 Redis 客户端。
-     * @param array $args 原始命令及其参数列表；eval 中为 ARGV 对应的脚本参数列表。
-     * @return mixed Redis 标量或数组结果，false 被转换为 null。
+     * @param \Redis $client 已经连上并选好库的客户端。
+     * @param array $args 交给 rawCommand 的命令名和参数，按顺序展开。
+     * @return mixed 标量或数组。服务端报错抛 HTTP 503；false 收成 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $value = Redis::execute($client, ['GET', Redis::key('example')]);
+     * @example $value = Redis::execute($client, ['PING']);
      */
     public static function execute(\Redis $client, array $args): mixed
     {
@@ -109,7 +105,7 @@ final class Redis
      * @param mixed $value 原生 Redis 返回值，可含嵌套数组。
      * @return mixed 规范化后的原类型值或 null。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = self::normalize($value);
      */
     private static function normalize(mixed $value): mixed
@@ -125,12 +121,12 @@ final class Redis
     /**
      * 在已有连接批量提交命令并按提交顺序返回结果，失败时抛出 HTTP 503。
      *
-     * @param \Redis $client 已连接并选择数据库的原生 Redis 客户端。
-     * @param array $commands 每项为命令名称及参数组成的数组。
-     * @return array 逐条规范化后的结果列表。
+     * @param \Redis $client 已经连上并选好库的客户端。
+     * @param array $commands 要按顺序提交的命令，每项是命令名和它的参数。
+     * @return array 与提交顺序一致的规范化结果。exec 失败或有错误时抛 HTTP 503。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $results = Redis::pipeline($client, [['PING'], ['GET', Redis::key('example')]]);
+     * @example $results = Redis::pipeline($client, [['PING']]);
      */
     public static function pipeline(\Redis $client, array $commands): array
     {
@@ -148,13 +144,13 @@ final class Redis
     /**
      * 构造带键数量的 EVAL 命令并使用独立连接执行 Lua 脚本。
      *
-     * @param string $script 要通过 EVAL 执行的可信 Lua 源码。
-     * @param array $keys 脚本访问的完整 Redis 键列表，映射到 KEYS。
-     * @param array $args 原始命令及其参数列表；eval 中为 ARGV 对应的脚本参数列表。默认值为 []。
-     * @return mixed 脚本的规范化 Redis 返回值。
+     * @param string $script 这次 EVAL 要跑的 Lua 源码。
+     * @param array $keys 映射到 KEYS 的完整键。
+     * @param array $args 映射到 ARGV 的参数，接在键后面。默认值为 []。
+     * @return mixed 脚本的返回值；nil 为 null。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $value = Redis::eval('return redis.call("GET", KEYS[1])', [Redis::key('example')]);
+     * @example $value = Redis::eval('return KEYS[1]', ['loom:example']);
      */
     public static function eval(string $script, array $keys, array $args = []): mixed
     {

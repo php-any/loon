@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 把路由匹配、中间件、控制器解析及 WebSocket 分发组合为请求处理管道。
+ * 把路由匹配、全局中间件、控制器解析和 WebSocket 分发串成一次请求处理。
  *
  * 构造参数：
- * - $router（RouteMatcher）：路由器或路由匹配器，负责解析请求处理目标。
- * - $container（Container）：服务容器；允许 null 时由当前对象创建或选择默认容器。
+ * - $router（RouteMatcher）：按方法和路径匹配路由。
+ * - $container（Container）：提供 WebSocket、RequestContext，以及控制器解析所用的服务容器。
  *
- * 返回值：使用 new 构造时得到 HttpKernel 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 HttpKernel 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $kernel = new HttpKernel($router, $services); $response = $kernel->handle($request);
+ * @example $kernel = new HttpKernel($router, $services);
  */
 final class HttpKernel
 {
@@ -27,14 +27,14 @@ final class HttpKernel
     private Container $services;
     private array $middleware = [];
     /**
-     * 初始化 HttpKernel 实例及其依赖。把路由匹配、中间件、控制器解析及 WebSocket 分发组合为请求处理管道。
+     * 保存路由器和容器，并立刻取出 WebSocket 与 RequestContext，同时建好 Pipeline 和 ActionResolver。全局中间件初始为空。
      *
-     * @param RouteMatcher $router 路由器或路由匹配器，负责解析请求处理目标。
-     * @param Container $container 服务容器；允许 null 时由当前对象创建或选择默认容器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param RouteMatcher $router 按方法和路径匹配路由的对象。
+     * @param Container $container 提供 WebSocket、RequestContext 和后续控制器解析的服务容器。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $kernel = new HttpKernel($router, $services); $response = $kernel->handle($request);
+     * @example $kernel = new HttpKernel($router, $services);
      */
     public function __construct(RouteMatcher $router, Container $container)
     {
@@ -47,10 +47,10 @@ final class HttpKernel
         $this->actions = new ActionResolver($container);
     }
     /**
-     * 追加全局中间件，注册时验证定义是否合法。
+     * 把一个全局中间件加到链尾。定义不是非空类名、Middleware 或可调用对象时抛出 LogicException。
      *
-     * @param mixed $middleware 需要加入处理链的中间件定义。
-     * @return self 当前内核，供链式注册使用。
+     * @param mixed $middleware 类名、Middleware 实例或可调用对象。
+     * @return self 当前内核，便于连续登记。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $kernel->middleware(\Loom\Http\Middleware\RequestLog::class);
@@ -62,10 +62,10 @@ final class HttpKernel
         return $this;
     }
     /**
-     * 在当前请求作用域内处理请求。模型连接来自该作用域容器中的 Database，不通过执行帧参数切换作用域。
+     * 把请求交给 handleScoped，并返回那里得到的响应。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Response 处理后的 HTTP 响应。
+     * @param Request $request 本次 HTTP 请求。
+     * @return Response handleScoped 返回的响应。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $kernel->handle($request);
@@ -75,12 +75,12 @@ final class HttpKernel
         return $this->handleScoped($request);
     }
     /**
-     * 临时绑定请求上下文，执行全局管道并把 HttpError 转为问题响应，最后恢复旧请求。
+     * 临时绑定请求并跑完全局中间件，目标是 dispatch。HttpError 转成问题响应。finally 里恢复进入前的请求。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Response 全局中间件和目标处理完成后的响应。
+     * @param Request $request 本次要绑定并处理的请求。
+     * @return Response 全局管道返回的响应。捕获到的 HttpError 变成 problem 响应。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $this->handleScoped($request);
      */
     private function handleScoped(Request $request): Response
@@ -97,12 +97,12 @@ final class HttpKernel
         }
     }
     /**
-     * 匹配路由，生成 404/405 或执行路由中间件及控制器；WebSocket 路由进入升级流程。
+     * 匹配方法和路径。404 与 405 变成问题响应，405 带上 Allow 头。命中后把路由参数写入请求副本，再执行路由中间件和控制器；WebSocket 路由交给 WebSocket::dispatch。本方法捕获的 HttpError 也转成问题响应。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Response 路由响应或带 Allow 头的 405 问题响应。
+     * @param Request $request 用来匹配并传给控制器的请求。
+     * @return Response 控制器、WebSocket 分发，或 404、405 问题响应。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $this->dispatch($request);
      */
     private function dispatch(Request $request): Response

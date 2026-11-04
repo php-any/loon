@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$services = $console->services();
+$services = $console->container();
 use Loom\Console\Input;
 use Loom\Console\Output;
 use Loom\Console\InputError;

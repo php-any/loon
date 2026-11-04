@@ -5,14 +5,10 @@ declare(strict_types=1);
 namespace Loom\Models;
 
 /**
- * 关联一次调度触发与实际队列任务，映射到 loom_schedule_runs；继承 Model 的查询方法，实例本身不自动持久化。
- *
- * 构造参数：本声明未定义构造参数；继承类型沿用父类的构造约定。
- *
- * 返回值：使用 new 构造时得到 ScheduleRun 实例；注册到容器时由容器管理实例的创建与复用。
+ * loom_schedule_runs 的一行。把一次调度触发记到对应的队列任务上。new 出来的对象不会自己写库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $rows = \Loom\Models\ScheduleRun::using($database)->limit(10)->rows();
+ * @example $run = new ScheduleRun();
  */
 #[\Database\Annotation\Table('loom_schedule_runs')]
 final class ScheduleRun extends \Loom\Model
@@ -20,8 +16,8 @@ final class ScheduleRun extends \Loom\Model
     /**
      * 读取最近 25 条调度及关联任务记录，可按计划编号筛选。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param ?int $scheduleId 计划主键；null 查询所有计划的最近记录。默认值为 null。
+     * @param \Loom\Database $database 做这次调度记录连接查询的数据库。
+     * @param ?int $scheduleId 只看这个计划主键时传入；null 表示最近的各次触发，并且结果里去掉 job_id 和 attempts。默认值为 null。
      * @return array 调度状态列表；未指定计划时省略 job_id 和 attempts。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：

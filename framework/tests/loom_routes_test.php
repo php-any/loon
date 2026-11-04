@@ -153,7 +153,7 @@ class RouteInvokableController
 }
 $methods = new Loom\Application();
 $GLOBALS['route_factory_calls'] = 0;
-$methods->services()->bind(RouteMethodsController::class, function ($container) {
+$methods->container()->bind(RouteMethodsController::class, function ($container) {
     $GLOBALS['route_factory_calls']++;
     return new RouteMethodsController('item:');
 });

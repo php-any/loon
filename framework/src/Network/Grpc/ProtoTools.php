@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 创建协议模板并检查项目协议集合，复用生成器校验路径、导入及 PHP 命名冲突。
+ * 按模板新建 proto 文件，或检查项目中的 proto 能否生成并合成 Schema。本类不写 PHP 产物。
  *
  * 构造参数：
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- * - $grpcGenerator（\Loom\GrpcGenerator）：gRPC 协议代码生成服务。
+ * - $config（Config）：把导入目录解析成绝对路径，并定位 proto 目录和清单。
+ * - $grpcGenerator（GrpcGenerator）：校验标识符、定位输出文件，并为每个 proto 做 plan。
  *
- * 返回值：使用 new 构造时得到 ProtoTools 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 ProtoTools。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $tools->check('proto/release.proto');
+ * @example $tools = new ProtoTools($config, $generator);
  */
 final class ProtoTools
 {
@@ -22,14 +22,14 @@ final class ProtoTools
     private \Loom\GrpcGenerator $grpcGenerator;
 
     /**
-     * 初始化 ProtoTools 实例及其依赖。创建协议模板并检查项目协议集合，复用生成器校验路径、导入及 PHP 命名冲突。
+     * 保存配置和生成器。构造时不读取 proto 目录，也不创建文件。
      *
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @param \Loom\GrpcGenerator $grpcGenerator gRPC 协议代码生成服务。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Config $config 解析 proto 路径和导入目录的配置。
+     * @param \Loom\GrpcGenerator $grpcGenerator 校验名字并生成 plan 的生成器。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $tools->check('proto/release.proto');
+     * @example $tools = new ProtoTools($config, $generator);
      */
     public function __construct(\Loom\Config $config, \Loom\GrpcGenerator $grpcGenerator)
     {
@@ -38,11 +38,13 @@ final class ProtoTools
     }
 
     /**
-     * 验证 PascalCase 服务名及小写点分包名，独占创建 proto 模板，绝不覆盖已有文件。
+     * 服务名必须是单个 PascalCase，最长 80 个字符；包名必须是小写点分标识。两处都再经 GrpcGenerator::identifier。不合法时抛出 InvalidArgumentException。
+     * 目标文件在 proto 目录下，名字由服务名转成小写蛇形。文件已存在则抛出 RuntimeException，拒绝覆盖。
+     * 从框架 stub 替换 package 和 name，用独占方式创建文件。短写或无法创建目录时抛出 RuntimeException。成功时向标准输出打印路径和下一步提示。
      *
-     * @param string $name 单个 PascalCase 服务名，最长 80 字符，例如 Invoice。
+     * @param string $name PascalCase 服务名，例如 Invoice。
      * @param string $package 小写点分包名，例如 app.billing。
-     * @return void 无返回值，输出创建路径及后续生成提示。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $tools->create('Invoice', 'app.billing');
@@ -84,13 +86,15 @@ final class ProtoTools
         echo 'Next: edit the contract, then make:grpc ' . $relative . " --dry-run\n";
     }
     /**
-     * 检查指定协议或项目全部协议的生成计划及合并 Schema，不写生成产物。
+     * input 为 null 时用 projectFiles 收集全部 proto，否则只检查给出的这一个路径。一个文件都没有时抛出 RuntimeException。
+     * 每个文件 plan 一次。服务类名被另一份 proto 占用，或 plan 失败时，抛出带该文件名的 RuntimeException。
+     * 最后用收集到的 proto 和导入目录创建 Schema。成功时向标准输出打印文件数。不写生成产物。
      *
-     * @param ?string $input 指定 .proto 文件路径；null 时检查整个项目。默认值为 null。
-     * @return void 无返回值，成功打印数量；失败报告涉及的协议文件。
+     * @param ?string $input 单个 proto 路径。null 表示检查收集到的全部文件。默认 null。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $tools->check();
+     * @example $tools->check('proto/release.proto');
      */
     public function check(?string $input = null): void
     {
@@ -125,11 +129,12 @@ final class ProtoTools
         echo 'Proto check: OK (' . count($files) . " files)\n";
     }
     /**
-     * 收集 proto 目录、显式配置和生成清单中的文件，校验存在性并按规范路径去重排序。
+     * 递归收集项目 proto 目录，再按 grpc 的 proto_files 到各个 import_paths 下查找，最后并入清单里的文件。
+     * 某个配置项在所有导入目录都找不到，或 realpath 失败时，抛出 RuntimeException。结果按绝对路径去重并排序。
      *
      * 参数：无。
      *
-     * @return array 协议绝对路径列表。
+     * @return array 协议文件的绝对路径。
      *
      * 内部调用示例（仅类内使用）：
      * @example $files = $this->projectFiles();
@@ -172,11 +177,12 @@ final class ProtoTools
         return $result;
     }
     /**
-     * 递归收集目录中的 .proto 文件，目录不存在时忽略，符号链接目录拒绝。
+     * 目录不存在时直接返回。目录本身是符号链接时抛出 RuntimeException。
+     * 子目录递归收集，扩展名为 proto 的文件追加到 files。这里不去重。
      *
-     * @param string $directory 要递归遍历的协议目录。
-     * @param array $files 按引用接收已发现协议文件路径的列表。
-     * @return void 无返回值，通过引用追加 files。
+     * @param string $directory 要遍历的目录。不存在时忽略。
+     * @param array $files 收集到的路径。按引用追加。
+     * @return void 无返回值。
      *
      * 内部调用示例（仅类内使用）：
      * @example self::collect($directory, $files);

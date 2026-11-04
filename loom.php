@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 $bootstrap = require __DIR__ . '/framework/bootstrap/autoload.php';
 // 回调只在根作用域执行。子作用域共享注册规则，scoped 服务各自创建。
 // 环境文件传给引导函数，由它在加载 config 之前读入。
@@ -15,7 +13,7 @@ $scope = $bootstrap(__DIR__, static function (\Loom\Container $services): void {
     $services->scoped(\Loom\Database::class);
 }, getenv('LOOM_ENV_FILE') ?: __DIR__ . '/.env');
 try {
-    $code = $scope->services()->get(\Loom\Cli::class)->run(array_slice($argv, 1));
+    $code = $scope->container()->get(\Loom\Cli::class)->run(array_slice($argv, 1));
 } finally {
     $scope->close();
 }

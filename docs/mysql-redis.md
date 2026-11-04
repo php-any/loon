@@ -30,7 +30,7 @@ LOOM_REDIS_PREFIX=loom:
 ./scripts/dev-stack.ps1
 ```
 
-默认 MySQL DSN 是 `mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4`，用户名和密码读取 `LOOM_MYSQL_USER`、`LOOM_MYSQL_PASSWORD`，不要把密码嵌入 DSN。Redis 默认地址为 `redis://127.0.0.1:6379/0`；`LOOM_REDIS_URL` 可设置密码、ACL 用户、端口和数据库，TLS 使用 `rediss://`。不同环境或 MySQL 数据库须使用不同的 `LOOM_REDIS_PREFIX`。
+`config/database.php` 与 Laravel 相同，使用 `default`、`connections` 和 `env()`。默认连接是 `mysql`，可用 `DB_CONNECTION` 或 `LOOM_DB_CONNECTION` 改选。连接项使用 `url`、`host`、`port`、`database`、`username`、`password`、`unix_socket`、`charset`。`url` 写成 `mysql://user:secret@127.0.0.1:3306/loom?charset=utf8mb4` 时覆盖同项里的主机、库名和账号。`DB_HOST`、`DB_PORT`、`DB_DATABASE`、`DB_USERNAME`、`DB_PASSWORD`、`DB_SOCKET`、`DB_CHARSET` 未设置时，回退到对应的 `LOOM_DB_*` 和 `LOOM_MYSQL_USER`、`LOOM_MYSQL_PASSWORD`。`LOOM_DATABASE` 仍是 `mysql:host=127.0.0.1;port=3306;dbname=loom;charset=utf8mb4` 这种 DSN，放在默认 `mysql` 连接的 `dsn`。连接建立时直接使用这条 DSN，并优先于 `url` 和同项里的主机、库名。不要把密码写进这条 DSN。未声明连接的模型使用 `default`。其他库按同样的键追加到 `connections`。Redis 队列键使用默认连接的 mysql DSN 隔开不同的库。Redis 默认地址为 `redis://127.0.0.1:6379/0`；`LOOM_REDIS_URL` 可设置密码、ACL 用户、端口和数据库，TLS 使用 `rediss://`。不同环境或 MySQL 数据库须使用不同的 `LOOM_REDIS_PREFIX`。
 
 MySQL 连接在驱动 DSN 里设置 `sql_mode` 和 `transaction_isolation`，物理连接建立时生效。当前配置只带 host、port、dbname 和 charset，不带 TLS；远程部署应使用可信私有网络或本地 TLS 隧道。
 

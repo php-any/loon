@@ -5,16 +5,10 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 按命名空间及批次执行成对 SQL 迁移，校验历史内容并以 MySQL 命名锁串行化执行。
- *
- * 构造参数：
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- *
- * 返回值：使用 new 构造时得到 Migrations 实例；注册到容器时由容器管理实例的创建与复用。
+ * 按命名空间执行成对的 up/down SQL。历史校验和必须一致，同一次只持有一把 MySQL 命名锁。DDL 不会被包成真正的事务。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $plan = $migrations->files($config->path('database/migrations')); $migrations->run('studio', $plan);
+ * @example $migrations = new Migrations($database, $config);
  */
 final class Migrations
 {
@@ -22,14 +16,14 @@ final class Migrations
     private \Loom\Config $config;
 
     /**
-     * 初始化 Migrations 实例及其依赖。按命名空间及批次执行成对 SQL 迁移，校验历史内容并以 MySQL 命名锁串行化执行。
+     * 保存数据库和配置。这里不建表，也不执行 SQL。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Database $database 以后建迁移表、加锁，并读写 loom_migrations。
+     * @param \Loom\Config $config 只保存。本类现有方法不读取它。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $plan = $migrations->files($config->path('database/migrations')); $migrations->run('studio', $plan);
+     * @example $migrations = new Migrations($database, $config);
      */
     public function __construct(\Loom\Database $database, \Loom\Config $config)
     {
@@ -44,7 +38,7 @@ final class Migrations
      * @return array 每项含 version、up、down 的有序迁移计划。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $plan = $migrations->files($config->path('database/migrations'));
+     * @example $plan = $migrations->files('/app/database/migrations');
      */
     public function files(string $directory): array
     {
@@ -64,11 +58,11 @@ final class Migrations
     /**
      * 验证计划顺序、非空 SQL 及历史校验和，要求已执行版本是计划前缀。
      *
-     * @param string $namespace 非空迁移命名空间；与已有迁移历史保持一致。
-     * @param array $plan 按版本严格升序排列的迁移数组，每项含 version、up、down。
-     * @return array 以版本为键的已应用迁移记录。
+     * @param string $namespace 要核对的命名空间。空串抛 LogicException。
+     * @param array $plan 计划里的版本必须严格递增，且 up、down 都不是空串。
+     * @return array 以版本为键的已应用迁移记录。校验和不符或历史不是计划前缀时抛 LogicException。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $applied = $this->inspect('studio', $plan);
      */
     private function inspect(string $namespace, array $plan): array
@@ -87,7 +81,7 @@ final class Migrations
             $previous = $version;
         }
         $seen = [];
-        foreach (Models\MigrationRecord::using($this->database)->whereNamespace($namespace)->orderBy('version')->rows(['version', 'checksum', 'batch', 'applied_at']) as $row) {
+        foreach (Models\MigrationRecord::whereNamespace($namespace)->orderBy('version')->rows(['version', 'checksum', 'batch', 'applied_at']) as $row) {
             if (!isset($known[$row['version']]) || $known[$row['version']] !== $row['checksum']) {
                 throw new \LogicException('Migration drift: ' . $namespace . '/' . $row['version']);
             }
@@ -110,7 +104,7 @@ final class Migrations
      *
      * @return void 无返回值；表已存在时保持不变。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->ledger();
      */
     private function ledger(): void
@@ -120,9 +114,9 @@ final class Migrations
     /**
      * 取得数据库命名锁后应用未执行迁移，或逆序撤销最后批次；DDL 不被伪装为事务。
      *
-     * @param string $namespace 非空迁移命名空间；与已有迁移历史保持一致。
-     * @param array $plan 按版本严格升序排列的迁移数组，每项含 version、up、down。
-     * @param bool $down false 应用待执行版本；true 撤销最后一个已应用批次。默认值为 false。
+     * @param string $namespace 这次加锁要推进的命名空间。
+     * @param array $plan 按版本升序的迁移。$down 为 false 时补还没记过的版本，为 true 时只撤销最后一批里出现的版本。
+     * @param bool $down true 回滚最后一批，false 向上执行。默认值为 false。
      * @return void 无返回值，变更数据库及迁移记录；异常仍释放锁。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -142,7 +136,7 @@ final class Migrations
                     $version = $migration['version'];
                     if (isset($seen[$version]) && (int) $seen[$version]['batch'] === $batch) {
                         $this->executeSql($migration['down']);
-                        Models\MigrationRecord::using($this->database)->whereNamespace($namespace)->whereVersion($version)->delete();
+                        Models\MigrationRecord::whereNamespace($namespace)->whereVersion($version)->delete();
                     }
                 }
             } else {
@@ -152,7 +146,7 @@ final class Migrations
                         continue;
                     }
                     $this->executeSql($migration['up']);
-                    Models\MigrationRecord::using($this->database)->create(['namespace' => $namespace, 'version' => $version, 'checksum' => hash('sha256', $migration['up'] . "\0" . $migration['down']), 'batch' => $batch + 1, 'applied_at' => time()]);
+                    Models\MigrationRecord::create(['namespace' => $namespace, 'version' => $version, 'checksum' => hash('sha256', $migration['up'] . "\0" . $migration['down']), 'batch' => $batch + 1, 'applied_at' => time()]);
                 }
             }
         };
@@ -176,7 +170,7 @@ final class Migrations
      * @param string $sql 以分号分隔的简单 SQL 脚本，不支持在字符串或过程体中嵌入分号的通用解析。
      * @return void 无返回值；SQL 执行错误向上传播。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->executeSql('CREATE TABLE example (id BIGINT PRIMARY KEY);');
      */
     private function executeSql(string $sql): void
@@ -190,8 +184,8 @@ final class Migrations
     /**
      * 校验迁移历史并返回计划中各版本的应用状态。
      *
-     * @param string $namespace 非空迁移命名空间；与已有迁移历史保持一致。
-     * @param array $plan 按版本严格升序排列的迁移数组，每项含 version、up、down。
+     * @param string $namespace 要列出状态的命名空间。
+     * @param array $plan 对照用的版本列表。历史校验和或顺序不合法时，检查会抛 LogicException。
      * @return array 包含 version、applied、batch、applied_at 的列表。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：

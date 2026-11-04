@@ -28,7 +28,7 @@
 <section class="section wrap" id="plans">
     <div class="section-heading"><div><div class="eyebrow">EXPERIENCE PLAN</div><h2>先体验，<br>再开启下一步。</h2></div><p>用一笔模拟订单，了解完整服务流程。<br>当前体验不产生实际扣款。</p></div>
     <div class="feature-grid">
-        <div class="feature feature-wide feature-sage"><span class="feature-number mono">01 / LOOM EXPERIENCE</span><h3>Loom 体验套餐</h3><p class="plan-price">¥99.00 <span>/ 次 · 模拟金额</span></p><p>包含完整下单与模拟支付体验、支付结果确认，以及个人订单记录。</p><a class="button primary" href="/account#checkout">进入用户中心体验 →</a></div>
+        <div class="feature feature-wide feature-sage"><span class="feature-number mono">01 / LOOM EXPERIENCE</span><h3><?php echo \Loom\escape($data['planName']); ?></h3><p class="plan-price"><?php echo \Loom\escape($data['planPrice']); ?> <span>/ 次 · 模拟金额</span></p><p>包含完整下单与模拟支付体验、支付结果确认，以及个人订单记录。</p><a class="button primary" href="/account#checkout">进入用户中心体验 →</a></div>
         <div class="feature feature-paper"><span class="feature-number mono">GOOD TO KNOW</span><h3>开始前的小提示</h3><p>使用邮箱即可注册用户账号。<br>模拟支付无需银行卡，也不会扣款。<br>订单归属当前用户，可在用户中心查看。</p><a class="text-link" href="/account?mode=register">创建用户账号 →</a></div>
     </div>
 </section>

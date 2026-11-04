@@ -54,7 +54,7 @@ final class FixtureCommandRegistrar implements Loom\Console\CommandRegistrar
     }
 }
 $scope = new Loom\ServiceScope(new Loom\Config($root));
-$services = $scope->services();
+$services = $scope->container();
 $services->scoped(Loom\Console\CommandRegistrar::class, FixtureCommandRegistrar::class);
 $out = '';
 $err = '';
@@ -121,7 +121,7 @@ try {
     unlink($root . '/routes/console.php');
     $other = new Loom\ServiceScope(new Loom\Config($root));
     try {
-        kernelCheck($other->services()->get(Loom\Console\ConsoleKernel::class)->console()->has('serve'), 'Optional application registrar');
+        kernelCheck($other->container()->get(Loom\Console\ConsoleKernel::class)->console()->has('serve'), 'Optional application registrar');
     } finally {
         $other->close();
     }

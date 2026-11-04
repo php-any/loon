@@ -134,14 +134,14 @@ try {
     foreach (['/fixture/echo', '/fixture/generated'] as $method) {
         providerCheck($handler(['method' => $method, 'request' => ['value' => 7]]) === ['data' => ['value' => 7]], 'Explicit and generated RPC dispatch');
     }
-    $factory = new Loom\ApplicationFactory($scope->services()->get(Loom\ModuleRegistry::class)->configured());
+    $factory = new Loom\ApplicationFactory($scope->container()->get(Loom\ModuleRegistry::class)->configured());
     $applications[] = $factory->create();
     $applications[] = $factory->create();
     foreach ($applications as $application) {
         providerCheck($application->router()->match('GET', '/explicit')->status === 200, 'Factory installs interface routes');
-        providerCheck($application->services()->get(Loom\Http\RouteProvider::class)->calls === 1, 'Register once per application');
+        providerCheck($application->container()->get(Loom\Http\RouteProvider::class)->calls === 1, 'Register once per application');
     }
-    providerCheck($applications[0]->services()->get(Loom\Http\RouteProvider::class) !== $applications[1]->services()->get(Loom\Http\RouteProvider::class), 'Providers are scoped');
+    providerCheck($applications[0]->container()->get(Loom\Http\RouteProvider::class) !== $applications[1]->container()->get(Loom\Http\RouteProvider::class), 'Providers are scoped');
     providerCheck($empty->load($httpEntry)->router()->match('GET', '/explicit')->status === 404, 'HTTP provider is optional');
     $handler = $empty->load($grpcEntry);
     providerCheck($handler(['method' => '/fixture/unknown', 'request' => []])['error']['code'] === 'unimplemented', 'Missing RPC provider');

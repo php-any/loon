@@ -164,7 +164,7 @@ class TestConsoleCommand extends Command
     }
 }
 $constructed = 0;
-$console->services()->bind(TestConsoleCommand::class, function ($container) use (&$constructed) {
+$console->container()->bind(TestConsoleCommand::class, function ($container) use (&$constructed) {
     $constructed++;
     return new TestConsoleCommand($container->get(ConsoleGreeter::class));
 });

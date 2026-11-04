@@ -5,43 +5,32 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 将任务先写入 MySQL 持久化发件箱，再通过 Redis 租约认领和独立进程执行，失败最多尝试三次。
- *
- * 构造参数：
- * - $process（\Loom\Process）：子进程启动与管理服务。
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $redisQueue（\Loom\RedisQueue）：使用 Redis 存储的队列服务。
- *
- * 返回值：使用 new 构造时得到 Queue 实例；注册到容器时由容器管理实例的创建与复用。
+ * 把任务写入 MySQL，再用 Redis 租约认领，并放到独立进程里执行。同一任务失败最多三次。模型写入使用当前作用域的数据库。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $id = $queue->dispatch('report.build', ['project' => 1], 1);
+ * @example $queue = new Queue($process, $config, $redisQueue);
  */
 final class Queue
 {
     private \Loom\Process $process;
     private \Loom\Config $config;
-    private \Loom\Database $database;
     private \Loom\RedisQueue $redisQueue;
 
     /**
-     * 初始化 Queue 实例及其依赖。将任务先写入 MySQL 持久化发件箱，再通过 Redis 租约认领和独立进程执行，失败最多尝试三次。
+     * 保存进程、配置和 Redis 队列。这里不写任务，也不启动子进程。任务行写入当前作用域的数据库。
      *
-     * @param \Loom\Process $process 子进程启动与管理服务。
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param \Loom\RedisQueue $redisQueue 使用 Redis 存储的队列服务。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Process $process 以后用来启动 _job 子进程。
+     * @param \Loom\Config $config 以后用它的项目根目录拼 loom.php。
+     * @param \Loom\RedisQueue $redisQueue 以后认领任务并确认投递。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $id = $queue->dispatch('report.build', ['project' => 1], 1);
+     * @example $queue = new Queue($process, $config, $redisQueue);
      */
-    public function __construct(\Loom\Process $process, \Loom\Config $config, \Loom\Database $database, \Loom\RedisQueue $redisQueue)
+    public function __construct(\Loom\Process $process, \Loom\Config $config, \Loom\RedisQueue $redisQueue)
     {
         $this->process = $process;
         $this->config = $config;
-        $this->database = $database;
         $this->redisQueue = $redisQueue;
     }
 
@@ -62,7 +51,7 @@ final class Queue
         if ($kind === '' || $delay < 0 || $delay > 2592000) {
             throw new HttpError(422, 'Invalid job');
         }
-        return Models\Job::using($this->database)->create(['kind' => $kind, 'payload' => json_encode($payload, JSON_THROW_ON_ERROR), 'owner' => $owner, 'available' => time() + $delay, 'created' => time()])->id;
+        return Models\Job::create(['kind' => $kind, 'payload' => json_encode($payload, JSON_THROW_ON_ERROR), 'owner' => $owner, 'available' => time() + $delay, 'created' => time()])->id;
     }
     /**
      * 从 Redis 队列认领可运行任务，默认使用当前时间。
@@ -80,8 +69,8 @@ final class Queue
     /**
      * 仅更新仍持有对应租约的任务，成功标记完成，失败重试或终止，再确认 Redis 投递。
      *
-     * @param array $job claim 返回的完整任务信封，包含租约、尝试次数和消息编号。
-     * @param ?string $result 成功执行的输出；失败时可为 null。
+     * @param array $job 要结算的认领结果，读取其中的 id、lease 和 attempt。
+     * @param ?string $result 成功时写入的输出；失败时忽略，可为 null。
      * @param ?string $error 失败原因；null 表示任务成功。
      * @param ?int $now Unix 时间戳秒数；null 时使用当前时间。默认值为 null。
      * @return void 无返回值；确认失败仍向上传播。
@@ -93,9 +82,9 @@ final class Queue
     {
         $now = $now ?? time();
         if ($error === null) {
-            Models\Job::using($this->database)->whereId($job['id'])->whereLease($job['lease'])->update(['state' => 'completed', 'result' => $result, 'error' => null, 'lease' => null]);
+            Models\Job::whereId($job['id'])->whereLease($job['lease'])->update(['state' => 'completed', 'result' => $result, 'error' => null, 'lease' => null]);
         } else {
-            Models\Job::using($this->database)->whereId($job['id'])->whereLease($job['lease'])->update(['state' => $job['attempt'] >= 3 ? 'failed' : 'pending', 'available' => $now + $job['attempt'] * $job['attempt'] * 2, 'error' => $error, 'lease' => null]);
+            Models\Job::whereId($job['id'])->whereLease($job['lease'])->update(['state' => $job['attempt'] >= 3 ? 'failed' : 'pending', 'available' => $now + $job['attempt'] * $job['attempt'] * 2, 'error' => $error, 'lease' => null]);
         }
         $this->redisQueue->ack($job);
     }
@@ -128,10 +117,10 @@ final class Queue
     /**
      * 将任务写入临时文件，启动当前运行时的 _job 子进程，30 秒内完成并清理输入文件。
      *
-     * @param array $job claim 返回的完整任务信封，包含租约、尝试次数和消息编号。
-     * @return string 成功子进程的标准输出；非零退出或超时抛出异常。
+     * @param array $job 整段编码进临时文件、交给 _job 子进程的任务数据。
+     * @return string 退出码为 0 时的标准输出。写文件失败、非零退出或超过 30 秒抛 RuntimeException。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $result = $this->runIsolated($job);
      */
     private function runIsolated(array $job): string

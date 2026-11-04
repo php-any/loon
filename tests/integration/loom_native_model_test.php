@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 $runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 require dirname(__DIR__) . '/fixtures/native-model.php';
 use NativeModelRegression\Entity;
 
@@ -13,7 +13,7 @@ function checkNativeModel(bool $condition, string $message): void
     }
 }
 $database = $runtimeServices->get(\Loom\Database::class);
-$database->connect($runtimeServices->get(\Loom\Config::class)->get('database.dsn'));
+$database->connect($database->pdoDsn());
 $query = Entity::query();
 try {
     $database->execute('CREATE TABLE native_model_probe(probe_id BIGINT PRIMARY KEY AUTO_INCREMENT,display_name VARCHAR(255) NOT NULL,score DOUBLE NOT NULL,enabled INTEGER NOT NULL,note TEXT)');

@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 加载精简 dotenv 文件，支持引号和行尾注释，不插值；文件中的值覆盖进程环境变量。
+ * 读取一个 dotenv 文件并写入环境。支持引号和行尾注释，不展开变量。文件中的值覆盖同名的进程环境变量，同时写入 $_ENV 和 $_SERVER。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 Environment 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：本类型只有静态 load，不需要为加载去构造实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example Environment::load($projectRoot . '/.env');
@@ -18,10 +18,12 @@ final class Environment
 {
     // 精简的 dotenv 格式：支持 KEY=value、引号和注释，不支持插值。
     /**
-     * 逐行解析环境变量并调用 putenv；文件缺失时忽略，格式无效时报告行号。
+     * 文件不存在时直接返回。读不到内容时抛出 RuntimeException。
+     * 空行和以 # 开头的行跳过。行首的 export 前缀会去掉。名字和值按第一个等号拆开，名字必须是变量名，否则抛出带行号的 InvalidArgumentException。
+     * 值以引号开头时必须有配对的结束引号，引号后只允许空白或 # 注释。无引号时去掉行尾的 # 注释。最后对该名字 putenv，并写入 $_ENV 与 $_SERVER。不处理插值。
      *
-     * @param string $path 待匹配的请求路径，例如 /items。
-     * @return void 无返回值；更新当前进程环境。
+     * @param string $path dotenv 文件路径。
+     * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example Environment::load($projectRoot . '/.env');
@@ -64,6 +66,8 @@ final class Environment
                 $value = rtrim(preg_replace('/\s+#.*$/', '', $value));
             }
             putenv($name . '=' . $value);
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
         }
     }
 }

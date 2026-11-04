@@ -1,6 +1,6 @@
 # Loom
 
-开发者入门：[框架原理与 PHP 文件加载流程](docs/framework-principles.md)，从宿主启动、文件加载到一次请求的执行串联核心代码。
+开发者入门：[框架原理与 PHP 文件加载流程](docs/framework-principles.md)，从宿主启动、文件加载到一次请求的执行串联核心代码。配置绑定和后台服务见 [宿主与选项](docs/hosting.md)。
 
 Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供统一的管理工作台和可复用的基础能力。首页 `/` 是介绍这个后台的产品官网，用于展示产品定位、功能、使用场景、开发指南和体验入口。
 
@@ -60,7 +60,7 @@ Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供
 
 发布摘要的真实业务链路是 `queue:work → TCP release.snapshot → gRPC ReleasePolicy/Evaluate → studio_reports`。TCP 服务凭短期任务凭证读取所属空间的验收统计；gRPC 发布规则要求清单非空且全部完成。报告保存 TCP 返回的那次快照，而非重新在队列中统计。两种调用均通过实际网络连接，使用配置中的固定地址；当前演示在同机独立进程运行。gRPC 使用 `StringValue` 承载 JSON 业务载荷，契约见 `proto/release.proto`。服务不可用或规则拒绝时不交付摘要，队列最多尝试 3 次。页面按任务显示实际请求、响应及耗时，凭证不会进入展示记录。可在提交后的 5 秒窗口撤回验收，观察规则阻断；自动回顾也执行相同链路。
 
-访问 http://127.0.0.1:18087/demo。配置按功能放在 `config/*.php`（如 `http.php`、`database.php`、`tcp.php`、`grpc.php`），可通过 `LOOM_ADDRESS` 和 `LOOM_DATABASE` 覆盖监听地址和 MySQL DSN（只接受 MySQL DSN）。MySQL 与 Redis 的凭据通过环境变量配置，见 [存储配置](docs/mysql-redis.md)。
+访问 http://127.0.0.1:18087/demo。配置按功能放在 `config/*.php`（如 `http.php`、`database.php`、`tcp.php`、`grpc.php`），可通过 `LOOM_ADDRESS` 和 `LOOM_DATABASE` 覆盖监听地址和默认 MySQL DSN（只接受 MySQL）。多个库写在 `config/database.php` 的 `connections`。MySQL 与 Redis 的凭据通过环境变量配置，见 [存储配置](docs/mysql-redis.md)。
 
 ### 定时器示例
 
@@ -91,7 +91,7 @@ final class Heartbeat
 
 周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。类由容器创建，支持 `InjectConfig` 和 `config/services.php` 工厂绑定。类名、命名空间需与 `app/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
 
-每个 HTTP 服务进程把这组定时器装进 `Host`，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务实现 `Loom\HostedService`，在 `config/services.php` 里登记到 `Loom\Host`。
+每个 HTTP 服务进程把这组定时器装进 `Host`，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务的登记方式见 [宿主与选项](docs/hosting.md)。
 
 后台消费和调度分别在另外的终端启动：
 
@@ -190,7 +190,7 @@ composer format:check
 
 ## PHP 配置
 
-运行配置按功能拆分为 `http.php`、`database.php`、`console.php`、`jobs.php`、`tcp.php`、`grpc.php`、`migrations.php` 和 `network.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`，数据库使用 `get('database.dsn')`。更新配置后重启常驻服务。
+运行配置按功能拆分为 `http.php`、`database.php`、`console.php`、`jobs.php`、`tcp.php`、`grpc.php`、`migrations.php` 和 `network.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`。数据库配置与 Laravel 相同：`get('database.default')` 是默认连接名，`get('database.connections')` 是命名连接。更新配置后重启常驻服务。
 
 应用初始化时自动加载 `config/` 直属目录下的 `*.php`，以文件名（不含扩展名）作为配置名称。例如 `config/payment.php`：
 
@@ -202,16 +202,17 @@ return ['timeout' => 30, 'retry' => ['enabled' => true]];
 通过统一接口读取：
 
 ```php
-$config = $app->services()->get(\Loom\Config::class); // 装配入口获取；业务代码使用构造器注入
+$config = $app->container()->get(\Loom\Config::class); // 装配入口获取；业务代码使用构造器注入
 $config->get('payment'); // 整个文件返回值
 $config->get('payment.retry.enabled'); // true
 $config->get('payment.timeout', 10); // 缺失时返回默认值
 $config->get('http.address'); // config/http.php 的监听地址
-$config->get('database.dsn'); // config/database.php 的数据库连接配置
+$config->get('database.default'); // 默认连接名
+$config->get('database.connections.mysql'); // Laravel 格式的 mysql 连接
 $config->get(); // 返回以文件名为键的全部配置
 ```
 
-只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。需要强类型配置时，用公开属性声明选项类，再 `$services->options(PaymentOptions::class, 'payment')`；容器会把它注册为 singleton。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。`config/services.php` 的闭包也会被加载，由 HTTP、Console、队列、定时器及协议入口通过统一模块注册中心调用来注册服务。
+只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。强类型配置用 Options 绑定，见 [宿主与选项](docs/hosting.md)。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。`config/services.php` 的闭包也会被加载，由 HTTP、Console、队列、定时器及协议入口通过统一模块注册中心调用来注册服务。
 
 ### 注解注入配置
 
@@ -235,7 +236,7 @@ final class PaymentService
 }
 ```
 
-应用初始化后，通过 `$app->services()->get(\App\Services\PaymentService::class)` 获取服务即可；路由中使用控制器类名时也会自动注入。`bind()` 工厂返回的对象同样经过注入。框架支持 public、protected、private 及继承属性，配置键使用与 `$config->get()` 相同的点号格式。
+应用初始化后，通过 `$app->container()->get(\App\Services\PaymentService::class)` 获取服务即可；路由中使用控制器类名时也会自动注入。`bind()` 工厂返回的对象同样经过注入。框架支持 public、protected、private 及继承属性，配置键使用与 `$config->get()` 相同的点号格式。
 
 属性注入发生在构造函数/工厂返回之后、容器缓存实例之前。直接 `new` 的对象不会自动注入。属性注解用于实例属性，不用于静态属性；不要把属性注入标注在已经初始化的 readonly 属性上。类文件应通过应用自动加载或在框架初始化后加载，保证注解类已注册。
 
@@ -258,7 +259,7 @@ final class ApiClient
     }
 }
 
-$client = $app->services()->get(ApiClient::class);
+$client = $app->container()->get(ApiClient::class);
 ```
 
 容器自动创建对象时先解析构造参数，再调用构造函数，最后执行属性注入。继承的构造函数也支持此流程。带注解参数使用配置值，缺失时使用注解的第二个参数；未指定注解默认值则报错，不回退到参数声明的默认值。未带注解的可选参数保留声明默认值；未带注解的必填参数需要通过 `bind()` 工厂传入，容器不会猜测其依赖。工厂绑定优先，框架不会重新调用工厂返回对象的构造函数。

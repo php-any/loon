@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 按注册顺序包装中间件，让最早注册的中间件最先收到请求、最后收到响应。
+ * 按注册顺序把中间件包成调用链。先注册的先收到请求，链返回时则最后看到响应。
  *
  * 构造参数：
- * - $container（Container）：服务容器；允许 null 时由当前对象创建或选择默认容器。
+ * - $container（Container）：按类名取出中间件实例的服务容器。
  *
- * 返回值：使用 new 构造时得到 Pipeline 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 Pipeline 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $pipeline = new Pipeline($services);
@@ -19,10 +19,10 @@ final class Pipeline
 {
     private Container $container;
     /**
-     * 初始化 Pipeline 实例及其依赖。按注册顺序包装中间件，让最早注册的中间件最先收到请求、最后收到响应。
+     * 保存用来按类名解析中间件的服务容器。
      *
-     * @param Container $container 服务容器；允许 null 时由当前对象创建或选择默认容器。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param Container $container 按类名取出中间件实例的服务容器。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $pipeline = new Pipeline($services);
@@ -32,10 +32,10 @@ final class Pipeline
         $this->container = $container;
     }
     /**
-     * 检查中间件列表中的每项是否为非空类名、中间件实例或可调用对象。
+     * 逐项检查中间件定义。非空类名、Middleware 实例和可调用对象可以通过，其它值抛出 LogicException。
      *
-     * @param array $middleware 按执行顺序排列的中间件定义列表。
-     * @return void 无返回值；无效定义抛出 LogicException。
+     * @param array $middleware 待检查的中间件定义列表。
+     * @return void 无返回值。任一元素不合法时抛出 LogicException。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example Pipeline::validate([\Loom\Http\Middleware\ParseJsonInput::class]);
@@ -49,15 +49,15 @@ final class Pipeline
         }
     }
     /**
-     * 从后向前组合处理链，并将请求交给首个中间件；字符串类名按需由容器解析。
+     * 从列表末尾向前包成调用链，再把请求交给最外层。字符串类名经容器解析。条目既不是 Middleware 也不可调用时抛出 LogicException。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @param array $middleware 按执行顺序排列的中间件定义列表。
-     * @param callable $destination 最终目标回调，签名为 callable(Request): Response。
-     * @return Response 中间件或最终目标返回的 Response。
+     * @param Request $request 交给链首的 HTTP 请求。
+     * @param array $middleware 按先注册先执行排列的中间件，元素为类名、Middleware 或可调用对象。
+     * @param callable $destination 链末端回调，接收 Request 并返回 Response。
+     * @return Response 中间件或末端回调返回的响应。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $response = $pipeline->run($request, [], fn (Request $r) => Response::json(['ok' => true]));
+     * @example $response = $pipeline->run($request, [\Loom\Http\Middleware\ParseJsonInput::class], fn (Request $r) => Response::json(['ok' => true]));
      */
     public function run(Request $request, array $middleware, callable $destination): Response
     {

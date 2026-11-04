@@ -25,6 +25,16 @@ declare(strict_types=1);
  * HTTP 服务在执行本回调之后才启动 Host。后台服务用 Host::service() 登记，选项用 options() 绑定。
  */
 return static function (\Loom\Container $services): void {
+    // 体验套餐在第一次取出时按 config/checkout.php 创建。工厂校验名称和金额，并算出展示价。
+    // 套餐没有请求状态，因此用 singleton：所有请求共用这一份。工厂只读取 Config，不能再取作用域服务。
+    $services->singleton(\App\Services\Customers\CheckoutOffer::class, static function (\Loom\Container $services): \App\Services\Customers\CheckoutOffer {
+        $checkout = $services->get(\Loom\Config::class)->get('checkout');
+        if (!is_array($checkout)) {
+            throw new \LogicException('checkout configuration must be an array');
+        }
+        return \App\Services\Customers\CheckoutOffer::from($checkout);
+    });
+
     // 示例一：显式注册现有通知服务，并提供便于按名称获取的别名。
     // $services->scoped(\App\Services\Notifications\Notifications::class);
     // $services->alias('notifications', \App\Services\Notifications\Notifications::class);

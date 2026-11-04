@@ -28,10 +28,10 @@ $schedule-&gt;every('studio.digest.' . $user['id'], 60,
     'studio.digest', [], $user['id']);
 
 // 摘要作业通过模型统计任务，以 job_id 保证重复交付不重复建报告。
-$database-&gt;transaction(function () use ($database, $job) {
-    $counts = Task::using($database)-&gt;whereUserId($job['owner'])
+$database-&gt;transaction(function () use ($job) {
+    $counts = Task::whereUserId($job['owner'])
         -&gt;aggregate(['total' =&gt; ['COUNT', '*'], 'completed' =&gt; ['SUM', 'completed']]);
-    Report::using($database)-&gt;insertOrIgnore([
+    Report::insertOrIgnore([
         'user_id' =&gt; $job['owner'], 'job_id' =&gt; $job['id'],
         'total' =&gt; (int)$counts['total'],
         'completed' =&gt; (int)$counts['completed'],

@@ -26,7 +26,7 @@ function checkModelScope(bool $ok, string $message): void
 
 $other = null;
 try {
-    $database = $scope->services()->get(\Loom\Database::class);
+    $database = $scope->container()->get(\Loom\Database::class);
     $database->execute('CREATE TEMPORARY TABLE model_scope_records(id BIGINT PRIMARY KEY AUTO_INCREMENT, name TEXT NOT NULL, owner INTEGER NOT NULL, note TEXT)');
     $record = ScopedConvenientRecord::create(['name' => 'A', 'owner' => 1]);
     checkModelScope($record->name === 'A', 'framework config connection is available without manual ORM registration');
@@ -55,7 +55,7 @@ try {
     $captured = ScopedConvenientRecord::whereName('A');
     $unused = ScopedConvenientRecord::whereName('A');
     $other = new \Loom\ServiceScope(new \Loom\Config($configRoot));
-    $second = $other->services()->get(\Loom\Database::class);
+    $second = $other->container()->get(\Loom\Database::class);
     $second->execute('CREATE TEMPORARY TABLE model_scope_records(id BIGINT PRIMARY KEY AUTO_INCREMENT, name TEXT NOT NULL, owner INTEGER NOT NULL, note TEXT)');
     $ambiguous = false;
     try {

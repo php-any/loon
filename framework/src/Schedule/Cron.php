@@ -5,16 +5,10 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 解析五字段 Cron 规则并按明确 IANA 时区计算运行时间；日与周同时受限时使用或关系。
- *
- * 构造参数：
- * - $expression（string）：五字段“分 时 日 月 周”表达式，支持 *、列表、范围及用于 * 或范围的步长。
- * - $timezone（string）：明确的 IANA 时区，例如 Asia/Shanghai 或 UTC；不接受空值和 Local。
- *
- * 返回值：使用 new 构造时得到 Cron 实例；注册到容器时由容器管理实例的创建与复用。
+ * 解析五字段 Cron，并按给定 IANA 时区计算下一次运行。日和周都不是通配时，两者满足一个即可。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $cron = new Cron('0 9 * * 1-5', 'Asia/Shanghai'); $next = $cron->next(time());
+ * @example $cron = new Cron('0 9 * * 1-5', 'Asia/Shanghai');
  */
 final class Cron
 {
@@ -22,14 +16,14 @@ final class Cron
     private array $wildcards = [];
     private \DateTimeZone $zone;
     /**
-     * 初始化 Cron 实例及其依赖。解析五字段 Cron 规则并按明确 IANA 时区计算运行时间；日与周同时受限时使用或关系。
+     * 校验时区并解析五个字段，把允许的分、时、日、月、周记下来。空时区、Local、非法表达式或超出范围抛 HTTP 422；运行时不能做不可变时区转换时抛 HTTP 503。
      *
-     * @param string $expression 五字段“分 时 日 月 周”表达式，支持 *、列表、范围及用于 * 或范围的步长。
-     * @param string $timezone 明确的 IANA 时区，例如 Asia/Shanghai 或 UTC；不接受空值和 Local。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $expression 按「分 时 日 月 周」排列的五段。支持星号、列表、范围，步长只能用在星号或范围上。
+     * @param string $timezone IANA 时区名，例如 Asia/Shanghai。不能是空串或 Local。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $cron = new Cron('0 9 * * 1-5', 'Asia/Shanghai'); $next = $cron->next(time());
+     * @example $cron = new Cron('0 9 * * 1-5', 'Asia/Shanghai');
      */
     public function __construct(string $expression, string $timezone)
     {

@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Loom\Console;
 
 /**
- * 解析类 Artisan 命令签名，支持可选参数、默认值、数组参数、选项别名及布尔开关。
+ * 把一条命令签名拆成命令名、位置参数和选项。数组参数必须放在最后，必填参数不能出现在可选参数后面。签名不合法时构造函数抛出 LogicException，不会留下半截定义。
  *
  * 构造参数：
- * - $signature（string）：命令签名，例如 greet {name} {title?} {--l|loud}；数组参数必须放最后。
- * - $description（string）：帮助信息显示的命令用途。
+ * - $signature（string）：整段签名，例如 greet {name} {title?} {--l|loud}。
+ * - $description（string）：帮助里显示的用途，原样保存，不参与语法检查。
  *
- * 返回值：使用 new 构造时得到 Definition 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：名称、参数和选项都已拆开的 Definition。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $definition = new \Loom\Console\Definition('greet {name} {--l|loud}', '问候用户');
@@ -25,14 +25,14 @@ final class Definition
     public array $options = [];
     private array $aliases = [];
     /**
-     * 初始化 Definition 实例及其依赖。解析类 Artisan 命令签名，支持可选参数、默认值、数组参数、选项别名及布尔开关。
+     * 去掉签名两端空白，抽出命令名，再逐个解析花括号字段。位置参数记下是否可选、是否数组、默认值和描述；选项记下是否带值、是否数组、默认值、描述和单字母别名。命令名、字段、别名、重复名称、占用 help 或 h、数组参数没有放在最后、必填参数放在可选参数之后，或默认值写法不对时，抛出 LogicException。不解析实际的 argv。
      *
-     * @param string $signature 命令签名，例如 greet {name} {title?} {--l|loud}；数组参数必须放最后。
-     * @param string $description 帮助信息显示的命令用途。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param string $signature 命令名加若干 {参数} 或 {--选项} 的整段文本。
+     * @param string $description 帮助中的命令用途，不参与签名校验。
+     * @return void 无返回值；名称、签名、描述、参数、选项和别名已写入属性。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $definition = new \Loom\Console\Definition('greet {name} {--l|loud}', '问候用户');
+     * @example $definition = new \Loom\Console\Definition('greet {name : 用户} {title?} {word?*} {--l|loud} {--tag=* : 标签}', '问候用户');
      */
     public function __construct(string $signature, string $description)
     {
@@ -104,13 +104,13 @@ final class Definition
         }
     }
     /**
-     * 按照签名解析令牌列表，支持 -- 终止选项解析，拒绝未知选项、缺值或多余参数。
+     * 按本签名把令牌分成位置参数和选项。单独的 -- 之后全部当作位置参数，不再识别选项。非字符串令牌、未知长短选项、布尔选项带了值、带值选项缺值、必填参数缺失或位置参数过多时抛出 InputError。选项以及没给出的可选参数使用签名里的默认值。
      *
-     * @param array $tokens 不包含命令名的命令行字符串列表。
-     * @return Input 参数及选项均已填入默认值的 Console\Input。
+     * @param array $tokens 不含命令名的参数和选项字符串。
+     * @return Input 参数和选项都已填好的输入，缺省项带有签名默认值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $input = $definition->parse(['小明', '--loud']);
+     * @example $input = $definition->parse(['--', '小明']);
      */
     public function parse(array $tokens): Input
     {

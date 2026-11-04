@@ -10,7 +10,7 @@ file_put_contents($root . '/vendor/autoload.php', '<?php throw new RuntimeExcept
 $scope = null;
 try {
     $scope = $bootstrap($root);
-    if ($scope->services()->get(Loom\Config::class)->root() !== realpath($root)) {
+    if ($scope->container()->get(Loom\Config::class)->root() !== realpath($root)) {
         throw new RuntimeException('Bootstrap must preserve the selected application root');
     }
 } finally {

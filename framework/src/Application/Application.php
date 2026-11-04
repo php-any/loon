@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 应用组合入口，持有独立容器、路由器和 HTTP 内核，提供路由注册与资源清理。
+ * 把容器、路由器和 HTTP 内核放在同一个应用对象里。路由登记方法都转给这只路由器，并返回应用自身。
  *
  * 构造参数：
- * - $container（?Container）：服务容器；允许 null 时由当前对象创建或选择默认容器。默认值为 null。
- * - $router（?Router）：路由器或路由匹配器，负责解析请求处理目标。默认值为 null。
+ * - $container（?Container）：应用容器。null 时新建一个空容器。默认 null。
+ * - $router（?Router）：应用路由器。null 时新建一个空路由器。默认 null。
  *
- * 返回值：使用 new 构造时得到 Application 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到已经接上 HttpKernel 的 Application。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $app = new Application($services); $app->get('/ping', fn (Request $r) => Response::json(['ok' => true]));
+ * @example $app = new Application($services);
  */
 final class Application
 {
@@ -22,14 +22,14 @@ final class Application
     private Router $router;
     private HttpKernel $kernel;
     /**
-     * 初始化 Application 实例及其依赖。应用组合入口，持有独立容器、路由器和 HTTP 内核，提供路由注册与资源清理。
+     * 保存容器和路由器；其中为 null 的那个会换成新的空对象。然后用这两者新建 HttpKernel。
      *
-     * @param ?Container $container 服务容器；允许 null 时由当前对象创建或选择默认容器。默认值为 null。
-     * @param ?Router $router 路由器或路由匹配器，负责解析请求处理目标。默认值为 null。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param ?Container $container 应用使用的容器。null 时新建 Container。默认 null。
+     * @param ?Router $router 应用使用的路由器。null 时新建 Router。默认 null。
+     * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $app = new Application($services); $app->get('/ping', fn (Request $r) => Response::json(['ok' => true]));
+     * @example $app = new Application($services, $router);
      */
     public function __construct(?Container $container = null, ?Router $router = null)
     {
@@ -38,25 +38,25 @@ final class Application
         $this->kernel = new HttpKernel($this->router, $this->container);
     }
     /**
-     * 取得应用持有的服务容器。
+     * 返回构造时保存的那只容器。
      *
      * 参数：无。
      *
-     * @return Container 当前应用容器。
+     * @return Container 构造参数传入的容器；当时为 null 时则是构造函数新建的容器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $services = $app->services();
+     * @example $container = $app->container();
      */
-    public function services(): Container
+    public function container(): Container
     {
         return $this->container;
     }
     /**
-     * 取得应用路由器，供注册路由或直接匹配。
+     * 返回构造时保存的那只路由器。
      *
      * 参数：无。
      *
-     * @return Router 当前 Router。
+     * @return Router 构造参数传入的路由器；当时为 null 时则是构造函数新建的路由器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $router = $app->router();
@@ -66,11 +66,11 @@ final class Application
         return $this->router;
     }
     /**
-     * 取得负责请求处理的内核。
+     * 返回构造时用容器和路由器创建的 HttpKernel。
      *
      * 参数：无。
      *
-     * @return HttpKernel 当前 HttpKernel。
+     * @return HttpKernel 处理本应用请求的内核。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $kernel = $app->kernel();
@@ -80,10 +80,10 @@ final class Application
         return $this->kernel;
     }
     /**
-     * 把请求交给内核执行中间件及路由处理。
+     * 把请求交给构造时创建的内核执行。本方法不关闭作用域，也不改写请求。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Response 最终 HTTP 响应。
+     * @param Request $request 交给内核的请求。
+     * @return Response 内核返回的响应。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $app->handle($request);
@@ -93,7 +93,9 @@ final class Application
         return $this->kernel->handle($request);
     }
     /**
-     * 关闭已解析的请求作用域和数据库资源，并清理请求上下文。
+     * 容器里已经解析出 ServiceScope 时，只关闭该作用域并返回。
+     * 尚未解析出 ServiceScope 时，关闭已解析的 RequestScope 和 Database；finally 里再 get 出 RequestContext 并绑回 null。
+     * 这条 finally 会在 RequestContext 尚未解析时把它创建出来。关闭过程中的异常会继续抛出。
      *
      * 参数：无。
      *
@@ -123,9 +125,10 @@ final class Application
         }
     }
     /**
-     * 向内核追加全局中间件，包括未匹配到路由的请求也会经过它。
+     * 把一个全局中间件交给内核。之后由该内核处理的请求都会经过它，包括没有匹配到路由的请求。
+     * 返回当前应用。
      *
-     * @param mixed $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。
+     * @param mixed $middleware 交给内核的中间件。类名、实例或可调用对象的含义由内核解释。
      * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -137,41 +140,42 @@ final class Application
         return $this;
     }
     /**
-     * 设置后续注册使用的路径前缀，去掉末尾斜杠，不修改已注册路由。
+     * 向当前路由器要一个带路径前缀的注册器。已登记的路由保持不变。返回值是注册器，不是应用自身。
      *
-     * @param string $prefix 组合到路由前的路径前缀，例如 /api。
-     * @return RouteRegistrar 带有新前缀的注册器；RouteRegistrar 返回副本。
+     * @param string $prefix 交给路由器的路径前缀。
+     * @return RouteRegistrar 路由器返回的注册器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $api = $routes->prefix('/api');
+     * @example $api = $app->prefix('/api');
      */
     public function prefix(string $prefix): RouteRegistrar
     {
         return $this->router->prefix($prefix);
     }
     /**
-     * 组合后续路由使用的中间件列表，不修改已注册路由。
+     * 向当前路由器要一个会给后续路由带上这些中间件的注册器。已登记的路由保持不变。
      *
-     * @param mixed ...$middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。支持传入多个值。
-     * @return RouteRegistrar 携带中间件选项的注册器。
+     * @param mixed ...$middleware 按传入顺序交给路由器的中间件。
+     * @return RouteRegistrar 路由器返回的注册器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $jsonRoutes = $routes->withMiddleware(\Loom\Http\Middleware\ParseJsonInput::class);
+     * @example $json = $app->withMiddleware(\Loom\Http\Middleware\ParseJsonInput::class);
      */
     public function withMiddleware(mixed ...$middleware): RouteRegistrar
     {
         return $this->router->withMiddleware(...$middleware);
     }
     /**
-     * 在分组内注册路由并组合前缀及中间件，回调结束后恢复外层注册状态。
+     * 让路由器打开一个分组，前缀和中间件原样传给它。分组回调实际收到的是当前 Application，路由器传进闭包的注册器不会交给回调。
+     * 回调结束后返回当前应用。分组被路由器拒绝时，异常在返回前抛出。
      *
-     * @param string $prefix 组合到路由前的路径前缀，例如 /api。
-     * @param callable $register 注册回调，接收 Router 并在其上声明路由。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象。
+     * @param string $prefix 这一组的路径前缀。
+     * @param callable $register 分组内的注册回调，参数是当前 Application。
+     * @param array $middleware 这一组追加的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->group('/api', static function (Router $r): void { $r->get('/ping', fn (Request $q) => Response::json(['ok' => true])); });
+     * @example $app->group('/api', static function (Application $app): void { $app->get('/ping', fn (Request $request) => Response::json(['ok' => true])); });
      */
     public function group(string $prefix, callable $register, array $middleware = []): self
     {
@@ -181,31 +185,33 @@ final class Application
         return $this;
     }
     /**
-     * 根据命名路由替换并编码路径参数，缺失、多余、空值或包含斜杠的参数会报错。
+     * 把命名路由和参数交给当前路由器生成路径，并返回它的结果。
+     * 名称不存在或参数缺失、多余、为空、含斜杠时，异常来自路由器。
      *
-     * @param string $name 命名路由标识；空字符串表示不命名。
-     * @param array $parameters 命名路由占位符到值的映射，不允许缺失或多余参数。默认值为 []。
-     * @return string 不包含域名的 URL 路径。
+     * @param string $name 已登记的路由名。
+     * @param array $parameters 路径占位符到值的映射。默认空数组。
+     * @return string 路由器生成的路径，不含域名。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $url = $routes->url('items.show', ['id' => 42]);
+     * @example $path = $app->url('items.show', ['id' => 42]);
      */
     public function url(string $name, array $parameters = []): string
     {
         return $this->router->url($name, $parameters);
     }
     /**
-     * 注册指定 HTTP 方法的路由，保留处理器、中间件和可选名称。
+     * 按给定的 HTTP 方法把一条路由交给当前路由器，并返回应用自身。
+     * 方法、路径或名称不合法时，异常由路由器抛出。
      *
-     * @param string $method HTTP 方法，可选 GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象。
+     * @param string $method 交给路由器的 HTTP 方法。
+     * @param string $path 这条路由的路径。
+     * @param mixed $action 这条路由的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->route('GET', '/items/{id}', $handler, 'items.show');
+     * @example $app->route('GET', '/items/{id}', $handler, 'items.show');
      */
     public function route(string $method, string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -213,16 +219,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 GET 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 GET 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 GET 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->get('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->get('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function get(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -230,16 +237,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 POST 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 POST 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 POST 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->post('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->post('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function post(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -247,16 +255,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 PUT 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 PUT 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 PUT 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->put('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->put('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function put(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -264,16 +273,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 PATCH 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 PATCH 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 PATCH 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->patch('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->patch('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function patch(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -281,16 +291,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 DELETE 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 DELETE 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 DELETE 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->delete('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->delete('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function delete(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -298,16 +309,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 HEAD 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 HEAD 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 HEAD 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->head('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->head('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function head(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -315,16 +327,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册 OPTIONS 路由，控制器在分发时解析；同方法下重叠路径或重复名称会报错。
+     * 把一条 OPTIONS 路由交给当前应用的路由器登记，并返回应用自身以便继续注册。
+     * 路径重叠或路由名重复时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象，供继续链式注册使用。
+     * @param string $path 要登记的 OPTIONS 路径。
+     * @param mixed $action 该路径的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->options('/items', fn (Request $request) => Response::json(['ok' => true]));
+     * @example $app->options('/items', fn (Request $request) => Response::json(['ok' => true]));
      */
     public function options(string $path, mixed $action, string $name = '', array $middleware = []): self
     {
@@ -332,16 +345,17 @@ final class Application
         return $this;
     }
     /**
-     * 注册需要升级连接的 GET 路由；处理器接收请求和原生 WebSocket 连接。
+     * 把一条 WebSocket 升级路由交给当前路由器，并返回应用自身。
+     * 路径或方法不符合升级路由的要求时，异常由路由器抛出。
      *
-     * @param string $path 以 / 开头的路由路径，可含 {id} 等完整路径段占位符；不包含查询串或片段。
-     * @param mixed $action 控制器类名、可调用对象或 [控制器类名或实例, 方法名]；普通 HTTP 处理器须返回 Response。
-     * @param string $name 命名路由标识；空字符串表示不命名。默认值为 ''。
-     * @param array $middleware 中间件定义；列表按注册顺序执行，支持类名、Middleware 实例或回调。默认值为 []。
-     * @return self 当前注册对象。
+     * @param string $path 升级路径。
+     * @param mixed $action 升级之后的处理器，原样交给路由器。
+     * @param string $name 路由名。默认空字符串，表示不命名。
+     * @param array $middleware 只作用于这条路由的中间件。默认空数组。
+     * @return self 当前 Application。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $routes->websocket('/socket', $socketHandler);
+     * @example $app->websocket('/socket', $socketHandler);
      */
     public function websocket(string $path, mixed $action, string $name = '', array $middleware = []): self
     {

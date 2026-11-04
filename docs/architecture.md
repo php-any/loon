@@ -14,7 +14,7 @@ Loom 的产品目标是通用型后台，为不同业务提供统一管理工作
 
 HTTP 核心按职责组合：`ApplicationFactory` 创建应用作用域，`Application` 暴露装配入口，`Router` 保存路由并实现 `RouteMatcher`，`HttpKernel` 处理请求，`Pipeline` 执行中间件，`ActionResolver` 延迟解析控制器。路由结果只包含定义与参数，不持有容器或原生连接。模块发现由 `ModuleDiscovery` 完成，`ModuleRegistry` 负责消费声明和运行时装配。
 
-`Server` 负责启动宿主服务器。定时器和其他 `HostedService` 由 `Host` 在监听前按登记顺序启动，退出时按相反顺序停止。HTTP 监听地址和入口来自 `HttpServerOptions`。`HttpRuntime` 衔接原生请求与应用工厂，`RequestFactory` 转换请求，`HttpTransport` 发送响应及升级 WebSocket，`StaticFiles` 处理公开资源。`RequestScope` 在 finally 中结束请求和传输上下文。数据库连接池属于进程；事务只存在于 `transaction()` 回调。HTTP 请求、TCP 消息、gRPC 调用和作业分别创建作用域并在 finally 中关闭。原生 IO 仍由 Origami 适配。
+`Server` 负责启动宿主服务器。定时器和其他 `HostedService` 由 `Host` 在监听前按登记顺序启动，退出时按相反顺序停止。HTTP 监听地址和入口来自 `HttpServerOptions`。设计说明见 [宿主与选项](hosting.md)。`HttpRuntime` 衔接原生请求与应用工厂，`RequestFactory` 转换请求，`HttpTransport` 发送响应及升级 WebSocket，`StaticFiles` 处理公开资源。`RequestScope` 在 finally 中结束请求和传输上下文。数据库连接池属于进程；事务只存在于 `transaction()` 回调。HTTP 请求、TCP 消息、gRPC 调用和作业分别创建作用域并在 finally 中关闭。原生 IO 仍由 Origami 适配。
 
 容器的生命周期注册与对象创建策略分离：singleton 跨应用子作用域共享，scoped 按执行作用域缓存，transient 每次创建，alias 委托目标生命周期；对象缓存委托原生容器，配置注入通过 `ObjectFactory` 的默认适配器接入。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于执行作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。ModelContext 只在进程里仅有一个活动作用域时提供它的 Database。ModelQuery 保存调用方传入的 Database，条件和绑定参数留在查询对象上。普通读写使用进程池；在事务回调里创建的查询使用该事务。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
 

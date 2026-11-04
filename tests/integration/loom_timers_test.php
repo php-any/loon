@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $scope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$services = $scope->services();
+$services = $scope->container();
 function timerCheck(bool $condition, string $message): void
 {
     if (!$condition) {

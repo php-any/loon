@@ -6,28 +6,23 @@ namespace Loom;
 
 // 标准库 spawn 与 Channel 使管道读取独立于监督进程的截止时间。
 /**
- * 以参数数组启动子进程，并发读取两路输出，限制总耗时及输出量，结束后清理进程与管道。
- *
- * 构造参数：
- * - $config（\Loom\Config）：项目配置实例，提供配置读取及项目路径解析。
- *
- * 返回值：使用 new 构造时得到 Process 实例；注册到容器时由容器管理实例的创建与复用。
+ * 用参数数组启动子进程，同时读标准输出和标准错误。超时或两边合计超过 4 MiB 时终止进程并抛异常。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $result = $process->run([PHP_BINARY, $config->path('loom.php'), 'list'], 10);
+ * @example $process = new Process($config);
  */
 final class Process
 {
     private \Loom\Config $config;
 
     /**
-     * 初始化 Process 实例及其依赖。以参数数组启动子进程，并发读取两路输出，限制总耗时及输出量，结束后清理进程与管道。
+     * 只保存配置。这里不启动子进程。
      *
-     * @param \Loom\Config $config 项目配置实例，提供配置读取及项目路径解析。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Config $config 子进程的工作目录取它的项目根。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $result = $process->run([PHP_BINARY, $config->path('loom.php'), 'list'], 10);
+     * @example $process = new Process($config);
      */
     public function __construct(\Loom\Config $config)
     {
@@ -42,7 +37,7 @@ final class Process
      * @return array 包含 code 退出码、stdout 标准输出、stderr 标准错误的数组。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $result = $process->run([PHP_BINARY, $config->path('loom.php'), 'list'], 10);
+     * @example $result = $process->run([PHP_BINARY, 'loom.php', 'list'], 10);
      */
     public function run(array $arguments, int $timeout = 60): array
     {

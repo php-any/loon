@@ -5,30 +5,24 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 处理框架账号注册、登录、Redis 会话和 CSRF/同源校验；依赖当前请求上下文和 MySQL 账号版本。
- *
- * 构造参数：
- * - $database（\Loom\Database）：当前作用域的数据库服务，负责连接、查询及事务。
- * - $requestContext（\Loom\RequestContext）：当前作用域的请求上下文，负责绑定与恢复请求。
- *
- * 返回值：使用 new 构造时得到 Auth 实例；注册到容器时由容器管理实例的创建与复用。
+ * 框架账号的注册、登录和 Redis 会话。写请求还要核对 CSRF 和 Origin。会话是否有效看 MySQL 里的 auth_version。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $auth = $services->get(Auth::class); $user = $auth->guard();
+ * @example $auth = new Auth($database, $requestContext);
  */
 final class Auth
 {
     private \Loom\Database $database;
 
     /**
-     * 初始化 Auth 实例及其依赖。处理框架账号注册、登录、Redis 会话和 CSRF/同源校验；依赖当前请求上下文和 MySQL 账号版本。
+     * 保存数据库和请求上下文。这里不读 Cookie，也不连接 Redis。
      *
-     * @param \Loom\Database $database 当前作用域的数据库服务，负责连接、查询及事务。
-     * @param \Loom\RequestContext $requestContext 当前作用域的请求上下文，负责绑定与恢复请求。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     * @param \Loom\Database $database 以后读写用户和登录计数。
+     * @param \Loom\RequestContext $requestContext 以后从当前请求取 Cookie、方法和头。
+     * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $auth = $services->get(Auth::class); $user = $auth->guard();
+     * @example $auth = new Auth($database, $requestContext);
      */
     public function __construct(\Loom\Database $database, \Loom\RequestContext $requestContext)
     {
@@ -44,7 +38,7 @@ final class Auth
      *
      * @return string 32 字节随机数的 64 字符十六进制表示。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $token = $this->token();
      */
     private function token(): string
@@ -58,7 +52,7 @@ final class Auth
      *
      * @return string 会话令牌；未提供时为空字符串。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $token = $this->session();
      */
     private function session(): string
@@ -92,7 +86,7 @@ final class Auth
             throw new HttpError(401, '登录已过期，请重新登录');
         }
         $session = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
-        $rows = Models\User::using($this->database)->whereId($session['id'])->rows(['id', 'name', 'email', 'auth_version']);
+        $rows = Models\User::whereId($session['id'])->rows(['id', 'name', 'email', 'auth_version']);
         if ($rows === [] || (int)$rows[0]['auth_version'] !== (int)$session['version']) {
             throw new HttpError(401, '登录已过期，请重新登录');
         }
@@ -149,7 +143,7 @@ final class Auth
      * @param int $age Cookie Max-Age，单位秒；0 表示立即过期。
      * @return string 可写入 Set-Cookie 的字符串。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $cookie = $this->cookie($token, 86400);
      */
     private function cookie(string $token, int $age): string
@@ -179,7 +173,7 @@ final class Auth
      *
      * @return void 无返回值；Redis 异常向上传播。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $this->deleteSession();
      */
     private function deleteSession(): void
@@ -203,9 +197,9 @@ final class Auth
     /**
      * 校验同源、账号输入和频率后注册用户，密码散列保存并创建新会话。
      *
-     * @param string $name 注册显示名称，trim 后要求非空且不超过 80 字节。
-     * @param string $email 邮箱，标准化为小写并去除首尾空白，最长 254 字节。
-     * @param string $password 明文密码，要求 10 至 72 字节，仅用于验证或散列。
+     * @param string $name 显示名。本方法先 trim，空串或超过 80 字节会在注册分支被拒绝。
+     * @param string $email 要注册的邮箱。
+     * @param string $password 明文密码，只用来生成散列，不保存原文。
      * @return array 含 cookie、csrf、id 的数组；重复邮箱抛出 HTTP 409。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -218,8 +212,8 @@ final class Auth
     /**
      * 校验同源、频率和密码后替换当前 Redis 会话。
      *
-     * @param string $email 邮箱，标准化为小写并去除首尾空白，最长 254 字节。
-     * @param string $password 明文密码，要求 10 至 72 字节，仅用于验证或散列。
+     * @param string $email 用来查找账号的邮箱。
+     * @param string $password 用来和库存散列比对的明文密码。
      * @return array 含 cookie、csrf、id 的数组；认证失败抛出 HTTP 401。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -232,13 +226,13 @@ final class Auth
     /**
      * 共用注册/登录流程，限制每分钟尝试次数，创建一天有效的会话并清除旧令牌。
      *
-     * @param string $name 注册显示名称，trim 后要求非空且不超过 80 字节。
-     * @param string $email 邮箱，标准化为小写并去除首尾空白，最长 254 字节。
-     * @param string $password 明文密码，要求 10 至 72 字节，仅用于验证或散列。
-     * @param bool $register true 走注册流程，false 走登录验证流程。
+     * @param string $name 只在 $register 为 true 时作为显示名。登录时传入的值不检查。
+     * @param string $email 邮箱原文。本方法去掉两端空白并转成小写，超过 254 字节或不含 @ 则抛 HTTP 422。
+     * @param string $password 明文密码。短于 10 或长于 72 字节抛 HTTP 422。
+     * @param bool $register true 插入新用户，false 核对已有密码。
      * @return array 含 cookie、csrf、id 的会话结果数组。
      *
-     * 内部调用示例（仅类内使用）：
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $result = $this->authenticate('', $email, $password, false);
      */
     private function authenticate(string $name, string $email, string $password, bool $register): array
@@ -257,13 +251,13 @@ final class Auth
             if ($name === '' || strlen($name) > 80) {
                 throw new HttpError(422, '请输入姓名');
             }
-            $result = Models\User::using($this->database)->insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
+            $result = Models\User::insertOrIgnore(['name' => $name, 'email' => $email, 'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 10])], ['email']);
             if ($result->rowsAffected === 0) {
                 throw new HttpError(409, '此邮箱已注册');
             }
             $id = $result->insertId;
         } else {
-            $rows = Models\User::using($this->database)->whereEmail($email)->rows(['id', 'password', 'auth_version']);
+            $rows = Models\User::whereEmail($email)->rows(['id', 'password', 'auth_version']);
             $hash = $rows[0]['password'] ?? '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
             if (!password_verify($password, $hash) || $rows === []) {
                 throw new HttpError(401, '邮箱或密码不正确');

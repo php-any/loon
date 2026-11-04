@@ -9,26 +9,26 @@ use Loom\Request;
 use Loom\Response;
 
 /**
- * 验证并解码 JSON 请求体，把 Input 放入请求的 input 属性后继续处理。
+ * 把 JSON 正文解码成 Input，放进请求副本的 input 属性后再交给下游。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 ParseJsonInput 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 ParseJsonInput 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $app->middleware(\Loom\Http\Middleware\ParseJsonInput::class);
+ * @example $middleware = new ParseJsonInput();
  */
 final class ParseJsonInput implements Middleware
 {
     /**
-     * 解析 JSON 并通过请求副本传递 input 属性；类型或正文无效时直接抛出 HttpError。
+     * 调用请求的 json 方法，把得到的 Input 写入副本的 input 属性，再交给 next。媒体类型或正文不合法时 json 抛出 HttpError，不会调用 next。
      *
-     * @param Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @param callable $next 下游处理器，接收 Request 并返回 Response。
-     * @return Response 后续中间件或控制器的响应。
+     * @param Request $request 要解析正文的请求。传给下游的是带 input 属性的副本。
+     * @param callable $next 下游回调，接收带 input 属性的 Request 并返回 Response。
+     * @return Response next 返回的响应。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $response = $middleware->handle($request, $next);
+     * @example $response = (new ParseJsonInput())->handle($request, $next);
      */
     public function handle(Request $request, callable $next): Response
     {

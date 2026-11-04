@@ -78,7 +78,7 @@ npm run build
 
 “业务管理 / 用户管理”通过 `customers.manage` 权限管理官网账号，可以新增、搜索、编辑姓名与启停账号，不分配后台角色；停用会撤销用户会话。“用户订单”使用 `orders.view` 权限显示独立的官网订单；原有通用订单保留在原模块中。
 
-登录官网用户后确认 ¥99.00 体验套餐，调用 `POST /api/checkout/simulate`，仅接受 `request_key`，金额由服务端固定，不连接真实支付渠道。订单保存在 `shop_orders`，订单号以 `SIM` 开头。同用户同请求标识重试返回原订单，不重复通知。`GET /api/customer/orders` 仅显示当前用户最近 25 笔订单。
+登录官网用户后确认体验套餐，调用 `POST /api/checkout/simulate`，仅接受 `request_key`。套餐名称和金额来自 `config/checkout.php`，由 `config/services.php` 的工厂在启动后第一次解析时定格，默认 ¥99.00。金额不连接真实支付渠道。订单保存在 `shop_orders`，订单号以 `SIM` 开头。同用户同请求标识重试返回原订单，不重复通知。`GET /api/customer/orders` 仅显示当前用户最近 25 笔订单。
 
 订单、审计和后台通知在同一事务中保存。启用且具有 `orders.view` 权限的管理员收到支付通知；用户在个人订单中查看支付结果。后台通过 WebSocket 接收新消息；关闭后台期间的通知仍会留存。
 

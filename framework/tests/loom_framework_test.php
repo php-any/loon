@@ -2,7 +2,7 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 $runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->services();
+$runtimeServices = $runtimeScope->container();
 
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -34,7 +34,7 @@ function loom_check($condition, $message)
 class LoomTestService
 {
 }
-$container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->services();
+$container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
 $calls = 0;
 $container->bind(LoomTestService::class, function ($container) use (&$calls, $runtimeServices) {
     $calls++;
@@ -67,7 +67,7 @@ try {
 }
 loom_check($cycle, 'native container cycle error preserves Loom contract');
 loom_check($container->get('retry') instanceof LoomTestService, 'native resolution stack clears after cycle');
-loom_check(((new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->services())->get(LoomTestService::class) !== $container->get(LoomTestService::class), 'native containers isolate shared instances');
+loom_check(((new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container())->get(LoomTestService::class) !== $container->get(LoomTestService::class), 'native containers isolate shared instances');
 
 /**
  * 读取路由 id 并输出 JSON，验证 GET 路由参数绑定。

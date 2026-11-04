@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 $scope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$services = $scope->services();
+$services = $scope->container();
 $services->scoped(\Loom\Console\CommandRegistrar::class, \App\Console\ApplicationCommands::class);
-$services->get(\Loom\Database::class)->connect($services->get(\Loom\Config::class)->get('database.dsn'));
+$services->get(\Loom\Database::class)->connect($services->get(\Loom\Database::class)->pdoDsn());
 $scope->load('framework/bootstrap/database.php');
 $out = '';
 $err = '';
