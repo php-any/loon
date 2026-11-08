@@ -197,10 +197,11 @@ final class ServiceProvider implements ServiceResolver
         if ($descriptor->instance !== null) {
             return $descriptor->instance;
         }
-        if ($descriptor->lifetime === ServiceLifetime::Singleton) {
+        // 按 value 比较：Origami 请求虚拟机里，主虚拟机创建的枚举单例与请求侧的 ServiceLifetime::Scoped 可能不是同一实例，=== 会失败并误走 transient。
+        if ($descriptor->lifetime->value === ServiceLifetime::Singleton->value) {
             return $this->singleton($descriptor, $key);
         }
-        if ($descriptor->lifetime === ServiceLifetime::Scoped) {
+        if ($descriptor->lifetime->value === ServiceLifetime::Scoped->value) {
             if ($scope === null) {
                 throw new \LogicException($this->resolving === []
                     ? 'Cannot resolve scoped service ' . $descriptor->id . ' from the root provider; create a scope first'

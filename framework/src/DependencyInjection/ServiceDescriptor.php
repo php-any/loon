@@ -29,7 +29,7 @@ final class ServiceDescriptor
         if ($id === '') {
             throw new \InvalidArgumentException('Service id must not be empty');
         }
-        if ($instance !== null && $lifetime !== ServiceLifetime::Singleton) {
+        if ($instance !== null && $lifetime->value !== ServiceLifetime::Singleton->value) {
             throw new \InvalidArgumentException('Service instances must be singletons: ' . $id);
         }
         if (is_string($implementation) && $implementation === '') {
