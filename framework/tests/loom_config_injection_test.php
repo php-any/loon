@@ -2,14 +2,7 @@
 
 declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
-$runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->container();
-
-use Loom\InjectConfig;
-use Loom\Container;
-use Loom\Config;
-
-require __DIR__ . '/fixtures/config/services.php';
+require __DIR__ . '/fixtures/config_injection.php';
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
  *
@@ -28,23 +21,26 @@ function checkInjection(bool $condition, string $message): void
 }
 $root = sys_get_temp_dir() . '/loom-injection-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0777, true);
+$app = null;
 try {
     file_put_contents($root . '/config/probe.php', '<?php return ["name"=>"configured", "timeout"=>30, "enabled"=>false, "nullable"=>null, "zero"=>0];');
-    $runtimeServices->get(\Loom\Config::class)->setRoot($root);
-    $container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
-    $constructed = $container->get(ConfigConstructorProbe::class);
+    $config = new Loom\Config($root);
+    $services = new Loom\ServiceCollection();
+    $services->addInstance(Loom\Config::class, $config);
+    $services->addScoped(ConfigFactoryConstructorProbe::class, static fn (): ConfigFactoryConstructorProbe => new ConfigFactoryConstructorProbe(71));
+    $services->addScoped('factory', static fn (): ConfigServiceProbe => new ConfigServiceProbe());
+    $provider = $services->build();
+    $scope = $provider->createScope();
+    $constructed = $scope->get(ConfigConstructorProbe::class);
     checkInjection($constructed->received === [30, false, null, 17, null, 'ordinary'], 'configuration available inside constructor');
     checkInjection($constructed->property === 'configured', 'constructor and property injection coexist');
-    checkInjection($container->get(ConfigConstructorProbe::class) === $constructed, 'constructor singleton');
-    checkInjection($container->get(ConfigInheritedConstructorProbe::class)->received === $constructed->received, 'inherited constructor');
-    checkInjection($container->get(ConfigOptionalConstructorProbe::class)->values === ['default', []], 'ordinary optional and variadic parameters');
-    $container->bind(ConfigFactoryConstructorProbe::class, static function ($container) use ($runtimeServices) {
-        return new ConfigFactoryConstructorProbe(71);
-    });
-    checkInjection($container->get(ConfigFactoryConstructorProbe::class)->value === 71, 'factory controls construction');
+    checkInjection($scope->get(ConfigConstructorProbe::class) === $constructed, 'constructor identity within a scope');
+    checkInjection($scope->get(ConfigInheritedConstructorProbe::class)->received === $constructed->received, 'inherited constructor');
+    checkInjection($scope->get(ConfigOptionalConstructorProbe::class)->values === ['default', []], 'ordinary optional and variadic parameters');
+    checkInjection($scope->get(ConfigFactoryConstructorProbe::class)->value === 71, 'factory controls construction');
     $invalidType = false;
     try {
-        $container->get(ConfigInvalidConstructorTypeProbe::class);
+        $scope->get(ConfigInvalidConstructorTypeProbe::class);
     } catch (TypeError $error) {
         $invalidType = true;
     }
@@ -52,7 +48,7 @@ try {
     for ($attempt = 0; $attempt < 2; $attempt++) {
         $thrown = false;
         try {
-            $container->get(ConfigThrowingConstructorProbe::class);
+            $scope->get(ConfigThrowingConstructorProbe::class);
         } catch (RuntimeException $error) {
             $thrown = $error->getMessage() === 'constructor failure';
         }
@@ -61,27 +57,24 @@ try {
     foreach ([ConfigMissingConstructorProbe::class => 'probe.required', ConfigUnresolvedConstructorProbe::class => 'service factory', ConfigDuplicateConstructorProbe::class => 'Duplicate InjectConfig'] as $class => $message) {
         $failed = false;
         try {
-            $container->get($class);
+            $scope->get($class);
         } catch (LogicException $error) {
             $failed = str_contains($error->getMessage(), $message);
         }
         checkInjection($failed, 'constructor resolution failure: ' . $class);
     }
-    $service = $container->get(ConfigServiceProbe::class);
+    $service = $scope->get(ConfigServiceProbe::class);
     checkInjection($service->timeout === 30 && $service->childName() === 30, 'public and private property injection');
     checkInjection($service->parentName() === 'configured' && $service->enabled() === false, 'inherited private/protected properties');
     checkInjection($service->fallback === 12 && $service->nullableDefault === null, 'explicit defaults including named null');
     checkInjection($service->nullable === null && $service->zero === 0, 'null and zero must not trigger defaults');
     checkInjection($service->settings['timeout'] === 30, 'whole configuration injection');
-    checkInjection($container->get(ConfigServiceProbe::class) === $service, 'singleton identity');
-    $container->bind('factory', static function ($container) use ($runtimeServices) {
-        return new ConfigServiceProbe();
-    });
-    checkInjection($container->get('factory')->timeout === 30, 'factory result injection');
+    checkInjection($scope->get(ConfigServiceProbe::class) === $service, 'scoped identity');
+    checkInjection($scope->get('factory')->timeout === 30 && $scope->get('factory') !== $service, 'factory result injection');
     foreach ([MissingConfigProbe::class => 'probe.required', InvalidConfigTypeProbe::class => 'InvalidConfigTypeProbe::$value', DuplicateConfigProbe::class => 'Duplicate InjectConfig', EmptyConfigKeyProbe::class => 'must not be empty'] as $class => $message) {
         $failed = false;
         try {
-            $container->get($class);
+            $scope->get($class);
         } catch (LogicException $error) {
             $failed = str_contains($error->getMessage(), $message);
         }
@@ -89,15 +82,22 @@ try {
     }
     // 解析失败时，既不能缓存实例，也不能留下循环依赖标记。
     file_put_contents($root . '/config/probe.php', '<?php return ["required"=>"recovered", "name"=>"configured"];');
-    $runtimeServices->get(\Loom\Config::class)->setRoot($root);
-    checkInjection($container->get(MissingConfigProbe::class)->value === 'recovered', 'retry after failed injection');
-    checkInjection($container->get(ConfigMissingConstructorProbe::class)->value === 'recovered', 'retry after missing constructor configuration');
-    $app = new \Loom\Application($container);
-    $app->get('/configured', ConfigControllerProbe::class);
-    $response = $app->handle(new \Loom\Request(['method' => 'GET', 'path' => '/configured']));
+    $config->setRoot($root);
+    checkInjection($scope->get(MissingConfigProbe::class)->value === 'recovered', 'retry after failed injection');
+    checkInjection($scope->get(ConfigMissingConstructorProbe::class)->value === 'recovered', 'retry after missing constructor configuration');
+    $scope->dispose();
+    file_put_contents($root . '/config/modules.php', '<?php return [];');
+    $app = Loom\Application::createBuilder($root)->build();
+    $app->mapGet('/configured', ConfigControllerProbe::class);
+    $response = $app->handle(new Loom\Request(['method' => 'GET', 'path' => '/configured']));
     checkInjection($response->toArray()['body'] === 'configured', 'controller route injection');
 } finally {
-    unlink($root . '/config/probe.php');
+    if ($app !== null) {
+        $app->dispose();
+    }
+    foreach (glob($root . '/config/*') as $file) {
+        unlink($file);
+    }
     rmdir($root . '/config');
     rmdir($root);
 }

@@ -22,7 +22,7 @@ function providerCheck(bool $ok, string $message): void
 }
 
 /**
- * 注册固定 HTTP 和 WebSocket 路由并计数，验证显式路由提供器及其作用域。
+ * 登记固定 HTTP 和 WebSocket 路由并计数，验证应用留下的路由回调。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
@@ -31,7 +31,7 @@ function providerCheck(bool $ok, string $message): void
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(FixtureHttpRoutes::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-final class FixtureHttpRoutes implements Loom\Http\RouteProvider
+final class FixtureHttpRoutes
 {
     public int $calls = 0;
     /**
@@ -43,7 +43,7 @@ final class FixtureHttpRoutes implements Loom\Http\RouteProvider
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $provider->register($router);
      */
-    public function register(Loom\Router $routes): void
+    public function addRoutes(Loom\Router $routes): void
     {
         $this->calls++;
         $routes->get('/explicit', function ($request) { return new Loom\Response('explicit'); });
@@ -52,7 +52,7 @@ final class FixtureHttpRoutes implements Loom\Http\RouteProvider
 }
 
 /**
- * 提供固定 RPC 路由映射，验证应用路由优先于生成清单。
+ * 在 boot 里提供固定 RPC 路由映射，验证应用路由优先于生成清单。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
@@ -61,7 +61,7 @@ final class FixtureHttpRoutes implements Loom\Http\RouteProvider
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(FixtureGrpcRoutes::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-final class FixtureGrpcRoutes implements Loom\Grpc\RouteProvider
+final class FixtureGrpcRoutes
 {
     /**
      * 提供回显服务的显式 RPC 映射。
@@ -73,7 +73,7 @@ final class FixtureGrpcRoutes implements Loom\Grpc\RouteProvider
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $routes = $provider->routes();
      */
-    public function routes(): array
+    public function map(): array
     {
         return ['/fixture/echo' => [FixtureRpc::class, 'echoValue']];
     }
@@ -118,10 +118,16 @@ file_put_contents($root . '/generated/grpc/routes.json', json_encode(['files' =>
     '/fixture/generated' => [FixtureRpc::class, 'echoValue'],
     '/fixture/echo' => ['MissingService', 'missing'],
 ]]]]));
-$scope = new Loom\ServiceScope(new Loom\Config($root), static function (Loom\Container $services): void {
-    $services->scoped(Loom\Http\RouteProvider::class, FixtureHttpRoutes::class);
-    $services->scoped(Loom\Grpc\RouteProvider::class, FixtureGrpcRoutes::class);
+$httpRoutes = new FixtureHttpRoutes();
+$grpcRoutes = new FixtureGrpcRoutes();
+$app = new Loom\App(new Loom\Config($root));
+$app->routes(function (Loom\Router $routes) use ($httpRoutes): void {
+    $httpRoutes->addRoutes($routes);
 });
+$app->grpc(function () use ($grpcRoutes): array {
+    return $grpcRoutes->map();
+});
+$scope = $app->scope();
 $empty = new Loom\ServiceScope(new Loom\Config($root));
 $applications = [];
 try {
@@ -139,9 +145,9 @@ try {
     $applications[] = $factory->create();
     foreach ($applications as $application) {
         providerCheck($application->router()->match('GET', '/explicit')->status === 200, 'Factory installs interface routes');
-        providerCheck($application->container()->get(Loom\Http\RouteProvider::class)->calls === 1, 'Register once per application');
     }
-    providerCheck($applications[0]->container()->get(Loom\Http\RouteProvider::class) !== $applications[1]->container()->get(Loom\Http\RouteProvider::class), 'Providers are scoped');
+    providerCheck($applications[0]->container()->get(Loom\App::class) === $applications[1]->container()->get(Loom\App::class), 'Applications share the process application');
+    providerCheck($httpRoutes->calls === 3, 'Entry and both applications run the same route callback');
     providerCheck($empty->load($httpEntry)->router()->match('GET', '/explicit')->status === 404, 'HTTP provider is optional');
     $handler = $empty->load($grpcEntry);
     providerCheck($handler(['method' => '/fixture/unknown', 'request' => []])['error']['code'] === 'unimplemented', 'Missing RPC provider');
@@ -163,10 +169,7 @@ try {
     rmdir($root);
 }
 // 验证迁移后的应用映射，不打开数据库连接或启动服务器。
-$applicationScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2), static function (Loom\Container $services): void {
-    $services->scoped(Loom\Http\RouteProvider::class, App\Http\ApplicationRoutes::class);
-    $services->scoped(Loom\Grpc\RouteProvider::class, App\Grpc\ApplicationRoutes::class);
-});
+$applicationScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
 try {
     $app = $applicationScope->load('framework/bootstrap/http.php');
     providerCheck($app->router()->match('GET', '/demo')->status === 200, 'Application annotation routes remain available');

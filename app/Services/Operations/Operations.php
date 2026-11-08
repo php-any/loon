@@ -21,16 +21,16 @@ final class Operations
     private \Loom\RuntimeStatus $runtimeStatus;
     private \Loom\Database $database;
     private \App\Services\Notifications\Notifications $notifications;
-    private \Loom\ModuleRegistry $moduleRegistry;
+    private \Loom\ModuleDiscovery $modules;
     private \App\Services\Operations\OperationsData $operationsData;
     private \App\Services\Access\Admin $admin;
 
-    public function __construct(\Loom\RuntimeStatus $runtimeStatus, \Loom\Database $database, \App\Services\Notifications\Notifications $notifications, \Loom\ModuleRegistry $moduleRegistry, \App\Services\Operations\OperationsData $operationsData, \App\Services\Access\Admin $admin)
+    public function __construct(\Loom\RuntimeStatus $runtimeStatus, \Loom\Database $database, \App\Services\Notifications\Notifications $notifications, \Loom\ModuleDiscovery $modules, \App\Services\Operations\OperationsData $operationsData, \App\Services\Access\Admin $admin)
     {
         $this->runtimeStatus = $runtimeStatus;
         $this->database = $database;
         $this->notifications = $notifications;
-        $this->moduleRegistry = $moduleRegistry;
+        $this->modules = $modules;
         $this->operationsData = $operationsData;
         $this->admin = $admin;
     }
@@ -248,7 +248,7 @@ final class Operations
 
     public function timers(): array
     {
-        return $this->moduleRegistry->configured()->timerDefinitions();
+        return $this->modules->timerDefinitions();
     }
 
     private function monitor(): array

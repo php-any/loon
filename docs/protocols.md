@@ -4,7 +4,7 @@
 
 ## HTTP 与 WebSocket
 
-`./build/loom.exe serve` 使用 `Net\Http\Server::configure()` 配置网络资源，再装配应用。默认最多 256 个已接收连接、128 个活动请求，请求体 1 MiB；Content-Length 超限直接返回 413，分块请求体也在脚本及超级全局变量解析前受限。请求槽满返回 503；连接槽满关闭新连接，连接计数包含空闲连接和升级后的 WebSocket。
+`./build/loom.exe serve` 由 `HttpServer` 使用 `Net\Http\Server::configure()` 配置网络资源后监听，应用在此之前已由 `loom.php` 装好。默认最多 256 个已接收连接、128 个活动请求，请求体 1 MiB；Content-Length 超限直接返回 413，分块请求体也在脚本及超级全局变量解析前受限。请求槽满返回 503；连接槽满关闭新连接，连接计数包含空闲连接和升级后的 WebSocket。
 
 读头超时 5 秒，读请求和写响应超时各 10 秒，keep-alive 空闲超时 30 秒，请求上下文上限 10 秒；脚本另有 10 秒协作执行限制。`maxHeaderBytes` 默认 16 KiB，底层 Go HTTP 解析器会保留自身的小量读取余量，不应把它理解为逐字节 socket 缓冲上限。响应正文上限固定 4 MiB，静态文件读取前检查大小。
 
@@ -12,11 +12,11 @@
 
 ## TCP
 
-`./build/loom.exe tcp:serve` 使用 `Net\Tcp\Server`，默认地址 `127.0.0.1:18088`，可用 `LOOM_TCP_ADDRESS` 覆盖。`framework/bootstrap/tcp.php` 返回消息处理闭包；处理器位于 `app/Tcp/Handlers`。
+`./build/loom.exe tcp:serve` 使用 `Net\Tcp\Server`，默认地址 `127.0.0.1:18088`，可用 `LOOM_TCP_ADDRESS` 覆盖。`config/tcp.php` 的 `handler` 指定处理类，`TcpServer` 每条消息开一个作用域，从中解析该类并调用 `handle(array $message): array`；处理器位于 `app/Tcp/Handlers`，构造函数可注入服务。
 
 每行一个 JSON 对象，LF 分隔并接受 CRLF。支持拆包和多帧粘包；每次按剩余容量读取，帧超过 1 MiB（不含 LF，包含可选 CR）或 EOF 前没有完整行时关闭连接。无效 JSON 返回 `invalid_message`，允许继续发送下一行。响应每行不超过 4 MiB，每连接最多处理 100 条消息。
 
-默认连接上限 128，读写超时各 10 秒，连接总生命周期 60 秒。每个连接使用独立 RequestVM，顺序处理其中的消息；连接关闭释放配额。脚本 `finally` 关闭数据库及连接。
+默认连接上限 128，读写超时各 10 秒，连接总生命周期 60 秒。每个连接使用独立 RequestVM，顺序处理其中的消息；连接关闭释放配额。每条消息的作用域在回复前释放，脚本 `finally` 关闭连接。
 
 ```text
 {"action":"ping"}
@@ -29,7 +29,7 @@
 
 `./build/loom.exe grpc:serve` 使用 `Net\Grpc\Schema` 和 `Net\Grpc\Server`，默认地址 `127.0.0.1:18089`，可用 `LOOM_GRPC_ADDRESS` 覆盖。真实 HTTP/2 与 Protobuf 传输支持 unary RPC、标准 proto imports、v1/v1alpha 反射、gzip、客户端取消和截止时间。
 
-标准库编译配置和生成清单中的 proto，并把每次调用交给独立 RequestVM。`Loom\GrpcServer` 使用 `Call::method()`、`requestJson()`、`respondJson()`、`fail()`；ProtoJSON 在 std 与脚本之间传递，网络上仍是 Protobuf。普通消息用关联数组，wrapper 等类型遵循 ProtoJSON 标量表示。`framework/bootstrap/grpc.php` 从当前容器解析 `Loom\Grpc\RouteProvider`，通过 `routes()` 取得显式方法映射，再由 `Loom\Grpc\Dispatcher` 完成业务分派与状态映射。`loom.php` 将该接口绑定到 `App\Grpc\ApplicationRoutes`，不再加载路由 PHP 文件；未绑定时仍可使用生成清单中的方法，显式映射优先于生成清单。自定义启动入口需要手写方法时须安装相同绑定。
+标准库编译配置和生成清单中的 proto，并把每次调用交给独立 RequestVM。`Loom\GrpcServer` 使用 `Call::method()`、`requestJson()`、`respondJson()`、`fail()`；ProtoJSON 在 std 与脚本之间传递，网络上仍是 Protobuf。普通消息用关联数组，wrapper 等类型遵循 ProtoJSON 标量表示。`Loom\Grpc\Dispatcher` 完成业务分派与状态映射：应用在 `loom.php` 里用 `$app->mapGrpc('/pkg.Service/Method', [类, 方法])` 登记方法，生成清单 `generated/grpc/routes.json` 补齐其余方法，显式映射优先于生成清单。不加载路由 PHP 文件；没有调用 `mapGrpc()` 的应用只能使用生成清单里的方法。gRPC 每次调用由 `GrpcServer` 开一个作用域，服务类从中解析。
 
 默认最多 128 个连接、每连接 32 个并发流、进程级 128 个活动调用。准入在消息解码前执行，超额为 RESOURCE_EXHAUSTED。入站消息上限 1 MiB、出站 4 MiB、header list 16 KiB；gzip 解压后的消息仍受上限约束。请求最长 10 秒，握手最长 5 秒，连接空闲 30 秒，最大连接年龄 5 分钟并保留 10 秒结束窗口。反射流也受调用配额和截止时间约束。
 

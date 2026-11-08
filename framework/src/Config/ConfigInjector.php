@@ -20,17 +20,17 @@ final class ConfigInjector
      * 没有构造函数时直接 new。否则按参数顺序取值。
      * 同一参数上有多个 Inject，或 Inject 与 InjectConfig 同时存在，抛出 LogicException。Inject 的标识为空，或标在可变参数上，同样失败。
      * 有 Inject 时从容器 get 该标识。有 InjectConfig 时调用它的 resolve；可变参数上的 InjectConfig 会失败。
-     * 两者都没有时，非可变的类类型参数按类型名向容器 get；再否则使用参数默认值。仍然无法决定且该参数不是可变参数时抛出 LogicException。
+     * 两者都没有时，非可变的类类型参数按类型名向容器 get；类型是未登记的接口时，依次改用默认值或 null。再否则使用参数默认值。仍然无法决定且该参数不是可变参数时抛出 LogicException。
      * 返回值只完成构造，属性上的 InjectConfig 还没有写入。
      *
      * @param string $id 要 new 的完整类名。
-     * @param Container $services 解析 Inject、类类型参数以及 Config 服务的容器。
+     * @param ServiceResolver $services 发起解析的容器，用来解析 Inject、类类型参数以及 Config 服务。
      * @return object 已按构造参数创建的对象。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $instance = ConfigInjector::create($class, $services);
      */
-    public static function create(string $id, Container $services): object
+    public static function create(string $id, ServiceResolver $services): object
     {
         $class = new \ReflectionClass($id);
         $constructor = $class->getConstructor();
@@ -63,7 +63,14 @@ final class ConfigInjector
                 $attribute = $attributes[0]->newInstance();
                 $arguments[] = $attribute->resolve($target, $services->get(\Loom\Config::class));
             } elseif ($parameter->getType() instanceof \ReflectionNamedType && !$parameter->getType()->isBuiltin() && !$parameter->isVariadic()) {
-                $arguments[] = $services->get($parameter->getType()->getName());
+                $type = $parameter->getType()->getName();
+                if ($services->has($type) || class_exists($type) || (!$parameter->isDefaultValueAvailable() && !$parameter->getType()->allowsNull())) {
+                    $arguments[] = $services->get($type);
+                } elseif ($parameter->isDefaultValueAvailable()) {
+                    $arguments[] = $parameter->getDefaultValue();
+                } else {
+                    $arguments[] = null;
+                }
             } elseif ($parameter->isDefaultValueAvailable()) {
                 $arguments[] = $parameter->getDefaultValue();
             } elseif (!$parameter->isVariadic()) {
@@ -79,13 +86,13 @@ final class ConfigInjector
      * 赋值失败时改抛 LogicException，消息含配置键和属性位置，不含配置值。
      *
      * @param object $instance 要写入配置属性的对象。
-     * @param Container $services 用来取出 Config 的容器。
+     * @param ServiceResolver $services 用来取出 Config 的容器。
      * @return void 无返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example ConfigInjector::inject($instance, $services);
      */
-    public static function inject(object $instance, Container $services): void
+    public static function inject(object $instance, ServiceResolver $services): void
     {
         $class = new \ReflectionClass($instance);
         $seen = [];

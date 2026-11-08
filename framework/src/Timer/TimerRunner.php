@@ -5,72 +5,60 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 在独立循环里跑带 Timer 注解的无参可调用对象。同一个定时器不重入，错过的节拍直接跳过。
+ * 在独立循环里跑带 Timer 注解的无参可调用类。同一个定时器不重入，错过的节拍直接跳过。
+ *
+ * 每次节拍打开一个新的 ServiceScope，从中解析定时器并调用，结束后释放，对应 ASP.NET Core 后台服务里“每次工作建一个作用域”的写法。
+ * 定时器要在节拍之间保留状态时，把它登记成 singleton（例如 #[Service(lifetime: 'singleton')]），此时它不能依赖 scoped 服务。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $runner = new TimerRunner($services);
+ * @example $runner = new TimerRunner($provider); $runner->register(\App\Timers\Heartbeat::class); $runner->start();
  */
 final class TimerRunner
 {
+    /** @var array<string, array{seconds: int, state: \stdClass}> */
     private array $timers = [];
     private bool $running = false;
     private int $generation = 0;
 
     /**
-     * 只保存默认容器。定时器表是空的，也还没开始跑。
-     *
-     * @param Container $services 注册时如果没有另外传入容器，就用它解析定时器实例。
-     * @return void 不返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner = new TimerRunner($services);
+     * @param ServiceProvider $services 根容器，每次节拍从这里打开作用域。
      */
-    public function __construct(private Container $services)
+    public function __construct(private ServiceProvider $services)
     {
     }
 
     /**
-     * 按目录推导类名并注册带 Timer 注解的类；运行期间禁止修改注册集合。
+     * 按目录推导类名并登记带 Timer 注解的类；运行期间禁止修改登记。
      *
      * @param string $directory 定时器 PHP 源码目录。
-     * @param string $namespace 目录对应的命名空间，默认 App\Timers。默认值为 'App\\Timers'。
-     * @return void 无返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner->discover('/app/Timers', 'App\\Timers');
+     * @param string $namespace 目录对应的命名空间。默认 App\Timers。
      */
     public function discover(string $directory, string $namespace = 'App\\Timers'): void
     {
-        if ($this->running) {
-            throw new \LogicException('Cannot discover timers while running');
-        }
         foreach (ClassDiscovery::scan($directory, $namespace) as $class) {
             $this->register($class);
         }
     }
 
     /**
-     * 验证唯一 Timer 注解、正周期及公开无参 __invoke，解析实例并保存独立执行状态。
+     * 校验唯一的 Timer 注解、正周期和公开无参 __invoke，并登记。没有 Timer 注解返回 false；已登记返回 true。
+     * 这里不创建定时器实例，实例在节拍里从作用域解析。
      *
-     * @param string $class 要登记的完整类名。没有 Timer 注解则跳过；注解多于一个、周期小于 1 秒或不能无参调用时抛异常。
-     * @param ?Container $services 解析这个类用的容器。null 时改用构造时保存的容器，并且不记录 ServiceScope。默认值为 null。
-     * @return ?object 定时器实例；无 Timer 注解返回 null，重复注册返回原实例。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $timer = $runner->register(\App\Timers\Heartbeat::class);
+     * @param string $class 定时器类名。
+     * @return bool 是否登记为定时器。
      */
-    public function register(string $class, ?Container $services = null): ?object
+    public function register(string $class): bool
     {
         if ($this->running) {
             throw new \LogicException('Cannot register timers while running');
         }
         if (isset($this->timers[$class])) {
-            return $this->timers[$class]['handler'];
+            return true;
         }
         $reflection = new \ReflectionClass($class);
         $attributes = $reflection->getAttributes(\Loom\Timer::class);
         if ($attributes === []) {
-            return null;
+            return false;
         }
         if (count($attributes) !== 1) {
             throw new \LogicException('Duplicate Timer on ' . $class);
@@ -86,27 +74,45 @@ final class TimerRunner
         if (!$method->isPublic() || $method->isStatic() || $method->getNumberOfParameters() !== 0) {
             throw new \LogicException('Timer requires public __invoke() with no arguments: ' . $class);
         }
-        $instance = ($services ?? $this->services)->get($class);
-        if (!is_callable($instance)) {
-            throw new \LogicException('Timer service is not callable: ' . $class);
-        }
-        // 派生的定时器共享对象。每个定时器独立管理状态，禁止修改共享的运行中定时器数组。
         $state = new \stdClass();
         $state->executing = false;
-        $scope = $services === null ? null : $services->resolved(\Loom\ServiceScope::class);
-        $this->timers[$class] = ['seconds' => $timer->seconds, 'handler' => $instance, 'state' => $state, 'scope' => $scope];
-        return $instance;
+        $this->timers[$class] = ['seconds' => $timer->seconds, 'state' => $state];
+        return true;
     }
 
     /**
-     * 为每个定时器启动独立循环，按起始相位调度并捕获处理异常；重复启动直接返回。
+     * @return array<string, int> 已登记的定时器类名到周期秒数。
+     */
+    public function timers(): array
+    {
+        $out = [];
+        foreach ($this->timers as $class => $timer) {
+            $out[$class] = $timer['seconds'];
+        }
+        return $out;
+    }
+
+    /**
+     * 在独立作用域里执行一次定时器。异常照常抛出。
      *
-     * 参数：无。
-     *
-     * @return void 无返回值，不阻塞等待所有定时器结束。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner->start();
+     * @param string $class 已登记的定时器类名。
+     */
+    public function tick(string $class): void
+    {
+        if (!isset($this->timers[$class])) {
+            throw new \LogicException('Timer is not registered: ' . $class);
+        }
+        $this->services->withScope(static function (ServiceScope $scope) use ($class): void {
+            $handler = $scope->get($class);
+            if (!is_callable($handler)) {
+                throw new \LogicException('Timer service is not callable: ' . $class);
+            }
+            $handler();
+        });
+    }
+
+    /**
+     * 为每个定时器 spawn 一个循环。重复调用直接返回。异常写到标准错误，不停止循环。
      */
     public function start(): void
     {
@@ -135,13 +141,7 @@ final class TimerRunner
                     if (!$state->executing) {
                         $state->executing = true;
                         try {
-                            $handler = $timer['handler'];
-                            $scope = $timer['scope'];
-                            if ($scope instanceof \Loom\ServiceScope) {
-                                \Loom\ModelContext::during($scope, $handler);
-                            } else {
-                                $handler();
-                            }
+                            $runner->tick($class);
                         } catch (\Throwable $error) {
                             fwrite(fopen('php://stderr', 'w'), '[timer ' . $class . '] ' . $error->getMessage() . "\n");
                         } finally {
@@ -151,23 +151,12 @@ final class TimerRunner
                     // 保留原始相位，丢弃执行期间错过的所有时钟节拍。
                     $next = $startedAt + (floor((microtime(true) - $startedAt) / $period) + 1) * $period;
                 }
-                // 只由仍拥有这个代次的循环关闭。stop 之后再次 start 会换代，旧循环不能把新循环的作用域关掉。
-                if ($timer['scope'] !== null && $runner->generation === $generation) {
-                    $timer['scope']->close();
-                }
             });
         }
     }
 
     /**
-     * 设置停止标志，使运行循环停止安排后续节拍；不会强制中断正在执行的处理器。
-     *
-     * 参数：无。
-     *
-     * @return void 无返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $runner->stop();
+     * 停止安排新的节拍。正在执行的那一次跑完为止。
      */
     public function stop(): void
     {

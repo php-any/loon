@@ -5,62 +5,28 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 按 tcp 配置监听，每个连接 fork 一次作用域，再把逐行 JSON 交给入口脚本。handle 结束时关闭数据库和连接。
+ * 按 tcp 配置监听逐行 JSON。每条消息在新的 ServiceScope 里解析 tcp.handler 指定的类并调用 handle(array $message): array。
  *
- * 构造参数：
- * - $scope（ServiceScope）：run 时作为每条连接 fork 的父作用域，handle 时用来 load 入口。
- * - $network（Network）：读取 tcp 限制。
- * - $config（Config）：读取 tcp 的地址和入口脚本。
- * - $database（Database）：handle 结束时关闭。
- *
- * 返回值：使用 new 构造时得到尚未监听的 TcpServer。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $server = new TcpServer($scope, $network, $config, $database);
+ * @example $app->services->get(TcpServer::class)->run();
  */
 final class TcpServer
 {
-    private \Loom\ServiceScope $scope;
-
-    private \Loom\Network $network;
-    private \Loom\Config $config;
-    private \Loom\Database $database;
-
-    /**
-     * 保存作用域、网络限制、配置和数据库。构造时不读取 tcp 配置，也不开始监听。
-     *
-     * @param \Loom\ServiceScope $scope 每条连接 fork 以及加载入口时使用的父作用域。
-     * @param \Loom\Network $network 提供 tcp 限制的对象。
-     * @param \Loom\Config $config 提供 tcp 地址和入口脚本的配置。
-     * @param \Loom\Database $database handle 结束时要关闭的数据库。
-     * @return void 无直接返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $server = new TcpServer($scope, $network, $config, $database);
-     */
-    public function __construct(\Loom\ServiceScope $scope, \Loom\Network $network, \Loom\Config $config, \Loom\Database $database)
-    {
-        $this->scope = $scope;
-
-        $this->network = $network;
-        $this->config = $config;
-        $this->database = $database;
+    public function __construct(
+        private readonly ServiceProvider $services,
+        private readonly Network $network,
+        private readonly Config $config,
+    ) {
     }
 
     /**
-     * 读取 tcp 配置和 tcp 限制，去掉 maxFrameBytes、maxResponseBytes、maxMessages 后再 configure 原生服务。
-     * 先把监听地址 echo 到标准输出，然后阻塞 serve。每个连接 fork 父作用域，在子容器里解析 TcpServer 并 handle；无论成败都关闭子作用域。
-     *
-     * 参数：无。
-     *
-     * @return void 无返回值。配置或限制不合法时在开始监听前抛出。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $server->run();
+     * 读取 tcp 配置和限制，去掉 maxFrameBytes、maxResponseBytes、maxMessages 后 configure 原生服务，然后阻塞监听。
      */
     public function run(): void
     {
         $config = $this->config->get('tcp');
+        if (!isset($config['address'], $config['handler']) || !is_string($config['handler']) || !class_exists($config['handler'])) {
+            throw new \LogicException('TCP config requires address and an existing handler class');
+        }
         $limits = $this->network->limits('tcp');
         $server = new \Net\Tcp\Server($config['address']);
         foreach (['maxFrameBytes', 'maxResponseBytes', 'maxMessages'] as $name) {
@@ -68,34 +34,23 @@ final class TcpServer
         }
         $server->configure($limits);
         echo 'Loom TCP: ' . $config['address'] . "\n";
-        $parentScope = $this->scope;
-        $server->serve(static function ($connection) use ($parentScope): void {
-            $scope = $parentScope->fork();
-            try {
-                \Loom\ModelContext::during($scope, static function () use ($scope, $connection): void {
-                    $scope->container()->get(\Loom\TcpServer::class)->handle($connection);
-                });
-            } finally {
-                $scope->close();
-            }
+        $listener = $this;
+        $server->serve(static function ($connection) use ($listener): void {
+            $listener->handle($connection);
         });
     }
+
     /**
-     * load tcp 入口得到处理回调，再用 readLine 按行读取。每一行必须是 JSON 对象，解码失败或不是对象时写回 ok 为 false、error 为 invalid_message。
-     * 成功时把回调的返回值编码成一行 JSON。响应字节数超过 maxResponseBytes 时抛出 RuntimeException。达到 maxMessages 后停止读取。
-     * finally 里关闭数据库和连接，包括中途抛错。
+     * 按行读取连接。每行必须是 JSON 对象，否则回 ok=false、error=invalid_message。合法消息各开一个作用域交给处理类。
+     * 响应超过 maxResponseBytes 时抛出 RuntimeException。达到 maxMessages 后停止。结束时关闭连接。
      *
      * @param mixed $connection 提供 read、write 和 close 的连接。
-     * @return void 无返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $server->handle($connection);
      */
     public function handle(mixed $connection): void
     {
         try {
             $limits = $this->network->limits('tcp');
-            $handler = $this->scope->load($this->config->get('tcp')['entry']);
+            $handler = $this->config->get('tcp')['handler'];
             $buffer = '';
             $count = 0;
             while ($count < $limits['maxMessages']) {
@@ -109,10 +64,12 @@ final class TcpServer
                     if (!is_array($message) || !str_starts_with(ltrim($line), '{')) {
                         throw new \InvalidArgumentException('Expected a JSON object');
                     }
-                    $reply = $handler($message);
-                } catch (\JsonException|\InvalidArgumentException $error) {
-                    $reply = ['ok' => false, 'error' => 'invalid_message'];
+                } catch (\JsonException|\InvalidArgumentException) {
+                    $message = null;
                 }
+                $reply = $message === null
+                    ? ['ok' => false, 'error' => 'invalid_message']
+                    : $this->services->withScope(static fn (ServiceScope $scope): array => $scope->get($handler)->handle($message));
                 $bytes = json_encode($reply, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE) . "\n";
                 if (strlen($bytes) > $limits['maxResponseBytes']) {
                     throw new \RuntimeException('TCP response too large');
@@ -120,10 +77,10 @@ final class TcpServer
                 $connection->write($bytes);
             }
         } finally {
-            $this->database->close();
             $connection->close();
         }
     }
+
     /**
      * 在 buffer 里寻找换行。换行前的长度超过 maximum，或缓冲区在还没有换行时已经超过 maximum，都抛出 RuntimeException。
      * 没有完整一行时继续 read。read 得到空字符串时，缓冲区还有残字节则抛出 RuntimeException，否则返回 null。
@@ -134,7 +91,6 @@ final class TcpServer
      * @param int $maximum 一帧允许的最大字节数，按换行前的长度计算。
      * @return ?string 去掉 CR 和 LF 的一行；对端结束且没有残字节时为 null。
      *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $buffer = ''; $line = TcpServer::readLine($connection, $buffer, 1048576);
      */
     public static function readLine(mixed $connection, string &$buffer, int $maximum): ?string

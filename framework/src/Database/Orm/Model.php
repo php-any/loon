@@ -29,7 +29,7 @@ abstract class Model
      */
     protected static function project(Database $database, string $resultClass): \Database\DB
     {
-        $table = ModuleRegistry::attribute(new \ReflectionClass(static::class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass(static::class), \Database\Annotation\Table::class);
         if ($table === null) {
             throw new \LogicException('Projection requires a mapped model');
         }
@@ -102,7 +102,7 @@ abstract class Model
     public static function validateDefinition(): void
     {
         $reflection = new \ReflectionClass(static::class);
-        $table = ModuleRegistry::attribute($reflection, \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute($reflection, \Database\Annotation\Table::class);
         if ($table === null || !$reflection->isInstantiable()) {
             throw new \LogicException('Model requires a concrete class and Table annotation');
         }

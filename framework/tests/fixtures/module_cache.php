@@ -17,6 +17,6 @@ final class MutableMetadataEndpoint
     #[\Loom\Attributes\Route('GET', '/mutable')]
     public function index(): \Loom\Response
     {
-        return \Loom\Response::text('mutable');
+        return new \Loom\Response('mutable');
     }
 }

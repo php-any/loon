@@ -16,15 +16,6 @@ return [
      */
     'address' => (getenv('LOOM_GRPC_ADDRESS') ?: '127.0.0.1:18089'),
     /**
-     * 每次 RPC 调用加载的 PHP 入口，字符串路径，相对项目根目录或使用绝对路径。
-     * 默认入口注册模块服务，再通过 routes/grpc.php 与生成的清单分发调用。
-     * 示例：'entry' => 'bootstrap/grpc.php'（需先创建脚本）。
-     * 自定义入口可使用 $scope、$container、$config，必须返回一个接收数组的可调用对象。
-     * 输入包含 method（RPC 完整路径）和 request（JSON 解码值）；
-     * 返回 ['data' => $result]，或 ['error' => ['code' => 'invalid_argument', 'message' => '原因']]。
-     */
-    'entry' => 'framework/bootstrap/grpc.php',
-    /**
      * .proto 文件及其 import 的搜索目录，类型为字符串数组；相对路径基于项目根目录。
      * 示例：'import_paths' => ['proto', 'vendor-proto']，也可填写绝对目录。
      * proto_files 中的文件名相对于这些目录解析；避免不同目录出现同名且有歧义的协议文件。
@@ -34,7 +25,7 @@ return [
      * 显式加载的协议入口文件，类型为字符串数组，文件必须可在 import_paths 中找到。
      * 示例：'proto_files' => ['release.proto', 'billing/invoice.proto']。
      * 可设为 []，仅使用生成清单提供的文件；前提是清单已包含所需服务定义。
-     * 此列表不等于业务处理器注册；实现还需通过 routes/grpc.php 或生成清单关联。
+     * 此列表不等于业务处理器注册；实现还需在 loom.php 里用 mapGrpc() 或生成清单关联。
      */
     'proto_files' => ['release.proto'],
     /**

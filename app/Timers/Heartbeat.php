@@ -4,25 +4,23 @@ declare(strict_types=1);
 
 namespace App\Timers;
 
+use Loom\Attributes\Service;
 use Loom\Timer;
 
+// 单例：节拍计数要跨 tick 保留。
 #[Timer(5)]
+#[Service('', 'singleton')]
 final class Heartbeat
 {
-    private \Loom\Config $config;
-    private \Loom\Database $database;
+    private \Loom\RuntimePulse $pulse;
 
-    public function __construct(\Loom\Config $config, \Loom\Database $database)
+    public function __construct(\Loom\Config $config)
     {
-        $this->config = $config;
-        $this->database = $database;
+        $this->pulse = new \Loom\RuntimePulse($config, 'timer', 5);
     }
-
-    private ?\Loom\RuntimePulse $pulse = null;
 
     public function __invoke(): void
     {
-        $this->pulse ??= new \Loom\RuntimePulse($this->config, $this->database, 'timer', 5);
         $this->pulse->beat();
         echo '[' . date('Y-m-d H:i:s') . "] [INFO] timer: service is running\n";
     }

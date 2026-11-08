@@ -5,72 +5,73 @@ declare(strict_types=1);
 namespace Loom\Grpc;
 
 /**
- * 把显式路由和生成清单合成一张表，再从容器取出服务并调用方法。显式键优先。RpcException 变成错误信封。
+ * gRPC 方法表：Application::mapGrpc() 登记的路由优先，生成清单 generated/grpc/routes.json 补齐其余方法。
+ * 每次调用从当前作用域取出服务并调用方法，RpcException 变成错误信封。
  *
- * 构造参数：
- * - $services（Container）：按路由里的类名 get 服务。
- *
- * 返回值：使用 new 构造时得到尚未处理调用的 Dispatcher。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $dispatcher = new Dispatcher($services);
+ * @example $result = $dispatcher->handle($scope, '/billing.Invoice/Get', ['id' => 1]);
  */
 final class Dispatcher
 {
-    private \Loom\Container $services;
+    /** @var array<string, array{0: string, 1: string}> */
+    private array $routes = [];
+    private string $manifestPath;
 
-
-    /**
-     * 保存用来解析 RPC 服务的容器。构造时不读清单，也不登记路由。
-     *
-     * @param \Loom\Container $services 按路由目标类名 get 的容器。
-     * @return void 无直接返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $dispatcher = new Dispatcher($services);
-     */
-    public function __construct(\Loom\Container $services)
+    public function __construct(\Loom\Config $config)
     {
-        $this->services = $services;
-
+        $this->manifestPath = $config->root() . '/generated/grpc/routes.json';
     }
 
     /**
-     * 清单文件存在时，把其中尚未出现在 routes 里的方法补上；调用方已经给出的键保持不变。清单 JSON 不合法时异常来自 json_decode。
-     * 然后按 envelope 的 method 查找目标，从容器 get 服务并调用对应方法。成功时返回 data。
-     * 方法未登记时抛出状态为 unimplemented 的 RpcException。RpcException 收成 error，code 用异常上的 status。其他异常不在这里捕获。
+     * 登记一个方法。重复登记时后者覆盖前者。
      *
-     * @param array $routes 完整 RPC 路径到 [类名, 方法名]。已有项不会被清单覆盖。
-     * @param string $manifestPath 生成清单路径。文件不存在时只用 routes。
-     * @param array $envelope 含 method 和 request 的调用信封。
-     * @return array 成功时为 data；RpcException 时为 error，其中 code 是状态、message 是异常消息。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $result = $dispatcher->handle($routes, $manifestPath, ['method' => '/billing.Invoice/Get', 'request' => []]);
+     * @param string $method 完整 RPC 路径，如 /billing.Invoice/Get。
+     * @param array{0: string, 1: string} $handler [服务类, 方法名]。
      */
-    public function handle(array $routes, string $manifestPath, array $envelope): array
+    public function map(string $method, array $handler): self
     {
-        if (is_file($manifestPath)) {
-            $manifest = json_decode(file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
+        if (!str_starts_with($method, '/') || !isset($handler[0], $handler[1]) || !is_string($handler[0]) || !is_string($handler[1])) {
+            throw new \InvalidArgumentException('gRPC route requires /package.Service/Method and [class, method]');
+        }
+        $this->routes[$method] = [$handler[0], $handler[1]];
+        return $this;
+    }
+
+    public function manifestPath(): string
+    {
+        return $this->manifestPath;
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}> 显式路由加清单路由。清单 JSON 不合法时抛出 JsonException。
+     */
+    public function routes(): array
+    {
+        $routes = $this->routes;
+        if (is_file($this->manifestPath)) {
+            $manifest = json_decode(file_get_contents($this->manifestPath), true, 512, JSON_THROW_ON_ERROR);
             foreach ($manifest['files'] as $file) {
                 foreach ($file['routes'] as $method => $target) {
-                    if (!isset($routes[$method])) {
-                        $routes[$method] = $target;
-                    }
+                    $routes[$method] ??= $target;
                 }
             }
         }
+        return $routes;
+    }
 
+    /**
+     * 找到方法对应的服务，从作用域取出并调用。未登记时返回 unimplemented。其他异常不在这里捕获。
+     *
+     * @return array 成功时为 ['data' => ...]；RpcException 时为 ['error' => ['code' => 状态, 'message' => 消息]]。
+     */
+    public function handle(\Loom\ServiceResolver $services, string $method, array $request): array
+    {
         try {
-            $method = $envelope['method'];
+            $routes = $this->routes();
             if (!isset($routes[$method])) {
                 throw new RpcException('unimplemented', 'RPC handler is not registered');
             }
-            $target = $routes[$method];
-            $class = $target[0];
-            $service = $this->services->get($class);
-            $action = $target[1];
-            return ['data' => $service->$action($envelope['request'])];
+            [$class, $action] = $routes[$method];
+            return ['data' => $services->get($class)->$action($request)];
         } catch (RpcException $error) {
             return ['error' => ['code' => $error->status, 'message' => $error->getMessage()]];
         }

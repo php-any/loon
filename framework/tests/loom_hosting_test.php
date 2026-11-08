@@ -77,36 +77,13 @@ final class HostProbe implements Loom\HostedService
     }
 }
 
-final class HostingFreshService implements Loom\HostedService
+final class HostingScopedDependency
 {
-    public int $starts = 0;
-    public int $stops = 0;
-
-    public function start(): void
-    {
-        $this->starts++;
-    }
-
-    public function stop(): void
-    {
-        $this->stops++;
-    }
-}
-
-final class HostingScopedService implements Loom\HostedService
-{
-    public function start(): void
-    {
-    }
-
-    public function stop(): void
-    {
-    }
 }
 
 final class HostingCaptive implements Loom\HostedService
 {
-    public function __construct(public HostingScopedService $dependency)
+    public function __construct(public HostingScopedDependency $dependency)
     {
     }
 
@@ -117,6 +94,44 @@ final class HostingCaptive implements Loom\HostedService
     public function stop(): void
     {
     }
+}
+
+final class HostingCounter
+{
+    public int $value = 0;
+}
+
+final class HostingRequestState
+{
+    public static int $created = 0;
+    public int $id;
+
+    public function __construct()
+    {
+        $this->id = ++self::$created;
+    }
+}
+
+final class HostingHeaderMiddleware implements Loom\Middleware
+{
+    public function __construct(private HostingRequestState $state)
+    {
+    }
+
+    public function handle(Loom\Request $request, callable $next): Loom\Response
+    {
+        return $next($request)->withHeader('X-State', (string) $this->state->id);
+    }
+}
+
+function hostProbes(HostLog $log, array $names, array $errors = []): Loom\Host
+{
+    $services = new Loom\ServiceCollection();
+    foreach ($names as $name) {
+        $services->addSingleton(Loom\HostedService::class, static fn (): HostProbe => new HostProbe($name, $log, $errors[$name]['start'] ?? null, $errors[$name]['stop'] ?? null));
+    }
+    $services->addSingleton(Loom\Host::class);
+    return $services->build()->get(Loom\Host::class);
 }
 
 $root = sys_get_temp_dir() . '/loom-hosting-' . bin2hex(random_bytes(6));
@@ -124,108 +139,115 @@ mkdir($root . '/config', 0777, true);
 try {
     file_put_contents($root . '/config/payment.php', '<?php return ["enabled"=>false,"blank"=>"","zero"=>0,"note"=>null,"ratio"=>1.5,"unused"=>true];');
     file_put_contents($root . '/config/tree.php', '<?php return ["nested"=>["label"=>"child"]];');
-    file_put_contents($root . '/config/http.php', '<?php return ["address"=>"127.0.0.1:9","entry"=>"framework/bootstrap/http.php"];');
-    file_put_contents($root . '/config/services.php', '<?php return static function (): void {};');
+    file_put_contents($root . '/config/http.php', '<?php return ["address"=>"127.0.0.1:9"];');
+    file_put_contents($root . '/config/scalar.php', '<?php return 5;');
+    file_put_contents($root . '/config/modules.php', '<?php return [];');
     $config = new Loom\Config($root);
-    $scope = new Loom\ServiceScope($config);
-    $services = $scope->container();
-    $child = $scope->fork()->container();
-    hostCheck($services->get(Loom\Options::class) === $child->get(Loom\Options::class), 'Options is an application singleton');
-    hostCheck($services->get(Loom\Host::class) === $child->get(Loom\Host::class), 'Host is an application singleton');
+    $options = new Loom\Options($config);
 
-    $flags = $services->get(Loom\Options::class)->bind(HostingFlags::class, 'payment');
+    $flags = $options->bind(HostingFlags::class, 'payment');
     hostCheck($flags->enabled === false && $flags->blank === '' && $flags->zero === 0 && $flags->note === null, 'Options keep false, empty string, zero and null');
     hostCheck($flags->kept === 'keep' && $flags->ratio === 1.5, 'Missing key keeps its default and float is preserved');
-    $tree = $services->get(Loom\Options::class)->bind(HostingRoot::class, 'tree');
+    $tree = $options->bind(HostingRoot::class, 'tree');
     hostCheck($tree->nested instanceof HostingNested && $tree->nested->label === 'child' && $tree->count === 1, 'Nested options bind recursively');
-    $http = $services->get(Loom\Options::class)->bind(Loom\HttpServerOptions::class, 'http');
-    hostCheck($http->address === '127.0.0.1:9' && $http->entry === 'framework/bootstrap/http.php', 'HTTP server options bind from the http section');
-    hostReject(static fn () => $services->get(Loom\Options::class)->bind(HostingFlags::class, 'missing'), 'Missing configuration');
-    hostReject(static fn () => $services->get(Loom\Options::class)->bind(HostingFlags::class, 'services'), 'must be an array');
-    hostReject(static fn () => $services->get(Loom\Options::class)->bind(HostingNeedsConstructor::class, 'payment'), 'without required parameters');
-    hostReject(static fn () => $services->get(Loom\Options::class)->bind(HostingNested::class, 'payment'), 'Missing option');
-    file_put_contents($root . '/config/payment.php', '<?php return ["enabled"=>1,"blank"=>"","zero"=>0,"note"=>null,"ratio"=>1.5];');
-    $config->setRoot($root);
-    hostReject(static fn () => $services->get(Loom\Options::class)->bind(HostingFlags::class, 'payment'), 'wrong type');
+    hostCheck($options->bind(Loom\HttpServerOptions::class, 'http')->address === '127.0.0.1:9', 'HTTP server options bind from the http section');
+    hostReject(static fn () => $options->bind(HostingFlags::class, 'missing'), 'Missing configuration');
+    hostReject(static fn () => $options->bind(HostingFlags::class, 'scalar'), 'must be an array');
+    hostReject(static fn () => $options->bind(HostingNeedsConstructor::class, 'payment'), 'without required parameters');
+    hostReject(static fn () => $options->bind(HostingNested::class, 'payment'), 'Missing option');
 
-    file_put_contents($root . '/config/payment.php', '<?php return ["enabled"=>false,"blank"=>"","zero"=>0,"note"=>null,"ratio"=>1.5];');
-    $config->setRoot($root);
     $attempts = 0;
-    $services->options(HostingFlags::class, 'payment', static function (HostingFlags $options) use (&$attempts): void {
+    $configured = new Loom\ServiceCollection();
+    $configured->addInstance(Loom\Config::class, $config);
+    $configured->configure(HostingFlags::class, 'payment', static function (HostingFlags $options) use (&$attempts): void {
         $attempts++;
         if ($attempts === 1) {
             throw new LogicException('validate later');
         }
-        hostCheck($options->zero === 0, 'Validator receives the bound options');
     });
-    hostReject(static fn () => $services->get(HostingFlags::class), 'validate later');
-    $bound = $services->get(HostingFlags::class);
-    hostCheck($child->get(HostingFlags::class) === $bound && $attempts === 2, 'Failed options resolution can be retried and then is shared');
-    file_put_contents($root . '/config/payment.php', '<?php return ["enabled"=>true,"blank"=>"x","zero"=>4,"note"=>"n","ratio"=>2.5];');
-    $config->setRoot($root);
-    hostCheck($services->get(HostingFlags::class)->zero === 0, 'Registered options keep the first successful snapshot');
-    hostCheck($services->get(Loom\Options::class)->bind(HostingFlags::class, 'payment')->zero === 4, 'Direct bind reads the current configuration');
+    $configuredProvider = $configured->build();
+    hostReject(static fn () => $configuredProvider->get(HostingFlags::class), 'validate later');
+    $bound = $configuredProvider->get(HostingFlags::class);
+    hostCheck($configuredProvider->get(HostingFlags::class) === $bound && $attempts === 2, 'Failed options resolution can be retried and then is shared');
 
     $log = new HostLog();
-    $host = new Loom\Host($services);
-    $host->service(new HostProbe('a', $log));
-    $host->service(new HostProbe('b', $log));
+    $host = hostProbes($log, ['a', 'b']);
     $host->start();
     $host->start();
-    hostReject(static fn () => $host->service(new HostProbe('c', $log)), 'after the host has started');
-    hostCheck($log->events === ['start:a', 'start:b'], 'Host starts services once and in registration order');
+    hostCheck($log->events === ['start:a', 'start:b'], 'Host starts hosted services once and in registration order');
     $host->stop();
     hostCheck($log->events === ['start:a', 'start:b', 'stop:b', 'stop:a'], 'Host stops in reverse order');
     $host->start();
-    hostCheck($log->events === ['start:a', 'start:b', 'stop:b', 'stop:a', 'start:a', 'start:b'], 'Host can start again after it stops');
     $host->stop();
+    hostCheck(count($log->events) === 8, 'Host can start again after it stops');
 
     $rollback = new HostLog();
-    $failing = new Loom\Host($services);
-    $failing->service(new HostProbe('a', $rollback));
-    $failing->service(new HostProbe('b', $rollback, new LogicException('start failed')));
+    $failing = hostProbes($rollback, ['a', 'b'], ['b' => ['start' => new LogicException('start failed')]]);
     hostReject(static fn () => $failing->start(), 'start failed');
     hostCheck($rollback->events === ['start:a', 'start:b', 'stop:a'], 'A failed start stops services that already started');
     $failing->stop();
     hostCheck($rollback->events === ['start:a', 'start:b', 'stop:a'], 'Stopping a host that failed to start does nothing');
 
     $partial = new HostLog();
-    $stopping = new Loom\Host($services);
-    $stopping->service(new HostProbe('a', $partial));
-    $stopping->service(new HostProbe('b', $partial, null, new LogicException('stop failed')));
+    $stopping = hostProbes($partial, ['a', 'b'], ['b' => ['stop' => new LogicException('stop failed')]]);
     $stopping->start();
     hostReject(static fn () => $stopping->stop(), 'stop failed');
     hostCheck($partial->events === ['start:a', 'start:b', 'stop:b', 'stop:a'], 'A failed stop still stops the remaining services');
 
-    $ran = false;
-    $cycle = new Loom\Host($services);
-    $cycle->service(new HostProbe('a', $log));
-    $value = $cycle->run(static function () use (&$ran) {
-        $ran = true;
-        return 7;
+    $cycleLog = new HostLog();
+    $value = hostProbes($cycleLog, ['a'])->run(static fn (): int => 7);
+    hostCheck($value === 7 && $cycleLog->events === ['start:a', 'stop:a'], 'run starts, invokes the callback, then stops');
+
+    $captive = new Loom\ServiceCollection();
+    $captive->addHostedService(HostingCaptive::class);
+    $captive->addSingleton(Loom\Host::class);
+    $captiveHost = $captive->build()->get(Loom\Host::class);
+    hostReject(static fn () => $captiveHost->start(), 'cannot depend on scoped');
+
+    $builder = Loom\Application::createBuilder($root);
+    $builder->services->addSingleton(HostingCounter::class);
+    $builder->services->addScoped(HostingRequestState::class);
+    $app = $builder->build();
+    hostReject(static fn () => $builder->build(), 'already been built');
+    hostCheck($app->configuration === $builder->configuration, 'Application exposes configuration');
+    hostCheck($app->services->get(Loom\Config::class) === $builder->configuration, 'Config is registered as an instance');
+    hostCheck($app->services->get(Loom\HttpServerOptions::class)->address === '127.0.0.1:9', 'HTTP options are configured by default');
+    hostCheck($app->services->get(Loom\Host::class) === $app->services->get(Loom\Host::class), 'Host is a singleton');
+    hostReject(static fn () => $app->services->get(Loom\Database::class), 'from the root provider');
+
+    $app->use(HostingHeaderMiddleware::class);
+    $app->use(static fn (Loom\Request $request, callable $next): Loom\Response => $next($request)->withHeader('X-Closure', 'yes'));
+    $app->mapGet('/count', static function (Loom\Request $request, HostingCounter $counter, HostingRequestState $state, HostingRequestState $again): Loom\Response {
+        $counter->value++;
+        return Loom\Response::json(['count' => $counter->value, 'same' => $state === $again, 'state' => $state->id]);
+    }, 'count');
+    $app->mapPost('/items/{id}', static fn (Loom\Request $request): Loom\Response => Loom\Response::json(['id' => $request->parameter('id')]));
+    $app->mapGroup('/api')->get('/ping', static fn (): Loom\Response => Loom\Response::json(['pong' => true]));
+    hostCheck($app->url('count') === '/count', 'Named routes generate URLs');
+
+    $first = $app->handle(new Loom\Request(['method' => 'GET', 'path' => '/count']))->toArray();
+    $second = $app->handle(new Loom\Request(['method' => 'GET', 'path' => '/count']))->toArray();
+    $firstBody = json_decode($first['body'], true);
+    $secondBody = json_decode($second['body'], true);
+    hostCheck($first['status'] === 200 && $firstBody['count'] === 1 && $secondBody['count'] === 2, 'Singletons persist across requests');
+    hostCheck($firstBody['same'] === true && $firstBody['state'] !== $secondBody['state'], 'Scoped services are shared within a request and fresh per request');
+    $headers = (array) $first['headers'];
+    hostCheck(($headers['x-state'] ?? null) === (string) $firstBody['state'] && ($headers['x-closure'] ?? null) === 'yes', 'Global middleware resolves from the request scope');
+    $item = $app->handle(new Loom\Request(['method' => 'POST', 'path' => '/items/42']))->toArray();
+    hostCheck(json_decode($item['body'], true) === ['id' => '42'], 'Route parameters reach closure handlers');
+    hostCheck(json_decode($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/api/ping']))->toArray()['body'], true) === ['pong' => true], 'mapGroup prefixes routes');
+    hostCheck($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/missing']))->toArray()['status'] === 404, 'Unknown routes return 404');
+    hostCheck($app->handle(new Loom\Request(['method' => 'DELETE', 'path' => '/count']))->toArray()['status'] === 405, 'Wrong methods return 405');
+
+    $app->mapCommand('hosting:echo {word}', static function (Loom\Console\Input $input, Loom\Console\Output $output, HostingCounter $counter, Loom\ServiceScope $scope): int {
+        $counter->value += 10;
+        return $scope->get(HostingRequestState::class) === $scope->get(HostingRequestState::class) && $input->argument('word') === 'hi' ? 3 : 4;
     });
-    hostCheck($ran && $value === 7 && str_ends_with(implode(',', $log->events), 'start:a,stop:a'), 'run starts, invokes the callback, then stops');
-
-    $scopedHost = new Loom\Host($services);
-    $services->scoped(HostingScopedService::class);
-    $scopedHost->service(HostingScopedService::class);
-    hostReject(static fn () => $scopedHost->start(), 'must be a singleton');
-
-    $captive = new Loom\Host($services);
-    $captive->service(HostingCaptive::class);
-    hostReject(static fn () => $captive->start(), 'Singleton cannot depend on scoped');
-
-    $freshHost = new Loom\Host($services);
-    $freshHost->service(HostingFreshService::class);
-    $freshHost->start();
-    $fresh = $services->get(HostingFreshService::class);
-    hostCheck($fresh === $child->get(HostingFreshService::class) && $fresh->starts === 1, 'Unregistered hosted service becomes a shared singleton');
-    hostCheck($services->lifetime(HostingFreshService::class) === 'singleton', 'Hosted service lifetime is singleton');
-    $services->singleton('fresh.impl', static fn (): HostingFreshService => $fresh);
-    $services->alias('fresh.alias', 'fresh.impl');
-    hostCheck($services->lifetime('fresh.alias') === 'singleton', 'Alias lifetime follows its target');
-    $freshHost->stop();
-    hostCheck($fresh->stops === 1, 'Stopping the host stops the resolved singleton');
+    hostCheck($app->run(['hosting:echo', 'hi']) === 3, 'Commands run in a scope with bound parameters');
+    hostCheck($app->services->get(HostingCounter::class)->value === 12, 'Commands share application singletons');
+    hostCheck($app->run(['help', 'serve']) === 0, 'Built-in commands are registered');
+    $app->dispose();
+    hostReject(static fn () => $app->services->get(HostingCounter::class), 'disposed');
 } finally {
     foreach (glob($root . '/config/*') as $file) {
         unlink($file);

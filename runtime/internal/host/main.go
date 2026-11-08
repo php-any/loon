@@ -13,6 +13,9 @@ import (
 
 // Run 是进程入口：Origami 在初始化 PHP argv 时读取 os.Args。
 func Run(args []string) int {
+	if len(args) > 0 && args[0] == "gen-std" {
+		return generateStd("", args[1:])
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

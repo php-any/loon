@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 进程级 MySQL 连接池的脚本入口。config/database.php 用 default 和 connections 声明多条连接。
- * 池按驱动 DSN 复用；普通语句结束还连接。事务只存在于这条连接自己的 transaction 回调里。
+ * 一次执行的数据库上下文。ApplicationBuilder 把它登记为 scoped，每个 ServiceScope 各有一份。
+ * 实例上保存当前事务、本次打开的命名连接，以及 connect() 改过的 DSN。
+ * 连接池是按 DSN 复用的进程级静态表。普通语句结束还连接。事务只存在于这条实例自己的 transaction 回调里。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $database = new Database($config);

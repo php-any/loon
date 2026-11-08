@@ -8,16 +8,25 @@ $lines = [];
 $logger = new Loom\Http\Middleware\RequestLog(function ($line) use (&$lines): void {
     $lines[] = $line;
 });
-$app = new Loom\Application();
-$app->middleware($logger);
-$app->get('/ok', function ($request) {
+$root = sys_get_temp_dir() . '/loom-request-log-' . bin2hex(random_bytes(6));
+mkdir($root . '/config', 0700, true);
+file_put_contents($root . '/config/modules.php', '<?php return [];');
+try {
+    $app = Loom\Application::createBuilder($root)->build();
+} finally {
+    unlink($root . '/config/modules.php');
+    rmdir($root . '/config');
+    rmdir($root);
+}
+$app->use($logger);
+$app->mapGet('/ok', function ($request) {
     return new Loom\Response('created', 201, ['X-Test' => 'yes']);
 });
-$app->get('/invalid', function ($request) {
+$app->mapGet('/invalid', function ($request) {
     throw new Loom\HttpError(422, 'Invalid');
 });
 $failure = new RuntimeException('original');
-$app->get('/failure', function ($request) use ($failure) {
+$app->mapGet('/failure', function ($request) use ($failure) {
     throw $failure;
 });
 foreach ([['GET', '/ok', 201], ['HEAD', '/ok', 201], ['GET', '/missing', 404], ['POST', '/ok', 405], ['GET', '/invalid', 422], ['GET', '/failure', 500]] as $case) {
@@ -41,7 +50,7 @@ foreach ([['GET', '/ok', 201], ['HEAD', '/ok', 201], ['GET', '/missing', 404], [
     }
 }
 // 全局中间件错误保留原有状态码，且路径不能注入日志行。
-$app->middleware(function ($request, $next) {
+$app->use(function ($request, $next) {
     throw new Loom\HttpError(429, 'Slow down');
 });
 $app->handle(new Loom\Request(['method' => 'GET', 'path' => "/line\nbreak"]));

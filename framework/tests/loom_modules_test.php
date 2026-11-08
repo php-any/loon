@@ -1,8 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->container();
+require dirname(__DIR__) . '/bootstrap.php';
 require __DIR__ . '/fixtures/modules/components.php';
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -20,32 +19,50 @@ function checkModule(bool $condition, string $message): void
         throw new RuntimeException($message);
     }
 }
-$registry = new \Loom\ModuleRegistry(new \Loom\ModuleDiscovery($runtimeServices->get(\Loom\Config::class)), $runtimeServices->get(\Loom\Config::class), $runtimeScope);
-foreach ([\ModuleFixtures\Value::class, \ModuleFixtures\Endpoint::class, \ModuleFixtures\Work::class, \ModuleFixtures\TimerTask::class] as $class) {
-    $registry->register($class);
-    $registry->register($class);
+final class ModuleRequestLogs
+{
+    public array $records = [];
 }
-$app = new \Loom\Application();
-$registry->services($app->container());
-$registry->routes($app);
-$result = $app->handle(new \Loom\Request(['method' => 'GET', 'path' => '/module/value']))->toArray();
+$root = dirname(__DIR__, 2);
+$config = new Loom\Config($root);
+$discovery = new Loom\ModuleDiscovery($config);
+foreach ([ModuleFixtures\Value::class, ModuleFixtures\Endpoint::class, ModuleFixtures\Work::class, ModuleFixtures\TimerTask::class] as $class) {
+    $discovery->register($class);
+    $discovery->register($class);
+}
+checkModule($discovery->services() === ['module.value' => ModuleFixtures\Value::class] && $discovery->serviceLifetime('module.value') === 'scoped', 'Service declarations keep id and lifetime');
+checkModule($discovery->timers() === [ModuleFixtures\TimerTask::class] && array_keys($discovery->jobs()) === ['module.job'], 'Timer and job declarations are discovered once');
+// 按 ApplicationBuilder 的方式把发现结果装进容器、路由和任务分发。
+$services = new Loom\ServiceCollection();
+foreach ($discovery->services() as $id => $class) {
+    $services->tryAdd(new Loom\ServiceDescriptor($id, Loom\ServiceLifetime::from($discovery->serviceLifetime($id)), $class));
+}
+$services->addSingleton(ModuleFixtures\TimerTask::class, static fn (): ModuleFixtures\TimerTask => new ModuleFixtures\TimerTask(new ModuleFixtures\Value()));
+$provider = $services->build();
+$router = $discovery->router();
+$kernel = new Loom\HttpKernel($router);
+$result = $provider->withScope(static fn (Loom\ServiceScope $scope): Loom\Response => $kernel->handle(new Loom\Request(['method' => 'GET', 'path' => '/module/value']), $scope))->toArray();
 checkModule($result['body'] === 'injected12', 'Method routes, constructor injection and middleware order');
-checkModule($app->url('module.value') === '/module/value', 'Route name and controller prefix');
-$first = $app->container()->get('module.value');
-checkModule($first instanceof \ModuleFixtures\Value, 'Named service binds its implementation');
-checkModule($first !== $registry->container()->get('module.value'), 'Containers must isolate service instances');
-checkModule($registry->job('module.job', new \Loom\Request([]))->toArray()['body'] === 'injected', 'Queue handler injection');
-$timers = $registry->timers($app->container());
-$timer = $timers->register(\ModuleFixtures\TimerTask::class);
-checkModule($timer !== $app->container()->get(\ModuleFixtures\TimerTask::class), 'Timers must own a separate service scope');
-$timers->start();
-usleep(1200000);
-$timers->stop();
-checkModule($timer->calls === 1, 'Module timer discovery and service injection');
-foreach ([\ModuleFixtures\DuplicateService::class, \ModuleFixtures\DuplicateJob::class, \ModuleFixtures\InvalidController::class, \ModuleFixtures\InvalidModel::class] as $class) {
+checkModule($router->url('module.value') === '/module/value', 'Route name and controller prefix');
+$values = $provider->withScope(static fn (Loom\ServiceScope $scope): array => [$scope->get('module.value'), $scope->get('module.value')]);
+$other = $provider->withScope(static fn (Loom\ServiceScope $scope): object => $scope->get('module.value'));
+checkModule($values[0] instanceof ModuleFixtures\Value && $values[0] === $values[1], 'Named service binds its implementation');
+checkModule($values[0] !== $other, 'Scopes must isolate service instances');
+$jobs = new Loom\JobDispatcher($discovery);
+checkModule($jobs->kinds() === ['module.job'], 'Job kinds');
+checkModule($provider->withScope(static fn (Loom\ServiceScope $scope): Loom\Response => $jobs->dispatch('module.job', new Loom\Request([]), $scope))->toArray()['body'] === 'injected', 'Queue handler injection');
+$timers = new Loom\TimerRunner($provider);
+foreach ($discovery->timers() as $class) {
+    $timers->register($class);
+}
+checkModule($timers->timers() === [ModuleFixtures\TimerTask::class => 1], 'Module timer registration');
+$timers->tick(ModuleFixtures\TimerTask::class);
+$timers->tick(ModuleFixtures\TimerTask::class);
+checkModule($provider->get(ModuleFixtures\TimerTask::class)->calls === 2, 'Module timer ticks resolve the registered service');
+foreach ([ModuleFixtures\DuplicateService::class, ModuleFixtures\DuplicateJob::class, ModuleFixtures\InvalidController::class, ModuleFixtures\InvalidModel::class] as $class) {
     $rejected = false;
     try {
-        $registry->register($class);
+        $discovery->register($class);
     } catch (LogicException $error) {
         $rejected = true;
     }
@@ -53,41 +70,44 @@ foreach ([\ModuleFixtures\DuplicateService::class, \ModuleFixtures\DuplicateJob:
 }
 $rejected = false;
 try {
-    $registry->job('unknown', new \Loom\Request([]));
+    $provider->withScope(static fn (Loom\ServiceScope $scope): Loom\Response => $jobs->dispatch('unknown', new Loom\Request([]), $scope));
 } catch (LogicException $error) {
     $rejected = true;
 }
 checkModule($rejected, 'Unknown job kind must fail');
 $rejected = false;
 try {
-    (new \Loom\ModuleRegistry(new \Loom\ModuleDiscovery($runtimeServices->get(\Loom\Config::class)), $runtimeServices->get(\Loom\Config::class), $runtimeScope))->add(\ModuleFixtures\CycleA::class);
+    (new Loom\ModuleDiscovery($config))->add(ModuleFixtures\CycleA::class);
 } catch (LogicException $error) {
     $rejected = true;
 }
 checkModule($rejected, 'Module cycles must fail');
-$configured = $runtimeServices->get(\Loom\ModuleRegistry::class)->configured();
-$table = \Loom\ModuleRegistry::attribute(new \ReflectionClass(\App\Models\Projects\Task::class), \Database\Annotation\Table::class);
-checkModule($table->name === 'studio_tasks', 'Model uses native std Table annotation metadata');
-$configured->add(\App\AppModule::class);
-$requestLogs = [];
-$runtimeServices->scoped(\Loom\Http\Middleware\RequestLog::class, static function ($services) use (&$requestLogs): object {
-    return new \Loom\Http\Middleware\RequestLog(static function (string $line) use (&$requestLogs): void {
-        $requestLogs[] = json_decode($line, true);
-    });
-});
-$http = $runtimeScope->load('framework/bootstrap/http.php');
-$page = $http->handle(new \Loom\Request(['method' => 'GET', 'path' => '/demo']))->toArray();
-checkModule($page['status'] === 200 && str_contains($page['body'], 'release-app'), 'Application module discovers release scenario routes');
-checkModule($http->handle(new \Loom\Request(['method' => 'GET', 'path' => '/hello/Ada']))->toArray()['status'] === 404, 'Generic greeting demo is not an application endpoint');
-$runtimeServices->get(\Loom\Database::class)->connect((string)getenv('LOOM_DATABASE'));
-$runtimeServices->get(\Loom\Migrations::class)->initialize();
-$request = new \Loom\Request(['method' => 'GET', 'path' => '/api/studio/state']);
-$runtimeServices->get(\Loom\RequestContext::class)->bind($request);
+$configured = Loom\ModuleDiscovery::configured($config);
+$rejected = false;
 try {
-    checkModule($http->handle($request)->toArray()['status'] === 401, 'Protected route keeps authentication');
-} finally {
-    $runtimeServices->get(\Loom\RequestContext::class)->bind(null);
-    $runtimeServices->get(\Loom\Database::class)->close();
+    $configured->register(ModuleFixtures\Value::class);
+} catch (LogicException $error) {
+    $rejected = str_contains($error->getMessage(), 'immutable');
 }
-checkModule(count($requestLogs) === 3 && $requestLogs[2]['status'] === 401, 'Cached application routes retain request logging');
+checkModule($rejected, 'Configured metadata is frozen');
+$table = Loom\ModuleDiscovery::attribute(new ReflectionClass(App\Models\Projects\Task::class), Database\Annotation\Table::class);
+checkModule($table->name === 'studio_tasks', 'Model uses native std Table annotation metadata');
+$logs = new ModuleRequestLogs();
+$configureServices = static function (Loom\ServiceCollection $services) use ($logs): void {
+    $services->addScoped(Loom\Http\Middleware\RequestLog::class, static function () use ($logs): Loom\Http\Middleware\RequestLog {
+        return new Loom\Http\Middleware\RequestLog(static function (string $line) use ($logs): void {
+            $logs->records[] = json_decode($line, true);
+        });
+    });
+};
+$app = require $root . '/loom.php';
+try {
+    $page = $app->handle(new Loom\Request(['method' => 'GET', 'path' => '/demo']))->toArray();
+    checkModule($page['status'] === 200 && str_contains($page['body'], 'release-app'), 'Application module discovers release scenario routes');
+    checkModule($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/hello/Ada']))->toArray()['status'] === 404, 'Generic greeting demo is not an application endpoint');
+    checkModule($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/api/studio/state']))->toArray()['status'] === 401, 'Protected route keeps authentication');
+} finally {
+    $app->dispose();
+}
+checkModule(count($logs->records) === 3 && $logs->records[2]['status'] === 401, 'Application routes retain request logging');
 echo "loom_modules_test: OK\n";

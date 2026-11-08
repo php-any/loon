@@ -47,7 +47,7 @@ User::whereTeamId(7)->whereId($user->id)->delete();
 
 连接池是进程级的 `Database\Sql\open` 结果。普通 `query`、`execute` 和模型语句结束就把连接还回池。`Database::transaction()` 调用 `begin()`，只在该回调期间保存返回的 `*sql.Tx`；回调里新创建的模型和原始 SQL 使用它，提交或回滚后连接回池。已经在回调外面建好的查询不改执行器。迁移锁放在同一次事务回调里：`GET_LOCK` 留在这条被事务占用的连接上，结束前 `RELEASE_LOCK`。会话级 `sql_mode` 和 `transaction_isolation` 写在驱动 DSN 里，物理连接建立时设置一次。
 
-`ServiceScope` 管理这一次请求、命令或定时器回调里的服务实例。它不拥有数据库连接。查询上的条件和绑定参数只属于这条查询。静态模型使用正在执行的作用域（这次请求、命令、迁移、任务或定时器回调）的 Database。没有进入某一段执行、且同时存在多个作用域时，调用方把对应的 Database 传给 `Model::using($database)`。模型没声明连接名时，`query()` 和 `using()` 都取 `default`；声明了则取同名连接。解析到的若就是传入的那个实例，事务仍留在上面。同一条驱动 DSN 的实例共享进程池；`$database->connection('reporting')` 在这个作用域里始终返回同一个实例。
+`ServiceScope` 管理这一次请求、消息、调用、命令、任务或节拍里的服务实例。它不拥有数据库连接。查询上的条件和绑定参数只属于这条查询。静态模型（`User::find()`、`Task::query()`）使用当前执行帧上绑定的 Database：`ServiceScope::run()` 和 `ServiceProvider::withScope()` 在回调期间绑定本作用域的 Database，宿主为每个工作单元都这样调用。绑定跟着子调用传下去，回调结束后恢复，并发的请求互不可见。在作用域之外调用静态模型会抛出 `LogicException`；自建脚本用 `$app->services->withScope(...)`，或用 `ModelContext::during($database, $callback)` 绑定指定的 Database。要绕开当前绑定时，把 Database 传给 `Model::using($database)`。模型没声明连接名时，`query()` 和 `using()` 都取 `default`；声明了则取同名连接。解析到的若就是传入的那个实例，事务仍留在上面。同一条驱动 DSN 的实例共享进程池；`$database->connection('reporting')` 在这个作用域里始终返回同一个实例。
 
 异步 `spawn` 不继承正在进行的事务或持有的连接。需要独立事务时，在新的调用里自行 `transaction()`。
 
@@ -59,7 +59,7 @@ User::whereTeamId(7)->whereId($user->id)->delete();
 
 项目、发布验收和订单的主要操作，以及权限、账号安全和通知模块的普通写入已使用模型。应用服务、控制器、作业与仓储通过模型操作持久化数据；跨表投影使用原生 ORM，必要的并发 SQL 收在具体模型方法中。旧 EntityManager、EntityMetadata 和 Query 已移除，应用统一使用 Model / ModelQuery。
 
-普通业务查询直接写 `Task::whereUserId($id)->delete()`。它使用正在执行的作用域的数据库；查询创建在 `transaction()` 回调里时，事务仍留在该作用域的连接上。必须绑定另一条连接，或没有当前执行作用域且多个作用域同时打开时，才把那个 Database 传给 `Model::using($database)`。`insertOrIgnore($attributes, $unique)` 与 `upsert($attributes, $unique, $update)` 使用查询创建时的数据库做冲突处理，保留通知去重等原子性，不以先查询再插入替代唯一约束。
+普通业务查询直接写 `Task::whereUserId($id)->delete()`。它使用当前作用域的数据库；查询创建在 `transaction()` 回调里时，使用该回调的事务。必须使用另一个 Database 实例时，才把它传给 `Model::using($database)`。`insertOrIgnore($attributes, $unique)` 与 `upsert($attributes, $unique, $update)` 使用查询创建时的数据库做冲突处理，保留通知去重等原子性，不以先查询再插入替代唯一约束。
 
 模型字段应声明在具体模型上；当前原生 ORM 不完整支持从业务父类继承字段。`all()` 没有隐式 1000 条上限，大表请显式 limit。此基类不提供关系预加载、自动迁移或实例 save 的脏字段追踪。
 

@@ -27,7 +27,7 @@ final class ModuleDiscovery
 {
     private Config $config;
     /**
-     * 保存配置，并新建一把供 configured 串行使用的锁。构造结束时还没有扫描任何模块。
+     * 保存配置。构造结束时还没有扫描任何模块。
      *
      * @param Config $config 解析模块目录，以及读取 modules 配置时使用的配置对象。
      * @return void 无直接返回值。
@@ -38,7 +38,6 @@ final class ModuleDiscovery
     public function __construct(Config $config)
     {
         $this->config = $config;
-        $this->gate = new \Container\Container();
     }
     private array $modules = [];
     private array $visiting = [];
@@ -50,39 +49,47 @@ final class ModuleDiscovery
     private array $timers = [];
     private array $commands = [];
     private bool $frozen = false;
-    private ?self $snapshot = null;
-    private \Container\Container $gate;
     private ?Router $routeTable = null;
 
     /**
-     * 本对象已经冻结时直接返回自身。否则在锁里复用或创建快照。
-     * 快照是另一个发现器：按 modules 配置逐个 add，调用 router 生成路由表，再把快照标成冻结。
-     * add 或生成路由表失败时异常原样抛出，快照不会被留下。后来对当前对象的 add 不会写进已有快照。
+     * 按 modules 配置逐个 add，生成路由表，再冻结。ApplicationBuilder::build() 调用它一次，结果作为单例登记。
+     * 冻结后 add 和 register 抛出 LogicException。add 或生成路由表失败时异常原样抛出。
      *
-     * 参数：无。
-     *
+     * @param Config $config 项目配置。
      * @return self 已装载配置模块并冻结的发现器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $loaded = $discovery->configured();
+     * @example $discovery = ModuleDiscovery::configured($config);
      */
-    public function configured(): self
+    public static function configured(Config $config): self
     {
-        if ($this->frozen) {
-            return $this;
+        $discovery = new self($config);
+        foreach ($config->get('modules', []) as $module) {
+            $discovery->add($module);
         }
-        return \Loom\Native\withSingletonLock($this->gate, function (): self {
-            if ($this->snapshot === null) {
-                $registry = new self($this->config);
-                foreach ($this->config->get('modules', []) as $module) {
-                    $registry->add($module);
-                }
-                $registry->routeTable = $registry->router();
-                $registry->frozen = true;
-                $this->snapshot = $registry;
-            }
-            return $this->snapshot;
-        });
+        $discovery->routeTable = $discovery->router();
+        $discovery->frozen = true;
+        return $discovery;
+    }
+
+    /**
+     * 列出发现到的定时器类和周期，供运维页面展示。state 固定写成代码已声明、运行状态尚未采集。
+     *
+     * 参数：无。
+     *
+     * @return array 每项含 class、seconds、state。没有定时器时为空数组。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $rows = $discovery->timerDefinitions();
+     */
+    public function timerDefinitions(): array
+    {
+        $out = [];
+        foreach ($this->timers as $class) {
+            $timer = self::attribute(new \ReflectionClass($class), \Loom\Timer::class);
+            $out[] = ['class' => $class, 'seconds' => $timer->seconds, 'state' => '代码声明；独立运行状态未采集'];
+        }
+        return $out;
     }
 
     /**
@@ -269,7 +276,7 @@ final class ModuleDiscovery
         $middleware = array_merge($controller->middleware, $route->middleware);
         foreach ($middleware as $entry) {
             if (!is_string($entry) || $entry === '') {
-                throw new \LogicException('Attribute middleware must use service class names; register instances through a RouteProvider');
+                throw new \LogicException('Attribute middleware must use service class names; register instances from a service provider');
             }
         }
         $this->routes[] = ['method' => $route->method, 'path' => rtrim($controller->prefix, '/') . $route->path,
@@ -323,7 +330,7 @@ final class ModuleDiscovery
 
     /**
      * 把已发现的声明路由装进一个新的 Router。已有缓存表时返回它的副本，避免调用方追加路由时改到共享表。
-     * 这里不重新扫描目录，也不调用 RouteProvider。
+     * 这里不重新扫描目录，也不执行应用留下的路由回调。
      *
      * 参数：无。
      *

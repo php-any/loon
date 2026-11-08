@@ -1,6 +1,6 @@
 # Loom
 
-开发者入门：[框架原理与 PHP 文件加载流程](docs/framework-principles.md)，从宿主启动、文件加载到一次请求的执行串联核心代码。配置绑定和后台服务见 [宿主与选项](docs/hosting.md)。
+开发者入门：[框架原理与 PHP 文件加载流程](docs/framework-principles.md)，从宿主启动、文件加载到一次请求的执行串联核心代码。应用组合、配置绑定和后台服务见 [宿主、应用与选项](docs/hosting.md)，依赖注入见 [依赖注入与作用域](docs/core-services.md)。
 
 Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供统一的管理工作台和可复用的基础能力。首页 `/` 是介绍这个后台的产品官网，用于展示产品定位、功能、使用场景、开发指南和体验入口。
 
@@ -28,7 +28,7 @@ Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供
 ./build/loom.exe serve
 ```
 
-`loom.php` 的服务注册回调只在根作用域执行一次。子作用域共享这些注册规则和 singleton，scoped 服务各自创建。入口把命令、HTTP 和 gRPC 路由接口绑到应用实现，并把 `RequestContext`、`Database` 固定为 scoped。`Database` 由容器注入 `Config`，只携带配置，不占有连接。其他业务服务在 `config/services.php` 注册，不要重复注册已经占用的标识。
+[loom.php](loom.php) 是组合根，照 ASP.NET Core 的 `Program.cs` 用顶层语句显式声明主机和作用域：`Application::createBuilder()` 得到构建器，往 `$builder->services` 按生命周期登记服务，`build()` 得到应用，再 `use()` 中间件、`mapCommand()` 命令、`mapGrpc()` gRPC 方法，最后 `run()` 执行一条命令。测试在闭包里 `require` 它，取得未运行的应用。运行时是 Go 宿主里的 Origami，不是 php-fpm。根容器持有单例，每个 HTTP 请求、TCP 消息、gRPC 调用、命令和队列、调度、定时器节拍各开一个作用域。`RequestContext` 与 `Database` 登记为 scoped；`Database` 保存这次工作的事务和命名连接，不占有连接，连接池是进程级的。应用的登记覆盖框架默认值，也优先于 `#[Service]` 注解。说明见 [宿主、应用与选项](docs/hosting.md) 和 [依赖注入与作用域](docs/core-services.md)。
 
 官网 `/`、后台 `/admin`、指南 `/guide` 和发布验收场景 `/demo` 共用服务。演示围绕一次发布的计划、验收、摘要交付与自动回顾展开，协议、队列和调度能力在这条业务流程中展示。旧工作室、协议实验室和 HTTP 实验页面地址统一跳转到 `/demo`。
 
@@ -89,9 +89,9 @@ final class Heartbeat
 [2026-10-31 22:00:10] [INFO] timer: service is running
 ```
 
-周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。类由容器创建，支持 `InjectConfig` 和 `config/services.php` 工厂绑定。类名、命名空间需与 `app/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
+周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。每次触发在新作用域里解析定时器类，支持构造注入、`InjectConfig` 和 `loom.php` 里登记的工厂；需要跨触发保留状态时登记为单例，例如 Heartbeat 用 `#[Service('', 'singleton')]`。类名、命名空间需与 `app/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
 
-每个 HTTP 服务进程把这组定时器装进 `Host`，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务的登记方式见 [宿主与选项](docs/hosting.md)。
+只有 `serve` 启动 `Host`：每个 HTTP 服务进程把这组定时器装进 Host，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务的登记方式见 [宿主、应用与选项](docs/hosting.md)。
 
 后台消费和调度分别在另外的终端启动：
 
@@ -102,7 +102,7 @@ final class Heartbeat
 
 加 `--once` 可只执行一次。HTTP 不自动启动后台进程。停止进程后，未完成任务由租约过期恢复；任务需要保持幂等。
 
-首次运行构建脚本后，开发时也可进入 `runtime/` 执行 `go run -modfile=go.local.mod ./cmd/loom serve`。构建脚本为固定版本 Origami 应用仓库内的执行上下文补丁，生成独立构建副本和被忽略的本地模块文件；详见 [运行时要求](docs/runtime-requirements.md)。联调已包含该能力的 Origami 源码时可指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，本机路径不写入提交的 Go 模块。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
+开发时在项目根目录执行 `go -C runtime run ./cmd/loom serve`。`runtime/go.mod` 把 Origami 替换为本机 `origami-frame-context` 检出（`feat/frame-context-sql-executor`，基于 `v1.0.8`），其中包含执行帧 context 和 `Database\bind`。联调其他已包含该能力的 Origami 源码时可指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，详见 [运行时要求](docs/runtime-requirements.md)。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
 
 Composer 只用于构建和代码风格工具：`composer build` 构建宿主（源码覆盖使用 `LOOM_ORIGAMI_SOURCE`）；`composer start`、`composer test`、`composer loom -- list` 调用上述 Origami 脚本。应用入口不加载 `vendor/autoload.php`。宿主在运行脚本前把 `app/` 和 `generated/grpc/` 写入 Origami 类路径，因此仓库内置应用无需先运行 Composer。部署需要携带匹配的运行程序、脚本和资源；目标机器无需 Go 工具链、Origami 源码或 `go.work`。Go 模块和构建入口位于 `runtime/`。
 
@@ -176,21 +176,21 @@ composer format:check
 
 ## 统一模块与注解
 
-`config/modules.php` 声明启动模块，`app/AppModule.php` 用 `#[Module(['App' => 'app'])]` 指定扫描范围。模型、控制器、路由、服务、队列、定时器和命令共用 `ModuleRegistry`，无需各自维护扫描代码。
+`config/modules.php` 声明启动模块，`app/AppModule.php` 用 `#[Module(['App' => 'app'])]` 指定扫描范围。模型、控制器、路由、服务、队列、定时器和命令共用 `ModuleDiscovery` 的一次扫描，由 `ApplicationBuilder::build()` 装配，无需各自维护扫描代码。
 
 - `#[Controller]` 配合类或方法上的 `#[Route('GET', '/demo')]` 自动注册 HTTP 路由；发布验收页面使用该入口。控制器支持前缀和中间件，Route 支持命名和额外中间件，WebSocket 也走同一注册链路。
-- `#[Service]` 注册服务；`#[Service('alias')]` 声明服务别名；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('alias')]` 注入。`InjectConfig` 继续用于配置注入。
+- `#[Service]` 登记服务，第二个参数选择生命周期（默认 `scoped`）；`#[Service('service.id')]` 以该标识登记；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('service.id')]` 注入。`InjectConfig` 继续用于配置注入。
 - 模型直接使用 std 的 `Database\Annotation\Table`、`Column`、`Id`、`GeneratedValue`；字段类型取自属性声明，所有已映射字段均可写入，无需声明字段白名单，实体使用 public 强类型属性；可继承 `Loom\Model`，直接使用 `User::whereName("TEST")->first()` 等原生 ORM 快捷入口，详见 [基础模型](docs/models.md)。连接由框架根据配置自动初始化，与 PDO 共用事务；应用统一使用基础模型入口，旧 EntityManager 已移除；业务通过模型操作数据，必要的并发 SQL 封装在对应模型方法中。
 - `#[Job('studio.digest')]` 声明队列任务类型，默认调用 `handle(Request): Response`；不同任务不再共用一个 `job_handler`。
 - `#[Timer(5)]` 声明固定周期任务；`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
 
-除原生数据库注解、`Loom\Timer`、`Loom\InjectConfig` 外，上述注解都在 `Loom\Attributes` 命名空间。现有应用类已迁移；具体用法和生命周期见 [框架文档](docs/framework.md)。`routes/*.php` 和 `config/services.php` 保留作为显式扩展入口，重复路由会报错，显式工厂优先于服务注解。
+除原生数据库注解、`Loom\Timer`、`Loom\InjectConfig` 外，上述注解都在 `Loom\Attributes` 命名空间。现有应用类已迁移；具体用法和生命周期见 [框架文档](docs/framework.md)。注解之外的路由、命令、gRPC 方法和服务登记写在 `loom.php` 里，重复路由会报错，显式登记优先于服务注解。
 
-容器实例缓存、工厂执行与循环依赖检测复用 Origami 的 `Container\Container`；每个 Loom 容器持有独立原生容器，配置注入和显式工厂规则由适配层保留。当前 std 的复用边界见 [架构说明](docs/architecture.md)。
+容器是 Loom 自己的 `ServiceCollection` / `ServiceProvider` / `ServiceScope`，不使用 Origami 的 `Container\Container`。当前 std 的复用边界见 [架构说明](docs/architecture.md)。
 
 ## PHP 配置
 
-运行配置按功能拆分为 `http.php`、`database.php`、`console.php`、`jobs.php`、`tcp.php`、`grpc.php`、`migrations.php` 和 `network.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`。数据库配置与 Laravel 相同：`get('database.default')` 是默认连接名，`get('database.connections')` 是命名连接。更新配置后重启常驻服务。
+运行配置按功能拆分为 `http.php`、`database.php`、`tcp.php`、`grpc.php`、`migrations.php`、`network.php`、`modules.php` 和 `checkout.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`。数据库配置与 Laravel 相同：`get('database.default')` 是默认连接名，`get('database.connections')` 是命名连接。更新配置后重启常驻服务。
 
 应用初始化时自动加载 `config/` 直属目录下的 `*.php`，以文件名（不含扩展名）作为配置名称。例如 `config/payment.php`：
 
@@ -202,7 +202,7 @@ return ['timeout' => 30, 'retry' => ['enabled' => true]];
 通过统一接口读取：
 
 ```php
-$config = $app->container()->get(\Loom\Config::class); // 装配入口获取；业务代码使用构造器注入
+$config = $app->configuration; // 组合根里获取；业务代码使用构造器注入
 $config->get('payment'); // 整个文件返回值
 $config->get('payment.retry.enabled'); // true
 $config->get('payment.timeout', 10); // 缺失时返回默认值
@@ -212,7 +212,7 @@ $config->get('database.connections.mysql'); // Laravel 格式的 mysql 连接
 $config->get(); // 返回以文件名为键的全部配置
 ```
 
-只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。强类型配置用 Options 绑定，见 [宿主与选项](docs/hosting.md)。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。`config/services.php` 的闭包也会被加载，由 HTTP、Console、队列、定时器及协议入口通过统一模块注册中心调用来注册服务。
+只有不存在的键才使用默认值；配置中的 `null`、`false`、`0` 均原样返回。强类型配置用 Options 绑定，见 [宿主、应用与选项](docs/hosting.md)。PHP 配置在每次应用初始化时加载并缓存，修改后应重启长期运行的服务。配置文件应直接返回数据，不要在加载过程中读取其他配置；文件名和数组键避免使用点号。没有保留文件名；`loom.php` 也只会作为普通配置加载。环境变量由各 PHP 配置文件读取，并随配置一起缓存。配置文件不登记服务，服务登记写在 `loom.php` 里。
 
 ### 注解注入配置
 
@@ -236,7 +236,7 @@ final class PaymentService
 }
 ```
 
-应用初始化后，通过 `$app->container()->get(\App\Services\PaymentService::class)` 获取服务即可；路由中使用控制器类名时也会自动注入。`bind()` 工厂返回的对象同样经过注入。框架支持 public、protected、private 及继承属性，配置键使用与 `$config->get()` 相同的点号格式。
+应用构建后，在作用域里取服务即可：`$app->services->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(\App\Services\PaymentService::class))`；未登记的类按 scoped 构造，不能直接从根 `$app->services` 取。路由中使用控制器类名时也会自动注入。`addSingleton()` 等登记的工厂返回的对象同样经过注入。框架支持 public、protected、private 及继承属性，配置键使用与 `$config->get()` 相同的点号格式。
 
 属性注入发生在构造函数/工厂返回之后、容器缓存实例之前。直接 `new` 的对象不会自动注入。属性注解用于实例属性，不用于静态属性；不要把属性注入标注在已经初始化的 readonly 属性上。类文件应通过应用自动加载或在框架初始化后加载，保证注解类已注册。
 
@@ -259,10 +259,10 @@ final class ApiClient
     }
 }
 
-$client = $app->container()->get(ApiClient::class);
+$client = $app->services->withScope(static fn (\Loom\ServiceScope $scope): ApiClient => $scope->get(ApiClient::class));
 ```
 
-容器自动创建对象时先解析构造参数，再调用构造函数，最后执行属性注入。继承的构造函数也支持此流程。带注解参数使用配置值，缺失时使用注解的第二个参数；未指定注解默认值则报错，不回退到参数声明的默认值。未带注解的可选参数保留声明默认值；未带注解的必填参数需要通过 `bind()` 工厂传入，容器不会猜测其依赖。工厂绑定优先，框架不会重新调用工厂返回对象的构造函数。
+容器自动创建对象时先解析构造参数，再调用构造函数，最后执行属性注入。继承的构造函数也支持此流程。带注解参数使用配置值，缺失时使用注解的第二个参数；未指定注解默认值则报错，不回退到参数声明的默认值。未带注解的可选参数保留声明默认值；未带注解的必填标量参数需要登记工厂传入，容器不会猜测其依赖。工厂绑定优先，框架不会重新调用工厂返回对象的构造函数。
 
 当前 Origami 的参数反射不暴露属性提升参数和可变参数的注解，因此配置参数请使用示例中的普通参数写法，不要使用 `#[InjectConfig(...)] public int $timeout` 或 `...$values`。构造函数抛出的异常和参数类型错误会向上传播，失败实例不会被缓存。
 
@@ -273,13 +273,11 @@ app/                  业务控制器、模型、服务、任务
 runtime/              Go 模块、自定义宿主、标准库装配与原生扩展
 framework/
   src/                按职责拆分的内部框架模块
-  bootstrap/          自动加载、HTTP、命令、数据库和协议启动
   resources/          框架版本化 SQL 迁移
   tests/              框架契约与运行时回归测试
   bootstrap.php       独立框架模块加载入口
 loom.php          项目命令入口
-config/               手写配置与服务绑定
-routes/               业务路由和命令注册
+config/               手写配置
 proto/                对外协议契约
 generated/           可重新生成的 gRPC 基类与注册清单（提交）
 database/migrations/  业务 SQL 迁移
@@ -300,6 +298,7 @@ docs/                 当前设计与使用说明；history 存历史方案
 
 ```powershell
 ./build/loom.exe list
+./build/loom.exe gen-std
 ./build/loom.exe help projects:tasks
 ./build/loom.exe migrate:up
 ./build/loom.exe migrate:status
@@ -310,7 +309,7 @@ docs/                 当前设计与使用说明；history 存历史方案
 ./tests/e2e/http.ps1
 ```
 
-`migrate:down` 撤销应用最后一个迁移批次，会执行对应 down SQL。HTTP、worker 和 scheduler 启动时自动初始化数据库并应用待执行迁移。
+`migrate:down` 撤销应用最后一个迁移批次，会执行对应 down SQL。HTTP、worker 和 scheduler 启动时自动初始化数据库并应用待执行迁移。`gen-std` 把宿主已加载的标准库、原生函数和 Origami 框架扩展写成 PHP 伪代码，默认输出到 `.zy/std`，供 IDE 补全；这些文件不参与运行。
 
 测试覆盖路由、中间件、视图、命令、数据库、认证、ORM、迁移、队列租约、调度和 Cron。端到端测试启动项目宿主执行脚本，验证真实 HTTP、独立作业进程、请求隔离和 WebSocket；结束时关闭自己启动的服务并清理独立测试数据。
 

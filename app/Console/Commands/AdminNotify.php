@@ -24,7 +24,7 @@ final class AdminNotify extends \Loom\Console\Command
     protected string $description = '收集任务失败事件并异步发送邮件和 Webhook 通知';
     public function handle(): int
     {
-        $pulse = new \Loom\RuntimePulse($this->config, $this->database, 'notifications', 2);
+        $pulse = new \Loom\RuntimePulse($this->config, 'notifications', 2);
         do {
             $pulse->beat();
             $this->notifications->collectFailures();

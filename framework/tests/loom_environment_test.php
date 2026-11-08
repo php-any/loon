@@ -3,6 +3,34 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/bootstrap.php';
+/**
+ * 保存注册值，验证服务作用域间的注册隔离。
+ *
+ * 构造参数：
+ * - $value（string）：夹具保存或使用的测试值；具体注入来源由参数属性声明。
+ *
+ * 返回值：使用 new 构造时得到 ScopeRegistrationProbe 实例；注册到容器时由容器管理实例的创建与复用。
+ *
+ * 使用示例（依赖对象由所在应用或测试环境提供）：
+ * @example $instance = $services->get(ScopeRegistrationProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
+ */
+final class ScopeRegistrationProbe
+{
+    public string $value;
+    /**
+     * 初始化 ScopeRegistrationProbe 实例及其依赖。保存注册值，验证服务作用域间的注册隔离。
+     *
+     * @param string $value 夹具保存或使用的测试值；具体注入来源由参数属性声明。
+     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $instance = $services->get(ScopeRegistrationProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
+     */
+    public function __construct(string $value)
+    {
+        $this->value = $value;
+    }
+}
 $path = tempnam(sys_get_temp_dir(), 'loom-env-');
 $names = ['LOOM_ENV_TEST_OVERRIDE', 'LOOM_ENV_TEST_EMPTY', 'LOOM_ENV_TEST_QUOTED', 'LOOM_ENV_TEST_LITERAL', 'LOOM_ENV_TEST_KEEP'];
 $previous = [];
@@ -82,17 +110,34 @@ try {
     putenv('LOOM_BOOT_PROBE=process');
     file_put_contents($bootRoot . '/.env', "LOOM_BOOT_PROBE=file\n");
     file_put_contents($bootRoot . '/config/probe.php', '<?php return ["value" => getenv("LOOM_BOOT_PROBE")];');
-    $boot = require dirname(__DIR__) . '/bootstrap/autoload.php';
-    $bootScope = $boot($bootRoot, null, $bootRoot . '/.env');
+    file_put_contents($bootRoot . '/config/modules.php', '<?php return [];');
+    $builder = Loom\Application::createBuilder($bootRoot, $bootRoot . '/.env');
+    // 构建前的登记对每个作用域生效，但作用域之间不共享实例。
+    $builder->services->addScoped(ScopeRegistrationProbe::class, static fn (): ScopeRegistrationProbe => new ScopeRegistrationProbe('from builder'));
+    $app = $builder->build();
     try {
-        if ($bootScope->container()->get(Loom\Config::class)->get('probe.value') !== 'file') {
-            throw new RuntimeException('Bootstrap must load the environment file before config');
+        if ($app->configuration->get('probe.value') !== 'file') {
+            throw new RuntimeException('Builder must load the environment file before config');
+        }
+        $a = $app->services->createScope();
+        $b = $app->services->createScope();
+        try {
+            if ($a->get(ScopeRegistrationProbe::class)->value !== 'from builder' || $b->get(ScopeRegistrationProbe::class)->value !== 'from builder' || $a->get(ScopeRegistrationProbe::class) === $b->get(ScopeRegistrationProbe::class)) {
+                throw new RuntimeException('Scopes must inherit builder registrations without sharing instances');
+            }
+            if ($a->get(Loom\Database::class) !== $a->get(Loom\Database::class) || $a->get(Loom\Database::class) === $b->get(Loom\Database::class) || $a->get(Loom\RequestContext::class) === $b->get(Loom\RequestContext::class)) {
+                throw new RuntimeException('Execution services must stay inside one scope');
+            }
+        } finally {
+            $a->dispose();
+            $b->dispose();
         }
     } finally {
-        $bootScope->close();
+        $app->dispose();
         putenv($bootPrevious === false ? 'LOOM_BOOT_PROBE' : 'LOOM_BOOT_PROBE=' . $bootPrevious);
         unlink($bootRoot . '/.env');
         unlink($bootRoot . '/config/probe.php');
+        unlink($bootRoot . '/config/modules.php');
         rmdir($bootRoot . '/config');
         rmdir($bootRoot);
     }
@@ -104,61 +149,5 @@ try {
         unset($_ENV[$name], $_SERVER[$name]);
         putenv($value === false ? $name : $name . '=' . $value);
     }
-}
-// 入口注册会传播到子作用域，但不会共享单例实例。
-/**
- * 保存注册值，验证服务作用域间的注册隔离。
- *
- * 构造参数：
- * - $value（string）：夹具保存或使用的测试值；具体注入来源由参数属性声明。
- *
- * 返回值：使用 new 构造时得到 ScopeRegistrationProbe 实例；注册到容器时由容器管理实例的创建与复用。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(ScopeRegistrationProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
- */
-final class ScopeRegistrationProbe
-{
-    public string $value;
-    /**
-     * 初始化 ScopeRegistrationProbe 实例及其依赖。保存注册值，验证服务作用域间的注册隔离。
-     *
-     * @param string $value 夹具保存或使用的测试值；具体注入来源由参数属性声明。
-     * @return void 无直接返回值；通过 new 表达式取得初始化后的实例。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $instance = $services->get(ScopeRegistrationProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
-     */
-    public function __construct(string $value)
-    {
-        $this->value = $value;
-    }
-}
-$config = new Loom\Config(dirname(__DIR__, 2));
-$first = new Loom\ServiceScope($config, static function (Loom\Container $services): void {
-    $services->scoped(ScopeRegistrationProbe::class, static function (): ScopeRegistrationProbe {
-        return new ScopeRegistrationProbe('from entry');
-    });
-    $services->scoped(Loom\RequestContext::class);
-    $services->scoped(Loom\Database::class);
-});
-$second = $first->fork();
-try {
-    $a = $first->container();
-    $b = $second->container();
-    $child = $a->get(Loom\ModuleRegistry::class)->container();
-    try {
-        if ($b->get(ScopeRegistrationProbe::class)->value !== 'from entry' || $child->get(ScopeRegistrationProbe::class)->value !== 'from entry' || $a->get(ScopeRegistrationProbe::class) === $child->get(ScopeRegistrationProbe::class)) {
-            throw new RuntimeException('Scope and module factories must inherit entry registrations without sharing instances');
-        }
-    } finally {
-        $child->get(Loom\ServiceScope::class)->close();
-    }
-    if ($a->get(Loom\Database::class) !== $a->get(Loom\Database::class) || $a->get(Loom\Database::class) === $b->get(Loom\Database::class) || $a->get(Loom\RequestContext::class) === $b->get(Loom\RequestContext::class)) {
-        throw new RuntimeException('Entry scoped lifetime incorrect');
-    }
-} finally {
-    $first->close();
-    $second->close();
 }
 echo "loom_environment_test: OK\n";

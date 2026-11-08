@@ -24,3 +24,6 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
 )
+
+// 本机 Origami 检出：v1.0.8 加上执行帧 context 与 Database\bind。
+replace github.com/php-any/origami => ../../origami-frame-context

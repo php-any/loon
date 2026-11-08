@@ -2,28 +2,44 @@
 
 declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
-$runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->container();
 
+function bootstrapCheck(bool $condition, string $message): void
+{
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+}
+
+$config = new Loom\Config();
 $unconfigured = false;
 try {
-    $runtimeServices->get(\Loom\Config::class)->root();
+    $config->root();
 } catch (LogicException $error) {
     $unconfigured = true;
 }
-if (!$unconfigured) {
-    throw new RuntimeException('Framework must not infer an application root');
-}
-$root = sys_get_temp_dir();
-$runtimeServices->get(\Loom\Config::class)->setRoot($root);
-if ($runtimeServices->get(\Loom\Config::class)->path('config/http.php') !== realpath($root) . '/config/http.php') {
-    throw new RuntimeException('Paths must resolve against the supplied application root');
-}
-$runtimeServices->get(\Loom\Database::class)->connect((string)getenv('LOOM_DATABASE'));
+bootstrapCheck($unconfigured, 'Framework must not infer an application root');
+$root = sys_get_temp_dir() . '/loom-bootstrap-' . bin2hex(random_bytes(6));
+mkdir($root . '/config', 0700, true);
+file_put_contents($root . '/config/modules.php', '<?php return [];');
+$app = null;
 try {
-    $runtimeServices->get(\Loom\Migrations::class)->initialize();
-    $runtimeServices->get(\Loom\Database::class)->query('SELECT * FROM loom_jobs');
+    $config->setRoot($root);
+    bootstrapCheck($config->path('config/http.php') === realpath($root) . '/config/http.php', 'Paths must resolve against the supplied application root');
+    $app = Loom\Application::createBuilder($root)->build();
+    bootstrapCheck($app->services->get(Loom\Config::class)->path('config/http.php') === realpath($root) . '/config/http.php', 'Application configuration uses the builder root');
+    // 数据库是作用域服务：构造时不连接，每个工作单元各一份。
+    $databases = $app->services->withScope(static function (Loom\ServiceScope $scope): array {
+        return [$scope->get(Loom\Database::class), $scope->get(Loom\Database::class), $scope->get(Loom\Migrations::class)];
+    });
+    $other = $app->services->withScope(static fn (Loom\ServiceScope $scope): Loom\Database => $scope->get(Loom\Database::class));
+    bootstrapCheck($databases[0] === $databases[1] && $databases[0] !== $other, 'Database is scoped to one unit of work');
+    bootstrapCheck($databases[2] instanceof Loom\Migrations, 'Migrations resolve from a scope without opening a connection');
 } finally {
-    $runtimeServices->get(\Loom\Database::class)->close();
+    if ($app !== null) {
+        $app->dispose();
+    }
+    unlink($root . '/config/modules.php');
+    rmdir($root . '/config');
+    rmdir($root);
 }
 echo "loom_bootstrap_test: OK\n";

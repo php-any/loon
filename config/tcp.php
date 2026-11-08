@@ -17,18 +17,10 @@ return [
      */
     'address' => (getenv('LOOM_TCP_ADDRESS') ?: '127.0.0.1:18088'),
     /**
-     * 每个连接加载的 PHP 入口，类型为字符串；支持项目根目录相对路径或绝对路径。
-     * 入口可使用 $scope、$container、$config，必须返回接收消息数组并返回响应数组的可调用对象。
-     * 默认入口为每条消息创建独立服务作用域，再调用下方 handler 的 handle() 方法。
-     * 示例：'entry' => 'bootstrap/tcp.php'（需先创建符合上述约定的入口脚本）。
-     */
-    'entry' => 'framework/bootstrap/tcp.php',
-    /**
-     * 业务处理器的完整类名，类型为字符串；默认 TCP 入口通过容器构造实例并注入依赖。
+     * 业务处理器的完整类名，类型为字符串。每条消息在新的服务作用域里解析它，构造函数可注入服务。
      * 类需可自动加载，并提供 public function handle(array $message): array 方法。
      * 可使用类名字符串或 ::class，例如 'handler' => \App\Tcp\Handlers\ReleaseSnapshotHandler::class。
      * 扩展业务时可指向自行创建的 \App\Tcp\Handlers\OrderHandler::class。
-     * 若替换 entry，由自定义入口决定是否继续读取此项。
      */
     'handler' => 'App\\Tcp\\Handlers\\ReleaseSnapshotHandler',
 ];

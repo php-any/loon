@@ -66,6 +66,9 @@ test-results/
 !/frontend/vben-admin/apps/web-ele/.env.development
 /auth.json
 
+# IDE 伪代码。loom gen-std 生成，只给编辑器索引，不参与运行。
+/.zy/
+
 # 编辑器与操作系统
 .idea/
 .vscode/

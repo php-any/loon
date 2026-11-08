@@ -5,9 +5,19 @@ require dirname(__DIR__) . '/bootstrap.php';
 
 interface DiContract {}
 class DiService implements DiContract {}
+class DiOther implements DiContract {}
 class DiDependency { public function __construct(public DiContract $service) {} }
-class DiResource {}
-require __DIR__ . '/fixtures/di.php';
+class DiNeedsScope { public function __construct(public Loom\ServiceScope $scope, public Loom\ServiceResolver $resolver, public Loom\ServiceProvider $root) {} }
+class DiSingletonNeedsScoped { public function __construct(public DiContract $service) {} }
+class DiCycleA { public function __construct(public DiCycleB $b) {} }
+class DiCycleB { public function __construct(public DiCycleA $a) {} }
+final class DiLog { public array $entries = []; }
+final class DiTracked implements Loom\Disposable
+{
+    public function __construct(private DiLog $log, private string $name) {}
+    public function dispose(): void { $this->log->entries[] = $this->name; }
+}
+
 function diCheck(bool $condition, string $message): void
 {
     if (!$condition) { throw new RuntimeException($message); }
@@ -19,124 +29,99 @@ function diReject(callable $operation, string $message): void
     diCheck($rejected, 'Expected rejection: ' . $message);
 }
 
-$calls = 0;
-$root = new Loom\ServiceScope(new Loom\Config(), function (Loom\Container $c) use (&$calls): void {
-    $calls++;
-    $c->singleton('shared', DiService::class);
-    $c->scoped(DiContract::class, DiService::class);
-    $c->transient('fresh', DiService::class);
-    $c->alias('shared.alias', 'shared');
-    $c->alias('scoped.alias', DiContract::class);
-    $c->alias('fresh.alias', 'fresh');
-    $c->singleton('singleton.resource', DiResource::class);
-    $c->scoped('scoped.resource', DiResource::class);
-    $c->transient('transient.resource', DiResource::class);
+$services = new Loom\ServiceCollection();
+$services->addSingleton('shared', DiService::class);
+$services->addScoped(DiContract::class, DiService::class);
+$services->addTransient('fresh', DiService::class);
+$services->addInstance('instance', $instance = new DiService());
+$services->tryAddScoped(DiContract::class, DiOther::class);
+$services->addSingleton(DiSingletonNeedsScoped::class);
+$services->addSingleton('factory', static fn (Loom\ServiceResolver $resolver): DiService => new DiService());
+$services->addSingleton('not.object', static fn (): string => 'x');
+$services->addScoped('handlers', DiService::class);
+$services->addScoped('handlers', DiOther::class);
+$provider = $services->build();
+diReject(static fn () => $services->addScoped('late', DiService::class), 'cannot be changed');
+diReject(static fn () => $services->build(), 'cannot be changed');
+
+diCheck($provider->get('shared') === $provider->get('shared'), 'Singleton is cached on the root');
+diCheck($provider->get('instance') === $instance, 'Instance registration returns the object');
+diCheck($provider->get('factory') instanceof DiService, 'Factory registration');
+diReject(static fn () => $provider->get('not.object'), 'must return an object');
+diReject(static fn () => $provider->get(DiContract::class), 'from the root provider');
+diReject(static fn () => $provider->get(DiSingletonNeedsScoped::class), 'cannot depend on scoped');
+diReject(static fn () => $provider->get('missing.id'), 'not registered');
+
+$a = $provider->createScope();
+$b = $provider->createScope();
+diCheck($a->get(DiContract::class) instanceof DiService, 'tryAdd does not replace an existing registration');
+diCheck($a->get(DiContract::class) === $a->get(DiContract::class), 'Scoped identity within a scope');
+diCheck($a->get(DiContract::class) !== $b->get(DiContract::class), 'Scoped instances differ across scopes');
+diCheck($a->get('shared') === $b->get('shared') && $a->get('shared') === $provider->get('shared'), 'Singleton spans scopes');
+diCheck($a->get('fresh') !== $a->get('fresh'), 'Transient identity');
+diCheck($a->get(DiDependency::class)->service === $a->get(DiContract::class), 'Constructor injection uses the current scope');
+diCheck($a->get(DiDependency::class) === $a->get(DiDependency::class) && $a->get(DiDependency::class) !== $b->get(DiDependency::class), 'Unregistered classes are implicitly scoped');
+$needs = $a->get(DiNeedsScope::class);
+diCheck($needs->scope === $a && $needs->resolver === $a && $needs->root === $provider, 'Special service ids');
+diCheck($a->get('handlers') instanceof DiOther, 'Last registration wins');
+$all = $a->getAll('handlers');
+diCheck(count($all) === 2 && $all[0] instanceof DiService && $all[1] instanceof DiOther, 'getAll returns every registration in order');
+diCheck($a->getAll('none') === [] && $a->tryGet('none') === null && !$a->has('none'), 'Missing ids');
+diReject(static fn () => $a->get(DiCycleA::class), 'Dependency cycle');
+diReject(static fn () => $provider->get(Loom\ServiceScope::class), 'inside a scope');
+
+$log = new DiLog();
+$tracked = new Loom\ServiceCollection();
+$tracked->addScoped('first', static fn (): DiTracked => new DiTracked($log, 'first'));
+$tracked->addScoped('second', static function (Loom\ServiceResolver $resolver) use ($log): DiTracked {
+    $resolver->get('first');
+    return new DiTracked($log, 'second');
 });
-$a = $root->fork();
-$b = $a->fork();
-$c = $a->container();
-$d = $b->container();
-diCheck($calls === 1, 'Registration callback runs once');
-diReject(static function () use ($root): void {
-    new Loom\ServiceScope(new Loom\Config(), static function (): void {
-    }, $root->container());
-}, 'root scope');
-diCheck($c->resolved('shared') === null, 'Singleton is lazy');
-diCheck($c->resolvedLocal('shared') === null, 'Scope cleanup excludes singleton cache');
-diCheck($c->get('shared') === $d->get('shared') && $c->get('shared') === $root->container()->get('shared.alias'), 'Singleton spans nested scopes');
-diCheck($c->get(DiContract::class) === $c->get('scoped.alias') && $c->get(DiContract::class) !== $d->get(DiContract::class), 'Scoped identity');
-diCheck($c->get('fresh') !== $c->get('fresh.alias') && $c->get('fresh') !== $d->get('fresh'), 'Transient identity');
-diCheck($c->get(DiDependency::class)->service === $c->get(DiContract::class), 'Constructor uses current scope binding');
-diCheck($c->get(DiDependency::class) !== $d->get(DiDependency::class), 'Unregistered concrete classes default to scoped');
-diCheck($c->get(Loom\Container::class) === $c && $c->get(Loom\ServiceScope::class) === $a, 'Local host bindings');
-$other = new Loom\ServiceScope(new Loom\Config());
-$other->container()->singleton('shared', DiService::class);
-diCheck($other->container()->get('shared') !== $c->get('shared'), 'Independent application singletons are isolated');
-$c->singleton('bad.direct', fn ($services) => $services->get(DiContract::class));
-$c->transient('bridge', fn ($services) => $services->get('scoped.alias'));
-$c->singleton('bad.indirect', fn ($services) => $services->get('bridge'));
-foreach (['bad.direct', 'bad.indirect'] as $id) {
-    diReject(fn () => $c->get($id), 'Singleton cannot depend on scoped');
-}
-$c->singleton('good', fn ($services) => new DiService());
-diCheck($c->get('good') === $d->get('good'), 'Failure does not poison singleton resolution');
-$c->singleton('cycle.a', fn ($services) => $services->get('cycle.b'));
-$c->singleton('cycle.b', fn ($services) => $services->get('cycle.a'));
-diReject(fn () => $c->get('cycle.a'), 'Dependency cycle');
-$c->alias('alias.a', 'alias.b'); $c->alias('alias.b', 'alias.a');
-diReject(fn () => $c->get('alias.a'), 'Dependency cycle');
-diReject(fn () => $c->scoped('shared'), 'Duplicate service');
-$attempts = 0;
-$c->singleton('retry', function () use (&$attempts) {
-    if (++$attempts === 1) { throw new LogicException('retry failure'); }
-    return new DiService();
+$tracked->addSingleton('root', static fn (): DiTracked => new DiTracked($log, 'root'));
+$trackedProvider = $tracked->build();
+$result = $trackedProvider->withScope(static function (Loom\ServiceScope $scope): string {
+    $scope->get('second');
+    $scope->get('root');
+    return 'done';
 });
-diReject(fn () => $c->get('retry'), 'retry failure');
-diCheck($c->get('retry') === $d->get('retry') && $attempts === 2, 'Failed singleton factories retry');
-$c->scoped('invalid', fn () => 123);
-diReject(fn () => $c->get('invalid'), 'must return an object');
-$invalid = new Loom\Container();
-$invalid->scoped(DiContract::class, DiResource::class);
-diReject(fn () => $invalid->get(DiContract::class), 'must implement');
-$singletonResource = $c->get('singleton.resource');
-diCheck($root->container()->resolvedLocal('singleton.resource') === null, 'Root cleanup also excludes application singleton');
-$scopedResource = $c->get('scoped.resource');
-$transientResource = $c->get('transient.resource');
-$a->close(); $a->close();
-diCheck($singletonResource === $d->get('singleton.resource'), 'Child cleanup preserves singleton');
-$b->close(); $root->close(); $root->close();
-diCheck($c->get('shared') === $d->get('shared'), 'Scope cleanup does not replace application singleton');
-// Race the first singleton resolution across independently created scopes.
-$state = new stdClass();
-$state->calls = 0;
-$c->singleton('concurrent', function () use ($state) {
-    $state->calls++;
-    usleep(20000);
-    return new DiService();
-});
-$workers = [];
-for ($i = 0; $i < 12; $i++) {
-    $worker = new stdClass();
-    $worker->services = $root->fork()->container();
-    $worker->result = null;
-    $worker->error = null;
-    $worker->done = false;
-    $workers[] = $worker;
-    \spawn(static function () use ($worker): void {
-        try {
-            $worker->result = $worker->services->get('concurrent');
-            $worker->services->get(DiContract::class);
-        } catch (Throwable $error) {
-            $worker->error = $error->getMessage();
-        } finally {
-            $worker->done = true;
-        }
+diCheck($result === 'done', 'withScope returns the callback result');
+diCheck($log->entries === ['second', 'first'], 'Scope disposes its services in reverse creation order, not singletons');
+$failed = false;
+try {
+    $trackedProvider->withScope(static function (Loom\ServiceScope $scope): void {
+        $scope->get('first');
+        throw new RuntimeException('work failed');
     });
+} catch (RuntimeException $error) {
+    $failed = $error->getMessage() === 'work failed';
 }
-$deadline = microtime(true) + 5;
-foreach ($workers as $worker) {
-    while (!$worker->done && microtime(true) < $deadline) { usleep(1000); }
-    diCheck($worker->done && $worker->error === null, 'Concurrent resolution completes without errors: ' . ($worker->error ?? 'timeout'));
-    diCheck($worker->result === $c->get('concurrent'), 'Concurrent requests share one singleton');
-}
-diCheck($state->calls === 1, 'Concurrent first resolution constructs exactly once');
-$root->container()->get(Loom\Config::class)->setRoot(dirname(__DIR__, 2));
-$modules = $root->container()->get(Loom\ModuleRegistry::class);
-foreach ([DiModuleSingleton::class, DiModuleScoped::class, DiModuleTransient::class] as $class) { $modules->register($class); }
-$modules->services($c);
-$modules->services($d);
-diCheck($c->get('di.module.shared') === $d->get('di.module.shared'), 'Module singleton uses shared registration');
-diCheck($c->get('di.module.scoped') !== $d->get('di.module.scoped'), 'Module services default to scoped');
-diCheck($c->get('di.module.fresh') !== $c->get('di.module.fresh'), 'Module transient registration');
-diReject(fn () => new Loom\Attributes\Service('bad', 'invalid'), 'Invalid service lifetime');
-foreach (['singleton', 'scoped', 'transient'] as $lifetime) {
-    $bindings = new Loom\Container();
-    $bindings->$lifetime(DiContract::class, DiService::class);
-    $bindings->$lifetime(DiDependency::class);
-    $child = $bindings->fork();
-    $first = $bindings->get(DiDependency::class);
-    diCheck($first->service instanceof DiContract, 'Interface constructor injection for ' . $lifetime);
-    diCheck(($first === $bindings->get(DiDependency::class)) === ($lifetime !== 'transient'), 'Repeat identity for ' . $lifetime);
-    diCheck(($first === $child->get(DiDependency::class)) === ($lifetime === 'singleton'), 'Cross-scope identity for ' . $lifetime);
-}
-echo "loom_di_test: OK\n";
+diCheck($failed && $log->entries === ['second', 'first', 'first'], 'Scope is disposed when the work fails');
+$disposedScope = $trackedProvider->createScope();
+$disposedScope->dispose();
+diReject(static fn () => $disposedScope->get('first'), 'disposed');
+$trackedProvider->dispose();
+diCheck($log->entries === ['second', 'first', 'first', 'root'], 'Provider disposes singletons');
+diReject(static fn () => $trackedProvider->get('root'), 'disposed');
+
+$options = new Loom\ServiceCollection();
+$root = sys_get_temp_dir() . '/loom-di-' . bin2hex(random_bytes(6));
+mkdir($root . '/config', 0777, true);
+file_put_contents($root . '/config/http.php', "<?php return ['address' => '127.0.0.1:1'];");
+$options->addInstance(Loom\Config::class, new Loom\Config($root));
+$options->configure(Loom\HttpServerOptions::class, 'http');
+$hosted = new Loom\ServiceCollection();
+diReject(static fn () => $hosted->addHostedService('Missing\\Hosted'), 'does not exist');
+diCheck($options->build()->get(Loom\HttpServerOptions::class)->address === '127.0.0.1:1', 'configure binds an options section');
+unlink($root . '/config/http.php');
+rmdir($root . '/config');
+rmdir($root);
+
+$invoked = $provider->withScope(static function (Loom\ServiceScope $scope): array {
+    $request = new Loom\Request(['method' => 'GET', 'path' => '/']);
+    return Loom\Invoker::call(static fn (Loom\Request $r, DiContract $service, $first = 'none', ?DiCycleMissing $missing = null): array => [$r, $service, $first, $missing], $scope, [$request, 'positional']) + ['request' => $request, 'scoped' => $scope->get(DiContract::class)];
+});
+diCheck($invoked[0] === $invoked['request'], 'Invoker passes provided arguments by type');
+diCheck($invoked[1] === $invoked['scoped'], 'Invoker resolves services from the scope');
+diCheck($invoked[2] === 'positional' && $invoked[3] === null, 'Invoker binds untyped and nullable parameters');
+
+echo "DI: OK\n";

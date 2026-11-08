@@ -19,7 +19,7 @@ type executionFrame interface {
 func bindExecutionContext(ctx data.Context, goContext context.Context) (func(), error) {
 	frame, ok := findExecutionFrame(ctx)
 	if !ok {
-		return nil, fmt.Errorf("Origami execution context support is required; build Loom with scripts/build.ps1")
+		return nil, fmt.Errorf("Origami execution context support is required; the Origami checkout must provide SetGoContext and RawGoContext")
 	}
 	previous := frame.RawGoContext()
 	frame.SetGoContext(goContext)

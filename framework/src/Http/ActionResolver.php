@@ -8,7 +8,7 @@ namespace Loom;
  * 检查路由处理器的形状，并在分发时才从容器取出控制器。
  *
  * 构造参数：
- * - $container（Container）：按类名取出控制器的服务容器。
+ * - $container（ServiceResolver）：按类名取出控制器的服务容器。
  *
  * 返回值：使用 new 构造时得到 ActionResolver 实例。
  *
@@ -17,17 +17,17 @@ namespace Loom;
  */
 final class ActionResolver
 {
-    private Container $container;
+    private ServiceResolver $container;
     /**
      * 保存服务容器。构造时不创建控制器。
      *
-     * @param Container $container 按类名取出控制器的服务容器。
+     * @param ServiceResolver $container 按类名取出控制器的服务容器。
      * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $resolver = new ActionResolver($services);
      */
-    public function __construct(Container $container)
+    public function __construct(ServiceResolver $container)
     {
         $this->container = $container;
     }

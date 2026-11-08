@@ -1,8 +1,6 @@
 <?php
 
 require_once dirname(__DIR__) . '/bootstrap.php';
-$runtimeScope = new \Loom\ServiceScope(new \Loom\Config());
-$runtimeServices = $runtimeScope->container();
 
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -34,31 +32,33 @@ function loom_check($condition, $message)
 class LoomTestService
 {
 }
-$container = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
 $calls = 0;
-$container->bind(LoomTestService::class, function ($container) use (&$calls, $runtimeServices) {
+$services = new Loom\ServiceCollection();
+$services->addScoped(LoomTestService::class, function () use (&$calls) {
     $calls++;
     return new LoomTestService();
 });
-loom_check($container->get(LoomTestService::class) === $container->get(LoomTestService::class), 'service identity');
-loom_check($calls === 1, 'factory runs once');
-$container->bind('retry', function ($container) use (&$calls, $runtimeServices) {
+$services->addScoped('retry', function () use (&$calls) {
     if ($calls++ === 1) {
         throw new RuntimeException('retry');
     }
     return new LoomTestService();
 });
+$services->addScoped('cycle.a', function (Loom\ServiceResolver $services) {
+    return $services->get('cycle.b');
+});
+$services->addScoped('cycle.b', function (Loom\ServiceResolver $services) {
+    return $services->get('cycle.a');
+});
+$provider = $services->build();
+$container = $provider->createScope();
+loom_check($container->get(LoomTestService::class) === $container->get(LoomTestService::class), 'service identity');
+loom_check($calls === 1, 'factory runs once');
 try {
     $container->get('retry');
 } catch (RuntimeException $error) {
 }
 loom_check($container->get('retry') instanceof LoomTestService, 'failed resolution cleans cycle state');
-$container->bind('cycle.a', function ($services) use ($runtimeServices) {
-    return $services->get('cycle.b');
-});
-$container->bind('cycle.b', function ($services) use ($runtimeServices) {
-    return $services->get('cycle.a');
-});
 $cycle = false;
 try {
     $container->get('cycle.a');
@@ -67,7 +67,7 @@ try {
 }
 loom_check($cycle, 'native container cycle error preserves Loom contract');
 loom_check($container->get('retry') instanceof LoomTestService, 'native resolution stack clears after cycle');
-loom_check(((new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container())->get(LoomTestService::class) !== $container->get(LoomTestService::class), 'native containers isolate shared instances');
+loom_check($provider->createScope()->get(LoomTestService::class) !== $container->get(LoomTestService::class), 'scopes isolate scoped instances');
 
 /**
  * 读取路由 id 并输出 JSON，验证 GET 路由参数绑定。
@@ -121,9 +121,18 @@ class LoomTestHead implements Loom\Action
         return new Loom\Response('', 202);
     }
 }
-$app = new Loom\Application();
-$app->route('GET', '/items/{id}', LoomTestGet::class);
-$app->route('HEAD', '/items/{id}', LoomTestHead::class);
+$root = sys_get_temp_dir() . '/loom-framework-' . bin2hex(random_bytes(6));
+mkdir($root . '/config', 0700, true);
+file_put_contents($root . '/config/modules.php', '<?php return [];');
+try {
+    $app = Loom\Application::createBuilder($root)->build();
+} finally {
+    unlink($root . '/config/modules.php');
+    rmdir($root . '/config');
+    rmdir($root);
+}
+$app->map('GET', '/items/{id}', LoomTestGet::class);
+$app->map('HEAD', '/items/{id}', LoomTestHead::class);
 $request = new Loom\Request(['method' => 'GET', 'path' => '/items/abc', 'body' => '', 'query' => [], 'headers' => []]);
 loom_check($app->handle($request)->toArray()['body'] === '{"id":"abc"}', 'route parameter');
 $missing = false;

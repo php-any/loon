@@ -17,6 +17,32 @@ function check_middleware($ok)
     }
 }
 /**
+ * 在没有模块的临时项目根上构建应用。$configure 在构建前收到 ServiceCollection。
+ *
+ * @param ?callable $configure 构建前登记或替换服务的回调。
+ * @return Loom\Application 已构建的应用。
+ *
+ * 使用示例（依赖对象由所在应用或测试环境提供）：
+ * @example $app = middleware_app();
+ */
+function middleware_app(?callable $configure = null): Loom\Application
+{
+    $root = sys_get_temp_dir() . '/loom-middleware-' . bin2hex(random_bytes(6));
+    mkdir($root . '/config', 0700, true);
+    file_put_contents($root . '/config/modules.php', '<?php return [];');
+    try {
+        $builder = Loom\Application::createBuilder($root);
+        if ($configure !== null) {
+            $configure($builder->services);
+        }
+        return $builder->build();
+    } finally {
+        unlink($root . '/config/modules.php');
+        rmdir($root . '/config');
+        rmdir($root);
+    }
+}
+/**
  * 创建记录进入和退出顺序的中间件，并在响应中写入追踪头。
  *
  * @param mixed $name 当前操作使用的名称；测试中作为响应头名或追踪标识。
@@ -77,22 +103,23 @@ class TestMiddleware implements Loom\Middleware
         return $next($request->withAttribute('user', $this->value));
     }
 }
-$app = new Loom\Application();
 $GLOBALS['factories'] = 0;
-$app->container()->bind(TestMiddleware::class, function ($services) {
-    $GLOBALS['factories']++;
-    return new TestMiddleware('Ada');
+$app = middleware_app(function (Loom\ServiceCollection $services) {
+    $services->addScoped(TestMiddleware::class, function () {
+        $GLOBALS['factories']++;
+        return new TestMiddleware('Ada');
+    });
 });
-$app->group('/api', function ($app) {
-    $app->group('/v1', function ($app) {
-        $app->get('/items/{id}', function ($request) {
+$app->mapGroup('/api', trace_middleware('outer'))->group(function (Loom\Router $routes) {
+    $routes->group('/v1', function (Loom\Router $routes) {
+        $routes->get('/items/{id}', function ($request) {
             $GLOBALS['trace'][] = 'action';
             return new Loom\Response($request->attribute('user'));
         }, 'item', [trace_middleware('route'), TestMiddleware::class]);
     }, [trace_middleware('inner')]);
-}, [trace_middleware('outer')]);
+});
 // 路由注册之后添加的全局中间件仍包裹分发过程，包括 404 和 405。
-$app->middleware(trace_middleware('global'));
+$app->use(trace_middleware('global'));
 check_middleware($GLOBALS['factories'] === 0);
 foreach (['GET', 'HEAD'] as $method) {
     $GLOBALS['trace'] = [];
@@ -102,7 +129,8 @@ foreach (['GET', 'HEAD'] as $method) {
     check_middleware($GLOBALS['trace'] === ['global:in', 'outer:in', 'inner:in', 'route:in', 'action', 'route:out', 'inner:out', 'outer:out', 'global:out']);
     check_middleware($request->attribute('user', 'none') === 'none');
 }
-check_middleware($GLOBALS['factories'] === 1);
+// 中间件类名在每次请求的作用域里解析一次。
+check_middleware($GLOBALS['factories'] === 2);
 foreach ([['GET', '/missing', 404], ['POST', '/api/v1/items/7', 405]] as $case) {
     $GLOBALS['trace'] = [];
     $result = $app->handle(new Loom\Request(['method' => $case[0], 'path' => $case[1]]))->toArray();
@@ -110,41 +138,41 @@ foreach ([['GET', '/missing', 404], ['POST', '/api/v1/items/7', 405]] as $case) 
     check_middleware($GLOBALS['trace'] === ['global:in', 'global:out']);
 }
 try {
-    $app->group('/failed', function ($app) {
+    $app->mapGroup('/failed', trace_middleware('leaked'))->group(function ($routes) {
         throw new RuntimeException('stop');
-    }, [trace_middleware('leaked')]);
+    });
 } catch (RuntimeException $error) {
 }
-$app->get('/root', function ($request) {
+$app->mapGet('/root', function ($request) {
     return new Loom\Response('root');
 });
 $GLOBALS['trace'] = [];
 check_middleware($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/root']))->toArray()['body'] === 'root');
 check_middleware($GLOBALS['trace'] === ['global:in', 'global:out']);
-$blocked = new Loom\Application();
-$blocked->get('/private', 'MustNotResolveController', '', [function ($request, $next) {
+$blocked = middleware_app();
+$blocked->mapGet('/private', 'MustNotResolveController', '', [function ($request, $next) {
     return new Loom\Response('denied', 403);
 }, 'MustNotResolveMiddleware']);
 check_middleware($blocked->handle(new Loom\Request(['method' => 'GET', 'path' => '/private']))->toArray()['status'] === 403);
-$blocked->websocket('/socket', 'MustNotResolveController', '', [function ($request, $next) {
+$blocked->mapWebSocket('/socket', 'MustNotResolveController', '', [function ($request, $next) {
     throw new Loom\HttpError(401, 'Login required');
 }]);
 check_middleware($blocked->handle(new Loom\Request(['method' => 'GET', 'path' => '/socket']))->toArray()['status'] === 401);
-$blocked->middleware(function ($request, $next) {
+$blocked->use(function ($request, $next) {
     throw new Loom\HttpError(429, 'Slow down');
 });
 check_middleware($blocked->handle(new Loom\Request(['method' => 'GET', 'path' => '/missing']))->toArray()['status'] === 429);
 foreach ([null, 42, [], new stdClass(), ''] as $bad) {
     $thrown = false;
     try {
-        $app->middleware($bad);
+        $app->use($bad);
     } catch (LogicException $error) {
         $thrown = true;
     }
     check_middleware($thrown);
 }
-$badApp = new Loom\Application();
-$badApp->middleware(function ($request, $next) {
+$badApp = middleware_app();
+$badApp->use(function ($request, $next) {
     throw new RuntimeException('unexpected');
 });
 $thrown = false;
@@ -197,26 +225,26 @@ class CallableMiddleware
         return $next($request)->withHeader('X-Method', 'yes');
     }
 }
-$forms = new Loom\Application();
-$forms->middleware(new CallableMiddleware());
-$forms->middleware([new CallableMiddleware(), 'process']);
-$forms->get('/items/{id}', function ($request) {
+$forms = middleware_app();
+$forms->use(new CallableMiddleware());
+$forms->use([new CallableMiddleware(), 'process']);
+$forms->mapGet('/items/{id}', function ($request) {
     return new Loom\Response($request->attribute('user'));
 }, '', [new TestMiddleware('object')]);
-$forms->route('HEAD', '/items/{id}', function ($request) {
+$forms->map('HEAD', '/items/{id}', function ($request) {
     return new Loom\Response('head');
 });
 $result = $forms->handle(new Loom\Request(['method' => 'GET', 'path' => '/items/7']))->toArray();
 check_middleware($result['body'] === 'object' && $result['headers']->{'x-object'} === 'yes' && $result['headers']->{'x-method'} === 'yes');
 check_middleware($forms->handle(new Loom\Request(['method' => 'HEAD', 'path' => '/items/7']))->toArray()['body'] === 'head');
-$forms->get('/error', function ($request) {
+$forms->mapGet('/error', function ($request) {
     throw new Loom\HttpError(422, 'Invalid');
 });
 $result = $forms->handle(new Loom\Request(['method' => 'GET', 'path' => '/error']))->toArray();
 check_middleware($result['status'] === 422 && $result['headers']->{'x-object'} === 'yes');
 // 链式选项可组合使用，不修改应用或可复用的构建器。
-$fluent = new Loom\Application();
-$base = $fluent->prefix('/api')->withMiddleware(trace_middleware('outer'));
+$fluent = middleware_app();
+$base = $fluent->mapGroup('/api')->withMiddleware(trace_middleware('outer'));
 $inner = $base->prefix('/v1')->withMiddleware(trace_middleware('inner'), trace_middleware('route'));
 $inner->group(function ($routes) {
     $routes->get('/items/{id}', function ($request) {
@@ -226,7 +254,7 @@ $inner->group(function ($routes) {
 $base->get('/base', function ($request) {
     return new Loom\Response('base');
 });
-$fluent->get('/plain', function ($request) {
+$fluent->mapGet('/plain', function ($request) {
     return new Loom\Response('plain');
 });
 check_middleware($fluent->url('fluent.item', ['id' => '7']) === '/api/v1/items/7');
@@ -241,7 +269,7 @@ try {
     });
 } catch (RuntimeException $error) {
 }
-$fluent->get('/after', function ($request) {
+$fluent->mapGet('/after', function ($request) {
     return new Loom\Response('after');
 });
 $GLOBALS['trace'] = [];
@@ -256,7 +284,7 @@ foreach (['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as $verb) 
     check_middleware($fluent->handle(new Loom\Request(['method' => strtoupper($verb), 'path' => '/api/verbs']))->toArray()['body'] === strtoupper($verb));
     check_middleware($GLOBALS['trace'] === ['outer:in', 'outer:out']);
 }
-$fluent->withMiddleware(function ($request, $next) {
+$fluent->mapGroup('', function ($request, $next) {
     return new Loom\Response('blocked', 403);
 })
     ->websocket('/socket', 'NeverResolve');

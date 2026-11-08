@@ -1,9 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->container();
-use Loom\Database;
+require dirname(__DIR__) . '/bootstrap.php';
 
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -21,50 +19,53 @@ function storageCheck(bool $ok, string $message): void
         throw new RuntimeException($message);
     }
 }
-$runtimeServices->get(\Loom\Database::class)->connect((string)getenv('LOOM_DATABASE'));
+$app = (static function () { return require dirname(__DIR__, 2) . '/loom.php'; })();
 try {
-    $literal = 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING';
-    storageCheck($runtimeServices->get(\Loom\Database::class)->query("SELECT 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING' AS value")[0]['value'] === $literal, 'Raw SQL literals must be unchanged');
-    $runtimeServices->get(\Loom\Database::class)->execute('CREATE TABLE storage_probe(id BIGINT PRIMARY KEY AUTO_INCREMENT,name VARCHAR(255) UNIQUE,value TEXT)');
-    $sql = 'INSERT INTO storage_probe(name,value) VALUES(?,?)';
-    $runtimeServices->get(\Loom\Database::class)->execute($sql . $runtimeServices->get(\Loom\Database::class)->conflict(['name']), ['one', 'first']);
-    storageCheck($runtimeServices->get(\Loom\Database::class)->execute($sql . $runtimeServices->get(\Loom\Database::class)->conflict(['name']), ['one', 'ignored'])['affected'] === 0, 'Conflict ignore');
-    $runtimeServices->get(\Loom\Database::class)->execute($sql . $runtimeServices->get(\Loom\Database::class)->conflict(['name'], ['value']), ['one', 'updated']);
-    storageCheck($runtimeServices->get(\Loom\Database::class)->query('SELECT value FROM storage_probe')[0]['value'] === 'updated', 'Structured upsert');
-    try {
-        $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($sql, $runtimeServices): void {
-            $runtimeServices->get(\Loom\Database::class)->execute($sql, ['rollback', 'value']);
-            throw new RuntimeException('expected');
-        });
-    } catch (RuntimeException $e) {
-        storageCheck($e->getMessage() === 'expected', 'Original transaction error');
-    }
-    storageCheck(count($runtimeServices->get(\Loom\Database::class)->query('SELECT id FROM storage_probe')) === 1, 'Transaction rollback');
-    $nested = false;
-    try {
-        $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($runtimeServices, &$nested): void {
-            try {
-                $runtimeServices->get(\Loom\Database::class)->transaction(fn () => null);
-            } catch (LogicException $e) {
-                $nested = str_contains($e->getMessage(), 'Nested transactions');
-            }
-            if (!$nested) {
-                throw new RuntimeException('nested transaction was accepted');
-            }
-        });
-    } catch (RuntimeException $e) {
-        storageCheck(false, $e->getMessage());
-    }
-    storageCheck($nested, 'Nested transaction is rejected without ending the outer transaction');
-    $blocked = false;
-    try {
-        $runtimeServices->get(\Loom\Database::class)->conflict(['name); DELETE FROM storage_probe']);
-    } catch (LogicException $e) {
-        $blocked = true;
-    }
-    storageCheck($blocked, 'Conflict identifiers validated');
-    storageCheck(extension_loaded('redis') && class_exists('Redis'), 'Origami Redis module is explicitly loaded');
+    $app->services->withScope(static function (\Loom\ServiceScope $scope): void {
+        $database = $scope->get(\Loom\Database::class);
+        $literal = 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING';
+        storageCheck($database->query("SELECT 'rowid key unixepoch() excluded.value ON CONFLICT(id) DO NOTHING' AS value")[0]['value'] === $literal, 'Raw SQL literals must be unchanged');
+        $database->execute('CREATE TABLE storage_probe(id BIGINT PRIMARY KEY AUTO_INCREMENT,name VARCHAR(255) UNIQUE,value TEXT)');
+        $sql = 'INSERT INTO storage_probe(name,value) VALUES(?,?)';
+        $database->execute($sql . $database->conflict(['name']), ['one', 'first']);
+        storageCheck($database->execute($sql . $database->conflict(['name']), ['one', 'ignored'])['affected'] === 0, 'Conflict ignore');
+        $database->execute($sql . $database->conflict(['name'], ['value']), ['one', 'updated']);
+        storageCheck($database->query('SELECT value FROM storage_probe')[0]['value'] === 'updated', 'Structured upsert');
+        try {
+            $database->transaction(function () use ($sql, $scope): void {
+                $scope->get(\Loom\Database::class)->execute($sql, ['rollback', 'value']);
+                throw new RuntimeException('expected');
+            });
+        } catch (RuntimeException $e) {
+            storageCheck($e->getMessage() === 'expected', 'Original transaction error');
+        }
+        storageCheck(count($database->query('SELECT id FROM storage_probe')) === 1, 'Transaction rollback');
+        $nested = false;
+        try {
+            $database->transaction(function () use ($scope, &$nested): void {
+                try {
+                    $scope->get(\Loom\Database::class)->transaction(fn () => null);
+                } catch (LogicException $e) {
+                    $nested = str_contains($e->getMessage(), 'Nested transactions');
+                }
+                if (!$nested) {
+                    throw new RuntimeException('nested transaction was accepted');
+                }
+            });
+        } catch (RuntimeException $e) {
+            storageCheck(false, $e->getMessage());
+        }
+        storageCheck($nested, 'Nested transaction is rejected without ending the outer transaction');
+        $blocked = false;
+        try {
+            $database->conflict(['name); DELETE FROM storage_probe']);
+        } catch (LogicException $e) {
+            $blocked = true;
+        }
+        storageCheck($blocked, 'Conflict identifiers validated');
+        storageCheck(extension_loaded('redis') && class_exists('Redis'), 'Origami Redis module is explicitly loaded');
+    });
     echo "loom_storage_test: OK\n";
 } finally {
-    $runtimeServices->get(\Loom\Database::class)->close();
+    $app->dispose();
 }

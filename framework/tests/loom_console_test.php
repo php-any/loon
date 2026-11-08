@@ -1,7 +1,6 @@
 <?php
 
 require_once dirname(__DIR__) . '/bootstrap.php';
-require_once dirname(__DIR__) . '/bootstrap.php';
 
 use Loom\Console\Console;
 use Loom\Console\Command;
@@ -164,16 +163,113 @@ class TestConsoleCommand extends Command
     }
 }
 $constructed = 0;
-$console->container()->bind(TestConsoleCommand::class, function ($container) use (&$constructed) {
+$services = new Loom\ServiceCollection();
+$services->addScoped(TestConsoleCommand::class, function (Loom\ServiceResolver $services) use (&$constructed) {
     $constructed++;
-    return new TestConsoleCommand($container->get(ConsoleGreeter::class));
+    return new TestConsoleCommand($services->get(ConsoleGreeter::class));
 });
+$scope = $services->build()->createScope();
 $console->add(TestConsoleCommand::class);
 consoleCheck($constructed === 0, '注册命令不解析工厂');
-consoleCheck($console->run(['help', 'class:test']) === 0 && $constructed === 0, '帮助不解析工厂');
-consoleCheck($console->run(['list']) === 0 && $constructed === 0, '列表不解析工厂');
-consoleCheck($console->run(['class:test', '--unknown']) === 2 && $constructed === 0, '输入校验先于工厂');
-consoleCheck($console->run(['class:test', '--name=Lin']) === 3 && strpos($out, 'injected Lin') !== false && strpos($err, '标准错误流正常') !== false, '命令类工厂与输出流');
+consoleCheck($console->run(['help', 'class:test'], $scope) === 0 && $constructed === 0, '帮助不解析工厂');
+consoleCheck($console->run(['list'], $scope) === 0 && $constructed === 0, '列表不解析工厂');
+consoleCheck($console->run(['class:test', '--unknown'], $scope) === 2 && $constructed === 0, '输入校验先于工厂');
+consoleCheck($console->run(['class:test', '--name=Lin'], $scope) === 3 && strpos($out, 'injected Lin') !== false && strpos($err, '标准错误流正常') !== false, '命令类工厂与输出流');
 consoleCheck($constructed === 1, '执行时才解析命令工厂');
-consoleCheck($console->run(['list']) === 0 && strpos($out, 'class:test') !== false, 'list');
+consoleCheck($console->run(['list'], $scope) === 0 && strpos($out, 'class:test') !== false, 'list');
+$console->command('scoped', function (Loom\Console\Input $input, Loom\Console\Output $output, Loom\ServiceScope $current, ConsoleGreeter $greeter) use ($scope) {
+    return $current === $scope && $greeter === $scope->get(ConsoleGreeter::class) ? 5 : 6;
+});
+consoleCheck($console->run(['scoped'], $scope) === 5, '闭包命令从给定作用域解析参数');
+$scope->dispose();
+
+// 应用命令表：框架内置命令与应用命令统一登记；帮助、参数错误都不得解析服务器或 worker。
+// 作用域的 run() 会为模型绑定 Database，所以这里不替换 Database；它在构造时不打开连接。
+$root = sys_get_temp_dir() . '/loom-console-' . bin2hex(random_bytes(6));
+mkdir($root . '/routes', 0700, true);
+mkdir($root . '/config', 0700, true);
+// 旧版路由文件不得被隐式执行。
+file_put_contents($root . '/routes/console.php', '<?php throw new \RuntimeException("Implicit routes loading");');
+file_put_contents($root . '/config/modules.php', '<?php return [];');
+$app = null;
+try {
+    $builder = Loom\Application::createBuilder($root);
+    foreach ([Loom\HttpServer::class, Loom\TcpServer::class, Loom\GrpcServer::class] as $service) {
+        $builder->services->addSingleton($service, static function () use ($service): object {
+            throw new RuntimeException('Unexpected resolution: ' . $service);
+        });
+    }
+    foreach ([Loom\Queue::class, Loom\Schedule::class] as $service) {
+        $builder->services->addScoped($service, static function () use ($service): object {
+            throw new RuntimeException('Unexpected resolution: ' . $service);
+        });
+    }
+    $app = $builder->build();
+    $app->mapCommand('fixture:status', function ($input, $output) {
+        return 7;
+    });
+    $registry = $app->services->get(Console::class);
+    foreach (['doctor', 'serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:work', '_job', 'make:command', 'fixture:status'] as $name) {
+        consoleCheck($registry->has($name), 'Unified registry: ' . $name);
+        ob_start();
+        try {
+            consoleCheck($app->run(['help', $name]) === 0, 'Programmatic built-in help: ' . $name);
+            consoleCheck($app->run([$name, '--help']) === 0, 'Built-in help option: ' . $name);
+        } finally {
+            ob_end_clean();
+        }
+    }
+    consoleCheck($app->run(['fixture:status']) === 7, 'Application interface command');
+    ob_start();
+    try {
+        consoleCheck($app->run(['list']) === 0, 'Application list');
+    } finally {
+        $listed = ob_get_clean();
+    }
+    consoleCheck(str_contains($listed, 'fixture:status') && !str_contains($listed, '  _job  '), 'Hidden command not listed');
+    $duplicate = false;
+    try {
+        $app->mapCommand('serve', function ($input, $output) {});
+    } catch (LogicException $error) {
+        $duplicate = true;
+    }
+    consoleCheck($duplicate, 'Application cannot shadow built-in command');
+    // 应用的命令表直接写标准流；错误路径用捕获输出的命令表在应用作用域里验证。
+    $out = '';
+    $err = '';
+    $captured = new Console(new Output(function ($text, $stderr) use (&$out, &$err) {
+        if ($stderr) {
+            $err .= $text;
+        } else {
+            $out .= $text;
+        }
+    }));
+    foreach ([Loom\Console\Commands\ServeCommand::class, Loom\Console\Commands\MigrateUpCommand::class, Loom\Console\Commands\QueueWorkCommand::class, Loom\Console\Commands\ScheduleWorkCommand::class] as $class) {
+        $captured->add($class);
+    }
+    $captured->command('fixture:fail', function ($input, $output) {
+        throw new RuntimeException('expected command failure');
+    });
+    $codes = $app->services->withScope(static function (Loom\ServiceScope $scope) use ($captured): array {
+        $codes = [];
+        foreach (['serve', 'migrate:up', 'queue:work', 'schedule:work'] as $name) {
+            $codes[] = $captured->run([$name, '--unknown'], $scope);
+        }
+        $codes[] = $captured->run(['serve'], $scope);
+        $codes[] = $captured->run(['fixture:fail'], $scope);
+        return $codes;
+    });
+    consoleCheck(array_slice($codes, 0, 4) === [2, 2, 2, 2], 'Input validation before dependencies');
+    consoleCheck($codes[4] === 1 && str_contains($err, 'Unexpected resolution'), 'Command dependencies resolve from the application scope at execution');
+    consoleCheck($codes[5] === 1 && str_contains($err, 'expected command failure'), 'Execution exception status');
+} finally {
+    if ($app !== null) {
+        $app->dispose();
+    }
+    unlink($root . '/routes/console.php');
+    unlink($root . '/config/modules.php');
+    rmdir($root . '/routes');
+    rmdir($root . '/config');
+    rmdir($root);
+}
 echo "loom_console_test: OK\n";

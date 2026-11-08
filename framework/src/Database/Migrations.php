@@ -19,7 +19,7 @@ final class Migrations
      * 保存数据库和配置。这里不建表，也不执行 SQL。
      *
      * @param \Loom\Database $database 以后建迁移表、加锁，并读写 loom_migrations。
-     * @param \Loom\Config $config 只保存。本类现有方法不读取它。
+     * @param \Loom\Config $config migrate、rollback、applicationStatus 读取 migrations 配置。
      * @return void 不返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -216,6 +216,48 @@ final class Migrations
     {
         $this->run('loom_base', $this->files(dirname(__DIR__, 2) . '/resources/migrations/base'));
         $this->run('loom', $this->files(dirname(__DIR__, 2) . '/resources/migrations'));
+    }
 
+    /**
+     * 先 initialize，再执行 config/migrations.php 指定的应用迁移。HTTP、队列和调度进程启动前调用。
+     *
+     * @example $migrations->migrate();
+     */
+    public function migrate(): void
+    {
+        $this->initialize();
+        [$namespace, $plan] = $this->application();
+        $this->run($namespace, $plan);
+    }
+
+    /**
+     * 撤销应用命名空间的最后一个批次。
+     *
+     * @example $migrations->rollback();
+     */
+    public function rollback(): void
+    {
+        [$namespace, $plan] = $this->application();
+        $this->run($namespace, $plan, true);
+    }
+
+    /**
+     * @return array 应用命名空间的迁移状态，格式同 status()。
+     *
+     * @example $rows = $migrations->applicationStatus();
+     */
+    public function applicationStatus(): array
+    {
+        [$namespace, $plan] = $this->application();
+        return $this->status($namespace, $plan);
+    }
+
+    /**
+     * @return array{0: string, 1: array} 应用迁移的命名空间和计划。
+     */
+    private function application(): array
+    {
+        $migrations = $this->config->get('migrations');
+        return [$migrations['namespace'], $this->files($this->config->path($migrations['path']))];
     }
 }

@@ -1,8 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$runtimeScope = (require dirname(__DIR__, 2) . '/framework/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->container();
+require dirname(__DIR__, 2) . '/framework/bootstrap.php';
 
 function protoAssert(bool $ok, string $message): void
 {
@@ -12,8 +11,8 @@ function protoAssert(bool $ok, string $message): void
 }
 function protoRun(string $entry, array $args): array
 {
-    global $runtimeServices;
-    return $runtimeServices->get(\Loom\Process::class)->run(array_merge([PHP_BINARY, $entry], $args));
+    global $protoProcess;
+    return $protoProcess->run(array_merge([PHP_BINARY, $entry], $args));
 }
 function protoRemove(string $directory): void
 {
@@ -30,15 +29,16 @@ function protoRemove(string $directory): void
     }
     rmdir($directory);
 }
-$root = $runtimeServices->get(\Loom\Config::class)->root();
+$app = (static function () { return require dirname(__DIR__, 2) . '/loom.php'; })();
+$protoProcess = $app->services->get(\Loom\Process::class);
+$root = $app->configuration->root();
 $fixture = $root . '/storage/testing/proto-' . bin2hex(random_bytes(6));
 mkdir($fixture . '/config', 0700, true);
-mkdir($fixture . '/routes', 0700, true);
 mkdir($fixture . '/bin', 0700, true);
 $entry = $fixture . '/loom.php';
-file_put_contents($entry, '<?php $scope = (require ' . var_export($root . '/framework/bootstrap/autoload.php', true) . ')(' . var_export($fixture, true) . '); exit($scope->container()->get(\\Loom\\Cli::class)->run(array_slice($argv,1)));');
-file_put_contents($fixture . '/routes/console.php', '<?php');
-foreach (['database' => ['dsn' => 'mysql:host=127.0.0.1;dbname=loom_test'], 'grpc' => ['import_paths' => ['proto'], 'proto_files' => [], 'package_prefix' => 'app']] as $name => $values) {
+// 独立项目根目录，只有框架内置命令。
+file_put_contents($entry, '<?php require ' . var_export($root . '/framework/bootstrap.php', true) . '; $app = \\Loom\\Application::createBuilder(' . var_export($fixture, true) . ')->build(); try { $code = $app->run(array_slice($argv, 1)); } finally { $app->dispose(); } exit($code);');
+foreach (['modules' => [], 'database' => ['dsn' => 'mysql:host=127.0.0.1;dbname=loom_test'], 'grpc' => ['import_paths' => ['proto'], 'proto_files' => [], 'package_prefix' => 'app']] as $name => $values) {
     file_put_contents($fixture . '/config/' . $name . '.php', '<?php return ' . var_export($values, true) . ';');
 }
 try {
@@ -67,8 +67,7 @@ try {
     $source = file_get_contents($business);
     $source = str_replace("throw new \\Loom\\Grpc\\RpcException('unimplemented', 'Implement getWidget in WidgetService');", "return ['id'=>\$request['id'],'name'=>'Implemented'];", $source);
     // 注释中的伪方法不得掩盖缺失方法的诊断。
-    $source .= "\n// public function check(array \$request) {
-    global $runtimeServices;}\nfile_put_contents(" . var_export($fixture . '/executed', true) . ",'unsafe');\n";
+    $source .= "\n// public function check(array \$request) {}\nfile_put_contents(" . var_export($fixture . '/executed', true) . ",'unsafe');\n";
     file_put_contents($business, $source);
     $updated = str_replace('service WidgetService {', "service WidgetService {\n  rpc Check(GetWidgetRequest) returns (GetWidgetReply);", $contract);
     file_put_contents($proto, $updated);
@@ -103,5 +102,6 @@ try {
     if ($resolved !== false && $allowed !== false && str_starts_with($resolved, $allowed . DIRECTORY_SEPARATOR)) {
         protoRemove($resolved);
     }
+    $app->dispose();
 }
 echo "loom_proto_test: OK\n";

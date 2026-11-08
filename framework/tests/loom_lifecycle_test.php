@@ -1,10 +1,7 @@
 <?php
 
 declare(strict_types=1);
-
-$runtimeScope = (require dirname(__DIR__) . '/bootstrap/autoload.php')(dirname(__DIR__, 2));
-$runtimeServices = $runtimeScope->container();
-require __DIR__ . '/fixtures/modules/components.php';
+require dirname(__DIR__) . '/bootstrap.php';
 
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
@@ -38,10 +35,10 @@ lifecycleCheck($router->match('GET', '/socket')->websocket, 'WebSocket registrat
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 AlternateMatcher 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 AlternateMatcher 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(AlternateMatcher::class); // 在对应测试环境中解析；无效夹具用于断言异常
+ * @example $kernel = new Loom\HttpKernel(new AlternateMatcher());
  */
 class AlternateMatcher implements Loom\RouteMatcher
 {
@@ -57,122 +54,45 @@ class AlternateMatcher implements Loom\RouteMatcher
      */
     public function match(string $method, string $path): Loom\RouteMatch
     {
-        global $runtimeServices;
-        return new Loom\RouteMatch(200, function ($request) use ($runtimeServices) {
+        return new Loom\RouteMatch(200, static function (Loom\Request $request): Loom\Response {
             return new Loom\Response($request->parameter('id'));
         }, ['id' => 'alternate']);
     }
 }
-$kernel = new Loom\HttpKernel(new AlternateMatcher(), (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container());
-lifecycleCheck($kernel->handle(new Loom\Request(['method' => 'GET', 'path' => '/']))->toArray()['body'] === 'alternate', 'Kernel accepts an independent matcher');
-
-// 工厂可以复用发现结果，但各应用拥有独立的容器和路由。
-$modules = new \Loom\ModuleRegistry(new \Loom\ModuleDiscovery($runtimeServices->get(\Loom\Config::class)), $runtimeServices->get(\Loom\Config::class), $runtimeScope);
-$modules->register(ModuleFixtures\Value::class);
-$modules->register(ModuleFixtures\Endpoint::class);
-$factory = new Loom\ApplicationFactory($modules);
-$factory->routes(function (Loom\Router $routes, Loom\Application $app) use ($runtimeServices): void {
-    $routes->get('/factory', function ($request) use ($app, $runtimeServices) {
-        return new Loom\Response($app->container()->get('module.value')->text());
-    });
-});
-$first = $factory->create();
-$second = $factory->create();
-lifecycleCheck($second->handle(new Loom\Request(['method' => 'GET', 'path' => '/factory']))->toArray()['body'] === 'injected', 'Factory callback receives the current application');
-lifecycleCheck($first->container()->get('module.value') !== $second->container()->get('module.value'), 'Factory applications must isolate services');
-$first->router()->get('/first-only', function ($request) use ($runtimeServices) {
-    return new Loom\Response('first');
-});
-lifecycleCheck($second->router()->match('GET', '/first-only')->status === 404, 'Factory applications must isolate route mutations');
-lifecycleCheck($second->handle(new Loom\Request(['method' => 'GET', 'path' => '/module/value']))->toArray()['body'] === 'injected12', 'Factory installs discovered routes and dependencies');
-
-/**
- * 创建普通对象并记录初始化顺序，验证可替换对象工厂。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：使用 new 构造时得到 PlainObjectFactory 实例；注册到容器时由容器管理实例的创建与复用。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(PlainObjectFactory::class); // 在对应测试环境中解析；无效夹具用于断言异常
- */
-class PlainObjectFactory implements Loom\ObjectFactory
-{
-    public int $initialized = 0;
-    /**
-     * 忽略请求类型并创建普通对象，供工厂替换测试使用。
-     *
-     * @param string $class 需要解析或创建的完整类名。
-     * @param Loom\Container $services 提供依赖解析和实例注册的服务容器。
-     * @return object 新的 stdClass 实例。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $object = $factory->create(stdClass::class, $services);
-     */
-    public function create(string $class, Loom\Container $services): object
-    {
-        return new stdClass();
-    }
-    /**
-     * 增加初始化计数并把顺序编号写入对象。
-     *
-     * @param object $instance 需要初始化或注册的对象实例。
-     * @param Loom\Container $services 提供依赖解析和实例注册的服务容器。
-     * @return void 无返回值，修改实例的 sequence 属性。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $factory->initialize($object, $services);
-     */
-    public function initialize(object $instance, Loom\Container $services): void
-    {
-        $instance->sequence = ++$this->initialized;
-    }
-}
-$objects = new PlainObjectFactory();
-$services = new Loom\Container($objects);
-$services->singleton('shared');
-$services->transient('fresh');
-lifecycleCheck($services->get('shared') === $services->get('shared'), 'Singleton identity belongs to the container');
-lifecycleCheck($services->get('fresh') !== $services->get('fresh'), 'Transient resolutions create separate objects');
-lifecycleCheck($objects->initialized === 3, 'Creation policy initializes each object once');
-$services->alias('shared.alias', 'shared');
-lifecycleCheck($services->get('shared.alias') === $services->get('shared') && $objects->initialized === 3, 'Aliases do not initialize the target again');
-$services->alias('fresh.alias', 'fresh');
-lifecycleCheck($services->get('fresh.alias') !== $services->get('fresh.alias'), 'Aliases preserve transient lifetime');
-$services->transient('failure', function ($services) use ($runtimeServices) {
-    throw new RuntimeException('failure');
-});
-try {
-    $services->get('failure');
-} catch (RuntimeException $error) {
-}
-lifecycleCheck($services->get('shared')->sequence === 1, 'Failed transient leaves native resolution state usable');
+$kernel = new Loom\HttpKernel(new AlternateMatcher());
+$kernelProvider = (new Loom\ServiceCollection())->build();
+$alternate = $kernelProvider->withScope(static fn (Loom\ServiceScope $scope): Loom\Response => $kernel->handle(new Loom\Request(['method' => 'GET', 'path' => '/']), $scope));
+lifecycleCheck($alternate->toArray()['body'] === 'alternate', 'Kernel accepts an independent matcher');
 
 /**
  * 模拟原生请求的 URL、方法、路径与安全连接信息。
  *
- * 构造参数：无，本类型未声明构造参数。
+ * 构造参数：
+ * - $path（string）：模拟的请求路径。默认值为 '/items'。
  *
- * 返回值：使用 new 构造时得到 NativeRequestProbe 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 NativeRequestProbe 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(NativeRequestProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
+ * @example $native = new NativeRequestProbe('/items');
  */
 class NativeRequestProbe
 {
+    public function __construct(private string $path = '/items')
+    {
+    }
     /**
      * 模拟含重复查询参数与自定义端口的完整请求 URL。
      *
      * 参数：无。
      *
-     * @return string 固定 URL https://example.test:8443/items?q=a&q=b。
+     * @return string 固定主机与端口加上当前路径，查询为 q=a&q=b。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $url = $probe->fullUrl();
      */
     public function fullUrl(): string
     {
-        return 'https://example.test:8443/items?q=a&q=b';
+        return 'https://example.test:8443' . $this->path . '?q=a&q=b';
     }
     /**
      * 模拟原生请求方法。
@@ -193,14 +113,14 @@ class NativeRequestProbe
      *
      * 参数：无。
      *
-     * @return string 固定路径 /items。
+     * @return string 构造时给出的路径。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $path = $probe->path();
      */
     public function path(): string
     {
-        return '/items';
+        return $this->path;
     }
     /**
      * 模拟使用安全连接的原生请求。
@@ -222,10 +142,10 @@ class NativeRequestProbe
  *
  * 构造参数：无，本类型未声明构造参数。
  *
- * 返回值：使用 new 构造时得到 NativeWriterProbe 实例；注册到容器时由容器管理实例的创建与复用。
+ * 返回值：使用 new 构造时得到 NativeWriterProbe 实例。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(NativeWriterProbe::class); // 在对应测试环境中解析；无效夹具用于断言异常
+ * @example $writer = new NativeWriterProbe();
  */
 class NativeWriterProbe
 {
@@ -235,8 +155,8 @@ class NativeWriterProbe
     /**
      * 记录响应头，供响应桥接断言读取。
      *
-     * @param string $name 当前操作使用的名称；测试中作为响应头名或追踪标识。
-     * @param string $value 夹具保存或使用的测试值；具体注入来源由参数属性声明。
+     * @param string $name 响应头名。
+     * @param string $value 响应头的值。
      * @return void 无返回值，更新内存中的响应头。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -273,6 +193,15 @@ class NativeWriterProbe
         $this->body .= $body;
     }
 }
+
+/**
+ * 记录请求作用域里看到的 RequestContext，验证每个请求各有一份。
+ */
+final class LifecycleSeen
+{
+    public array $contexts = [];
+}
+
 $native = new NativeRequestProbe();
 $request = Loom\RequestFactory::fromNative($native, ['HTTP_X_PROBE' => 'yes', 'CONTENT_TYPE' => 'application/json'], '{}', 16);
 lifecycleCheck($request->query('q') === ['a', 'b'] && $request->header('x-probe') === 'yes', 'Native adapter preserves repeated query and headers');
@@ -284,30 +213,72 @@ try {
     $rejected = $error->status === 413;
 }
 lifecycleCheck($rejected, 'Body limits apply at transport boundary');
-$writer = new NativeWriterProbe();
-$transport = new \Loom\HttpTransport($runtimeServices->get(\Loom\Network::class), $native, $writer);
-$transport->send(new Loom\Response('hidden', 202), true);
-lifecycleCheck($writer->status === 202 && $writer->body === '', 'HEAD emits headers without body');
 
-$runtimeServices->get(\Loom\RequestScope::class)->open($transport);
-$runtimeServices->get(\Loom\RequestContext::class)->bind($request);
-$runtimeServices->get(\Loom\Database::class)->connect((string)getenv('LOOM_DATABASE'));
-$runtimeServices->get(\Loom\Database::class)->execute('CREATE TABLE scope_probe (id INTEGER)');
-$runtimeServices->get(\Loom\RequestScope::class)->close();
-foreach (['request', 'transport'] as $kind) {
-    $cleared = false;
-    try {
-        if ($kind === 'request') {
-            $runtimeServices->get(\Loom\RequestContext::class)->current();
-        } else {
-            $runtimeServices->get(\Loom\RequestScope::class)->transport();
-        }
-    } catch (LogicException $error) {
-        $cleared = true;
+$root = sys_get_temp_dir() . '/loom-lifecycle-' . bin2hex(random_bytes(6));
+mkdir($root . '/config', 0777, true);
+$apps = [];
+try {
+    file_put_contents($root . '/config/modules.php', '<?php return [];');
+    file_put_contents($root . '/config/http.php', '<?php return ["address" => "127.0.0.1:1"];');
+    // 同一份登记构建出的两个应用各有自己的根容器和路由表。
+    foreach (['first', 'second'] as $name) {
+        $builder = Loom\Application::createBuilder($root);
+        $builder->services->addSingleton(LifecycleSeen::class);
+        $apps[$name] = $builder->build();
+        $apps[$name]->mapGet('/shared', static fn (LifecycleSeen $seen): Loom\Response => new Loom\Response((string) spl_object_id($seen)));
     }
-    lifecycleCheck($cleared, 'Scope cleanup clears ' . $kind);
+    $first = $apps['first'];
+    $second = $apps['second'];
+    lifecycleCheck($first->services->get(LifecycleSeen::class) !== $second->services->get(LifecycleSeen::class), 'Applications must isolate singletons');
+    $first->mapGet('/first-only', static fn (): Loom\Response => new Loom\Response('first'));
+    lifecycleCheck($second->handle(new Loom\Request(['method' => 'GET', 'path' => '/first-only']))->toArray()['status'] === 404, 'Applications must isolate route mutations');
+    lifecycleCheck($first->handle(new Loom\Request(['method' => 'GET', 'path' => '/first-only']))->toArray()['body'] === 'first', 'Routes mapped after build are served');
+
+    $network = $first->services->get(Loom\Network::class);
+    $writer = new NativeWriterProbe();
+    $transport = new Loom\HttpTransport($network, $native, $writer);
+    $transport->send(new Loom\Response('hidden', 202), true);
+    lifecycleCheck($writer->status === 202 && $writer->body === '', 'HEAD emits headers without body');
+
+    // HttpServer 为每个原生请求开一个作用域：请求和传输只挂在这次作用域的 RequestContext 上。
+    $first->mapGet('/items', static function (Loom\Request $request, Loom\RequestContext $context, LifecycleSeen $seen): Loom\Response {
+        $seen->contexts[] = $context;
+        return new Loom\Response($context->current()->path() . ':' . ($context->transport() instanceof Loom\HttpTransport ? 'transport' : 'none'));
+    });
+    $first->mapGet('/fails', static function (): Loom\Response {
+        throw new Loom\HttpError(409, 'conflict');
+    });
+    $server = $first->services->get(Loom\HttpServer::class);
+    $responses = [];
+    foreach (['/items', '/fails', '/items'] as $path) {
+        $writer = new NativeWriterProbe();
+        $server->handle(new NativeRequestProbe($path), $writer);
+        $responses[] = $writer;
+    }
+    lifecycleCheck($responses[0]->status === 200 && $responses[0]->body === '/items:transport', 'Server binds the request and transport in the request scope');
+    lifecycleCheck($responses[1]->status === 409, 'A failed dispatch is written as its HTTP status');
+    lifecycleCheck($responses[2]->status === 200 && $responses[2]->body === '/items:transport', 'A new request starts cleanly after a failed one');
+    $seen = $first->services->get(LifecycleSeen::class);
+    lifecycleCheck(count($seen->contexts) === 2 && $seen->contexts[0] !== $seen->contexts[1], 'Each request gets its own RequestContext');
+    $first->services->withScope(static function (Loom\ServiceScope $scope): void {
+        foreach (['request', 'transport'] as $kind) {
+            $cleared = false;
+            try {
+                $kind === 'request' ? $scope->get(Loom\RequestContext::class)->current() : $scope->get(Loom\RequestContext::class)->transport();
+            } catch (LogicException $error) {
+                $cleared = true;
+            }
+            lifecycleCheck($cleared, 'A fresh scope has no ' . $kind);
+        }
+    });
+} finally {
+    foreach ($apps as $app) {
+        $app->dispose();
+    }
+    foreach (glob($root . '/config/*') as $file) {
+        unlink($file);
+    }
+    rmdir($root . '/config');
+    rmdir($root);
 }
-// 清理完成后可以开始新请求，即使前一次分发失败也不例外。
-$runtimeServices->get(\Loom\RequestScope::class)->open(new \Loom\HttpTransport($runtimeServices->get(\Loom\Network::class), $native, new NativeWriterProbe()));
-$runtimeServices->get(\Loom\RequestScope::class)->close();
 echo "loom_lifecycle_test: OK\n";

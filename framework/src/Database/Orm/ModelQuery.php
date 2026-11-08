@@ -478,7 +478,7 @@ final class ModelQuery
     {
         $this->ensureConnection();
         $class = $this->model;
-        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
         if ($table === null) {
             throw new \LogicException('Count requires a Table annotation');
         }
@@ -657,7 +657,7 @@ final class ModelQuery
         }
         // Origami 1.0.8 的对象插入会丢弃假值。通过其参数化执行传输
         // 保留显式初始化的默认值。
-        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
         if ($table === null || $values === []) {
             throw new \InvalidArgumentException('Insert requires a mapped table and values');
         }
@@ -728,7 +728,7 @@ final class ModelQuery
         }
         // 原生对象更新会忽略 NULL。通过同一原生传输执行简短的赋值语句，
         // 以保留显式写入 null 的行为。
-        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
         $sets = [];
         $values = [];
         foreach ($attributes as $field => $value) {
@@ -759,7 +759,7 @@ final class ModelQuery
             return (int)$this->builder()->delete()->rowsAffected;
         }
         $class = $this->model;
-        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
         if ($table === null) {
             throw new \LogicException('Delete requires a mapped table');
         }
@@ -792,7 +792,7 @@ final class ModelQuery
     private function selectSql(): string
     {
         $class = $this->model;
-        $table = ModuleRegistry::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
         if ($table === null) {
             throw new \LogicException('Query requires a mapped table');
         }

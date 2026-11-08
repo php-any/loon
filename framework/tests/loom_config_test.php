@@ -1,7 +1,7 @@
 <?php
 
 declare(strict_types=1);
-$bootstrap = require dirname(__DIR__) . '/bootstrap/autoload.php';
+require dirname(__DIR__) . '/bootstrap.php';
 /**
  * 断言测试条件成立，失败时立即抛出异常以终止当前测试。
  *
@@ -23,45 +23,51 @@ mkdir($root . '/config', 0777, true);
 try {
     file_put_contents($root . '/config/http.php', '<?php return ["address" => "127.0.0.1:12345"];');
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>30,"nested"=>["enabled"=>false],"nullable"=>null,"zero"=>0];');
-    file_put_contents($root . '/config/services.php', '<?php return static function (): string { return "registered"; };');
-    $runtimeScope = $bootstrap($root);
-    $runtimeServices = $runtimeScope->container();
-    // 启动后修改源配置，以证明配置已提前加载并缓存。
+    file_put_contents($root . '/config/factory.php', '<?php return static function (): string { return "registered"; };');
+    file_put_contents($root . '/config/modules.php', '<?php return [];');
+    $config = Loom\Application::createBuilder($root)->configuration;
+    // 构建器创建后修改源配置，以证明配置已提前加载并缓存。
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>60];');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout') === 30, 'bootstrap must eagerly load PHP config');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment')['timeout'] === 30, 'whole file lookup');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.nested.enabled', true) === false, 'nested false preservation');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.nullable', 'fallback') === null, 'null preservation');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.zero', 1) === 0, 'zero preservation');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('missing.key', 42) === 42, 'missing file default');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.missing', 42) === 42, 'missing key default');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout.value', 42) === 42, 'scalar traversal default');
-    $register = $runtimeServices->get(\Loom\Config::class)->get('services');
-    checkConfig($register() === 'registered', 'service closure must remain callable');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get()['payment']['timeout'] === 30, 'get without key returns all namespaces');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('http.address') === $runtimeServices->get(\Loom\Config::class)->get()['http']['address'], 'runtime dotted lookup');
-    $runtimeScope = $bootstrap($root);
-    $runtimeServices = $runtimeScope->container();
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout') === 60, 'bootstrap must clear stale configuration');
+    checkConfig($config->get('payment.timeout') === 30, 'builder must eagerly load PHP config');
+    checkConfig($config->get('payment')['timeout'] === 30, 'whole file lookup');
+    checkConfig($config->get('payment.nested.enabled', true) === false, 'nested false preservation');
+    checkConfig($config->get('payment.nullable', 'fallback') === null, 'null preservation');
+    checkConfig($config->get('payment.zero', 1) === 0, 'zero preservation');
+    checkConfig($config->get('missing.key', 42) === 42, 'missing file default');
+    checkConfig($config->get('payment.missing', 42) === 42, 'missing key default');
+    checkConfig($config->get('payment.timeout.value', 42) === 42, 'scalar traversal default');
+    $register = $config->get('factory');
+    checkConfig($register() === 'registered', 'config closure must remain callable');
+    checkConfig($config->get()['payment']['timeout'] === 30, 'get without key returns all namespaces');
+    checkConfig($config->get('http.address') === $config->get()['http']['address'], 'runtime dotted lookup');
+    $config = Loom\Application::createBuilder($root)->configuration;
+    checkConfig($config->get('payment.timeout') === 60, 'a new builder must not reuse stale configuration');
     // 不存在保留的配置名称，也不会隐式加载 JSON。
     file_put_contents($root . '/config/loom.php', '<?php return ["custom" => true];');
     file_put_contents($root . '/config/ignored.json', '{invalid json');
-    $runtimeServices->get(\Loom\Config::class)->setRoot($root);
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('loom.custom') === true, 'loom is an ordinary namespace');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('ignored', 'missing') === 'missing', 'only PHP config is loaded');
+    $config->setRoot($root);
+    checkConfig($config->get('loom.custom') === true, 'loom is an ordinary namespace');
+    checkConfig($config->get('ignored', 'missing') === 'missing', 'only PHP config is loaded');
     file_put_contents($root . '/config/broken.php', '<?php throw new \LogicException("broken config");');
-    $runtimeServices->get(\Loom\Config::class)->setRoot($root);
+    $config->setRoot($root);
     $rejected = false;
     try {
-        $runtimeServices->get(\Loom\Config::class)->load();
+        $config->load();
     } catch (LogicException $error) {
         $rejected = true;
     }
     checkConfig($rejected, 'failed configuration must propagate');
+    $rejected = false;
+    try {
+        Loom\Application::createBuilder($root);
+    } catch (LogicException $error) {
+        $rejected = true;
+    }
+    checkConfig($rejected, 'builder must not start with broken configuration');
     unlink($root . '/config/broken.php');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout') === 60, 'failed load must allow retry');
-    $runtimeServices->get(\Loom\Config::class)->setRoot($root . '/config');
-    checkConfig($runtimeServices->get(\Loom\Config::class)->get('payment.timeout', 99) === 99, 'root change must clear cache; missing config directory is allowed');
+    checkConfig($config->get('payment.timeout') === 60, 'failed load must allow retry');
+    $config->setRoot($root . '/config');
+    checkConfig($config->get('payment.timeout', 99) === 99, 'root change must clear cache; missing config directory is allowed');
 } finally {
     foreach (glob($root . '/config/*') as $file) {
         unlink($file);

@@ -11,6 +11,8 @@ import (
 
 // Locks cover a whole singleton dependency graph, including nested resolutions.
 // Entries live only while in use, so completed applications are not retained.
+// The key is the identity of the script object that owns the singletons, normally
+// the root Loom\ServiceProvider.
 type singletonGate struct {
 	owner *singletonOwner
 	depth int
@@ -20,15 +22,15 @@ type singletonGate struct {
 var singletonGates = struct {
 	sync.Mutex
 	changed *sync.Cond
-	entries map[data.ClassStmt]*singletonGate
-}{entries: make(map[data.ClassStmt]*singletonGate)}
+	entries map[any]*singletonGate
+}{entries: make(map[any]*singletonGate)}
 
 func init() { singletonGates.changed = sync.NewCond(&singletonGates.Mutex) }
 
 type singletonOwner struct{ token byte }
 type singletonOwnerKey struct{}
 
-func lockSingleton(key data.ClassStmt, owner *singletonOwner) func() {
+func lockSingleton(key any, owner *singletonOwner) func() {
 	singletonGates.Lock()
 	gate := singletonGates.entries[key]
 	if gate == nil {
@@ -61,22 +63,22 @@ type withSingletonLock struct{}
 
 func (*withSingletonLock) GetName() string { return "Loom\\Native\\withSingletonLock" }
 func (*withSingletonLock) GetParams() []data.GetValue {
-	return []data.GetValue{data.NewParameter("container", 0), data.NewParameter("operation", 1)}
+	return []data.GetValue{data.NewParameter("owner", 0), data.NewParameter("operation", 1)}
 }
 func (*withSingletonLock) GetVariables() []data.Variable {
-	return []data.Variable{data.NewVariable("container", 0, data.NewBaseType("object")), data.NewVariable("operation", 1, data.NewBaseType("callable"))}
+	return []data.Variable{data.NewVariable("owner", 0, data.NewBaseType("object")), data.NewVariable("operation", 1, data.NewBaseType("callable"))}
 }
 func (*withSingletonLock) Call(ctx data.Context) (data.GetValue, data.Control) {
 	value, _ := ctx.GetIndexValue(0)
-	container, ok := modelObject(value)
-	if !ok || container.Class.GetName() != "Container\\Container" {
-		return nil, utils.NewThrowf("Expected a native service container")
+	object, ok := modelObject(value)
+	if !ok {
+		return nil, utils.NewThrowf("Expected the object that owns the singletons")
 	}
 	owner, _ := ctx.GoContext().Value(singletonOwnerKey{}).(*singletonOwner)
 	if owner == nil {
 		owner = &singletonOwner{}
 	}
-	release := lockSingleton(container.Class, owner)
+	release := lockSingleton(object, owner)
 	defer release()
 	operation, _ := ctx.GetIndexValue(1)
 	restore, err := bindExecutionContext(ctx, context.WithValue(ctx.GoContext(), singletonOwnerKey{}, owner))

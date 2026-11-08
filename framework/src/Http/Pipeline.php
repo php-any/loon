@@ -8,7 +8,7 @@ namespace Loom;
  * 按注册顺序把中间件包成调用链。先注册的先收到请求，链返回时则最后看到响应。
  *
  * 构造参数：
- * - $container（Container）：按类名取出中间件实例的服务容器。
+ * - $container（ServiceResolver）：按类名取出中间件实例的服务容器。
  *
  * 返回值：使用 new 构造时得到 Pipeline 实例。
  *
@@ -17,17 +17,17 @@ namespace Loom;
  */
 final class Pipeline
 {
-    private Container $container;
+    private ServiceResolver $container;
     /**
      * 保存用来按类名解析中间件的服务容器。
      *
-     * @param Container $container 按类名取出中间件实例的服务容器。
+     * @param ServiceResolver $container 按类名取出中间件实例的服务容器。
      * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $pipeline = new Pipeline($services);
      */
-    public function __construct(Container $container)
+    public function __construct(ServiceResolver $container)
     {
         $this->container = $container;
     }

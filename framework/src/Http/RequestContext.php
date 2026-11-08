@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 在当前服务作用域里保存一个请求。可以临时换成另一个请求再恢复。没有活动请求时拒绝读取。
+ * 在当前服务作用域里保存一个请求，HTTP 请求还带着原生传输。可以临时换成另一个请求再恢复。没有活动请求时拒绝读取。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
@@ -61,5 +61,39 @@ final class RequestContext
             throw new \LogicException('No active request');
         }
         return $this->request;
+    }
+
+    private ?HttpTransport $transport = null;
+
+    /**
+     * HttpServer 在请求开始时记下这次的原生传输，WebSocket 升级要用。作用域随请求释放，不需要解除。
+     *
+     * @param HttpTransport $transport 本次请求的传输对象。
+     * @return void 无返回值。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $context->attach($transport);
+     */
+    public function attach(HttpTransport $transport): void
+    {
+        $this->transport = $transport;
+    }
+
+    /**
+     * 返回这次 HTTP 请求的传输对象。不在 HTTP 请求里时抛出 LogicException。
+     *
+     * 参数：无。
+     *
+     * @return HttpTransport 当前传输对象。
+     *
+     * 使用示例（依赖对象由所在应用或测试环境提供）：
+     * @example $connection = $context->transport()->upgrade();
+     */
+    public function transport(): HttpTransport
+    {
+        if ($this->transport === null) {
+            throw new \LogicException('No HTTP transport');
+        }
+        return $this->transport;
     }
 }
