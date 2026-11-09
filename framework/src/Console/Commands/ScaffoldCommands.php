@@ -103,7 +103,7 @@ final class ScaffoldCommands
                 throw new InputError('定时器文件已存在，未覆盖：' . $path);
             }
             $attribute = $cron !== ''
-                ? "#[Timer(cron: " . var_export($cron, true) . ", timezone: " . var_export((string)$input->option('timezone'), true) . ")]"
+                ? "#[Timer(0, " . var_export($cron, true) . ', ' . var_export((string)$input->option('timezone'), true) . ')]'
                 : "#[Timer(" . $seconds . ")]";
             $source = "<?php\ndeclare(strict_types=1);\n\nnamespace App\\Console\\Timers;\n\nuse Loom\\Timer;\n\n" . $attribute . "\nfinal class " . $name . "\n{\n    public function __invoke(): void\n    {\n        // 定时任务逻辑\n    }\n}\n";
             $handle = fopen($path, 'x');

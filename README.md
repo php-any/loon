@@ -191,7 +191,7 @@ composer format:check
 - `#[Service]` 登记服务，第二个参数选择生命周期（默认 `scoped`）；`#[Service('service.id')]` 以该标识登记；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('service.id')]` 注入。`InjectConfig` 继续用于配置注入。
 - 模型直接使用 std 的 `Database\Annotation\Table`、`Column`、`Id`、`GeneratedValue`；字段类型取自属性声明，所有已映射字段均可写入，无需声明字段白名单，实体使用 public 强类型属性；可继承 `Loom\Model`，直接使用 `User::whereName("TEST")->first()` 等原生 ORM 快捷入口，详见 [基础模型](docs/models.md)。连接由框架根据配置自动初始化，与 PDO 共用事务；应用统一使用基础模型入口，旧 EntityManager 已移除；业务通过模型操作数据，必要的并发 SQL 封装在对应模型方法中。
 - `#[Job('studio.digest')]` 声明队列任务类型，默认调用 `handle(Request): Response`；不同任务不再共用一个 `job_handler`。
-- `#[Timer(5)]` 或 `#[Timer(cron: '*/5 * * * *', timezone: 'UTC')]` 声明代码定时器（秒间隔与 cron 不能同时写）；`make:timer` 可生成骨架。`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
+- `#[Timer(5)]` 固定秒间隔，或 `#[Timer(0, '*/5 * * * *', 'UTC')]` Cron（第一个参数 0，后接五段表达式与时区；不能与正数秒间隔混写）；`make:timer` 可生成骨架。`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
 
 除原生数据库注解、`Loom\Timer`、`Loom\InjectConfig` 外，上述注解都在 `Loom\Attributes` 命名空间。现有应用类已迁移；具体用法和生命周期见 [框架文档](docs/framework.md)。注解之外的路由、命令、gRPC 方法和服务登记写在 `loom.php` 里，重复路由会报错，显式登记优先于服务注解。
 

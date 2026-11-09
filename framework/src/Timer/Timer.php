@@ -9,9 +9,8 @@ namespace Loom;
  * Cron 使用与 {@see Cron} 相同的「分 时 日 月 周」五字段；时区默认为 UTC（IANA 名称）。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example #[Timer(5)]
- * @example #[Timer(cron: '*/5 * * * *')]
- * @example #[Timer(cron: '0 9 * * 1-5', timezone: 'Asia/Shanghai')]
+ * @example 秒间隔在类上写 Timer 构造第一个参数，如每 5 秒。
+ * @example Cron 写 Timer(0, 五段表达式, IANA 时区)，第一个参数必须为 0。
  */
 #[\Attribute(\Attribute::TARGET_CLASS)]
 final class Timer
