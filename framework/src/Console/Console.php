@@ -156,7 +156,12 @@ final class Console
             $name = $argv[1];
         }
         if (!isset($this->commands[$name])) {
-            throw new InputError('未知命令：' . $name . '。请执行 list 查看可用命令。');
+            $message = '未知命令：' . $name . '。请执行 list 查看可用命令。';
+            $hint = CommandSuggestions::format($name, $this->suggestionCandidates());
+            if ($hint !== '') {
+                $message .= "\n" . $hint;
+            }
+            throw new InputError($message);
         }
         $command = $this->commands[$name];
         $tokens = array_slice($argv, 1);
@@ -181,18 +186,6 @@ final class Console
             throw new \LogicException('命令必须返回 0–255 的整数退出码');
         }
         return $code;
-    }
-
-    private function listCatalog(): void
-    {
-        $this->output->info('Loom Console');
-        $this->output->line('  list  列出所有命令');
-        $this->output->line('  help [command]  列出所有命令或显示指定命令的帮助');
-        foreach ($this->commands as $command) {
-            if (!$command['hidden']) {
-                $this->output->line('  ' . $command['definition']->name . '  ' . $command['definition']->description);
-            }
-        }
     }
 
     private function help(Definition $definition): void
@@ -284,6 +277,21 @@ final class Console
             return 'overview';
         }
         return explode(':', $displayName, 2)[0];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function suggestionCandidates(): array
+    {
+        $names = ['list', 'help'];
+        foreach ($this->commands as $command) {
+            if (!$command['hidden']) {
+                $names[] = $command['definition']->name;
+            }
+        }
+
+        return $names;
     }
 
     private function catalogGroupLabel(string $key): string
