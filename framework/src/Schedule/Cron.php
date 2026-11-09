@@ -95,14 +95,15 @@ final class Cron
     /**
      * 从 after 之后的下一分钟寻找匹配时间，最多搜索八年；没有匹配则抛出 HTTP 422。
      *
-     * @param int $after 搜索起点的 Unix 时间戳，单位秒，不包含该时刻。
+     * @param int $after 搜索起点的 Unix 时间戳，单位秒，不包含该时刻。strtotime 失败返回的 false 会转为 HTTP 422。
      * @return int 严格晚于 after 的下一次运行 Unix 时间戳，单位秒。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $next = $cron->next(time());
      */
-    public function next(int $after): int
+    public function next(mixed $after): int
     {
+        $after = self::normalizeAfter($after);
         $time = (int)(floor($after / 60) * 60 + 60);
         $end = $after + 366 * 8 * 86400;
         while ($time < $end) {
@@ -122,5 +123,34 @@ final class Cron
             $time += (!isset($this->fields[3][$month]) || !$day || !isset($this->fields[1][$hour])) ? (60 - $minute) * 60 : 60;
         }
         throw new HttpError(422, '未来八年内没有匹配的执行时间');
+    }
+
+    /**
+     * 将调用方时间戳规范为非负 int；Origami 下 strtotime 等失败会得到 false，不能传入后续计算。
+     */
+    private static function normalizeAfter(mixed $after): int
+    {
+        if ($after === false || $after === null) {
+            throw new HttpError(422, '无效的时间戳');
+        }
+        if (is_int($after)) {
+            if ($after < 0) {
+                throw new HttpError(422, '无效的时间戳');
+            }
+
+            return $after;
+        }
+        if (is_float($after)) {
+            $after = (int) $after;
+        } elseif (is_string($after) && is_numeric($after)) {
+            $after = (int) $after;
+        } else {
+            throw new HttpError(422, '无效的时间戳');
+        }
+        if ($after < 0) {
+            throw new HttpError(422, '无效的时间戳');
+        }
+
+        return $after;
     }
 }
