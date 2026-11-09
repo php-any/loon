@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * 启用的应用模块列表，返回“模块完整类名”组成的数组，不是目录列表或配置键值对。
- * 默认 AppModule 扫描 App 命名空间下的 app 目录，发现服务、控制器、任务、定时器和命令等声明。
+ * 默认 AppModule 扫描 App 命名空间下的 app 目录，发现服务、控制器、任务、命令，以及 app/Console/Timers 下的 #[Timer] 声明。
  * 每个模块类必须可自动加载，并带有 Loom\Attributes\Module 注解；普通服务类不能直接填入。
  * 修改后重启相关常驻进程，新的模块声明才会重新参与发现和注册。
  *

@@ -143,6 +143,6 @@ $builder->services->addHostedService(\App\Workers\HeartbeatHost::class);
 
 ## 定时器
 
-`#[Timer(秒)]` 类由 `TimerRunner` 按周期触发，[TimerHostedService](../framework/src/Hosting/TimerHostedService.php) 把它接进 Host。每次触发在新的作用域里解析定时器并调用 `__invoke()`，同一个定时器上一次还没结束时跳过这一拍。需要跨触发保留状态的定时器登记成单例，例如 [Heartbeat](../app/Timers/Heartbeat.php) 用 `#[Service('', 'singleton')]`。
+`#[Timer(秒)]` 类由 `TimerRunner` 按周期触发，[TimerHostedService](../framework/src/Hosting/TimerHostedService.php) 把它接进 Host。每次触发在新的作用域里解析定时器并调用 `__invoke()`，同一个定时器上一次还没结束时跳过这一拍。需要跨触发保留状态的定时器登记成单例，例如 [Heartbeat](../app/Console/Timers/Heartbeat.php) 用 `#[Service('', 'singleton')]`。`#[Timer]` 类放在 `app/Console/Timers/`，与 `app/Console/Commands` 同属 Console 区域；也可使用 `make:timer` 生成骨架。
 
 源码：[ApplicationBuilder](../framework/src/Hosting/ApplicationBuilder.php)、[Application](../framework/src/Hosting/Application.php)、[Host](../framework/src/Hosting/Host.php)、[HttpServer](../framework/src/Http/HttpServer.php)、[TimerRunner](../framework/src/Timer/TimerRunner.php)。测试：`framework/tests/loom_hosting_test.php`、`framework/tests/loom_di_test.php`。

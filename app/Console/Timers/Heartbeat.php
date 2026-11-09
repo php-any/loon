@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Timers;
+namespace App\Console\Timers;
 
 use Loom\Attributes\Service;
 use Loom\Timer;

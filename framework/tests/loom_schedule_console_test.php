@@ -51,7 +51,7 @@ try {
     scheduleConsoleCheck(isset($decoded['timers'], $decoded['plans'], $decoded['now']), 'schedule:list JSON shape');
     $hasHeartbeat = false;
     foreach ($decoded['timers'] as $row) {
-        if (($row['class'] ?? '') === \App\Timers\Heartbeat::class) {
+        if (($row['class'] ?? '') === \App\Console\Timers\Heartbeat::class) {
             $hasHeartbeat = true;
         }
     }
@@ -83,7 +83,7 @@ try {
     scheduleConsoleCheck($missing === 2, 'unknown timer returns input error, got ' . $missing);
     $scopeProbe = 0;
     $app->services->withScope(static function (\Loom\ServiceScope $scope) use (&$scopeProbe): void {
-        $scope->get(\App\Timers\Heartbeat::class);
+        $scope->get(\App\Console\Timers\Heartbeat::class);
         $scopeProbe++;
     });
     scheduleConsoleCheck($scopeProbe === 1, 'Heartbeat singleton warm-up');

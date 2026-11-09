@@ -26,7 +26,7 @@ require dirname(__DIR__, 2) . '/tests/fixtures/timers/Declarations.php';
 $services = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
 $runner = new \Loom\TimerRunner($services);
 $runner->register(NotATimer::class);
-$runner->discover($runtimeServices->get(\Loom\Config::class)->path('app/Timers'));
+$runner->discover($runtimeServices->get(\Loom\Config::class)->path('app/Console/Timers'));
 foreach ([InvalidTimerInterval::class, InvalidTimerHandler::class, DuplicateTimer::class] as $class) {
     $rejected = false;
     try {

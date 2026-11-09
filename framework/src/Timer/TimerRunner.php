@@ -11,7 +11,7 @@ namespace Loom;
  * 定时器要在节拍之间保留状态时，把它登记成 singleton（例如 #[Service(lifetime: 'singleton')]），此时它不能依赖 scoped 服务。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $runner = new TimerRunner($provider); $runner->register(\App\Timers\Heartbeat::class); $runner->start();
+ * @example $runner = new TimerRunner($provider); $runner->register(\App\Console\Timers\Heartbeat::class); $runner->start();
  */
 final class TimerRunner
 {
@@ -31,9 +31,9 @@ final class TimerRunner
      * 按目录推导类名并登记带 Timer 注解的类；运行期间禁止修改登记。
      *
      * @param string $directory 定时器 PHP 源码目录。
-     * @param string $namespace 目录对应的命名空间。默认 App\Timers。
+     * @param string $namespace 目录对应的命名空间。默认 App\Console\Timers。
      */
-    public function discover(string $directory, string $namespace = 'App\\Timers'): void
+    public function discover(string $directory, string $namespace = 'App\\Console\\Timers'): void
     {
         foreach (ClassDiscovery::scan($directory, $namespace) as $class) {
             $this->register($class);
