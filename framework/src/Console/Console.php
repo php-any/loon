@@ -208,4 +208,99 @@ final class Console
         }
         $this->output->line('  --help, -h  显示命令帮助');
     }
+
+    /**
+     * 输出对齐、按命令名前缀分组的目录。list 与不带参数的 help 共用。
+     */
+    private function listCatalog(): void
+    {
+        $this->output->info('Loom Console');
+        $rows = [
+            ['list', '列出所有命令'],
+            ['help [command]', '列出所有命令或显示指定命令的帮助'],
+        ];
+        foreach ($this->commands as $command) {
+            if ($command['hidden']) {
+                continue;
+            }
+            $rows[] = [$command['definition']->name, $command['definition']->description];
+        }
+        $width = 0;
+        foreach ($rows as $row) {
+            $width = max($width, strlen($row[0]));
+        }
+        $groups = [];
+        foreach ($rows as $row) {
+            $groups[$this->catalogGroupKey($row[0])][] = $row;
+        }
+        $ordered = ['overview'];
+        $rest = array_diff(array_keys($groups), $ordered);
+        sort($rest, SORT_STRING);
+        $first = true;
+        foreach (array_merge($ordered, $rest) as $key) {
+            if (!isset($groups[$key])) {
+                continue;
+            }
+            if (!$first) {
+                $this->output->line();
+            }
+            $first = false;
+            $this->output->line($this->catalogGroupLabel($key));
+            foreach ($this->sortCatalogGroup($key, $groups[$key]) as [$name, $description]) {
+                $this->output->line('  ' . str_pad($name, $width) . '  ' . $description);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array{0: string, 1: string}> $rows
+     * @return array<int, array{0: string, 1: string}>
+     */
+    private function sortCatalogGroup(string $key, array $rows): array
+    {
+        if ($key !== 'overview') {
+            usort($rows, static fn (array $a, array $b): int => strcmp($a[0], $b[0]));
+            return $rows;
+        }
+        $pinned = [];
+        $rest = [];
+        foreach ($rows as $row) {
+            if ($row[0] === 'list' || $row[0] === 'help [command]') {
+                $pinned[] = $row;
+            } else {
+                $rest[] = $row;
+            }
+        }
+        usort($rest, static fn (array $a, array $b): int => strcmp($a[0], $b[0]));
+        return array_merge($pinned, $rest);
+    }
+
+    private function catalogGroupKey(string $displayName): string
+    {
+        if ($displayName === 'list' || $displayName === 'help [command]') {
+            return 'overview';
+        }
+        if (!str_contains($displayName, ':')) {
+            return 'overview';
+        }
+        return explode(':', $displayName, 2)[0];
+    }
+
+    private function catalogGroupLabel(string $key): string
+    {
+        return match ($key) {
+            'overview' => '概览',
+            'admin' => 'admin · 后台',
+            'migrate' => 'migrate · 数据库迁移',
+            'make' => 'make · 代码生成',
+            'proto' => 'proto · 协议检查',
+            'queue' => 'queue · 队列',
+            'schedule' => 'schedule · 定时任务',
+            'projects' => 'projects · 项目',
+            'reports' => 'reports · 报表',
+            'grpc' => 'grpc · gRPC',
+            'tcp' => 'tcp · TCP',
+            default => $key,
+        };
+    }
 }
