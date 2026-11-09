@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Loom\Monitoring;
 
+use Loom\Logging\Diary;
+
 /**
- * 默认实现：在作用域内缓冲结构化事件，dispose() 时写一行 JSON 摘要（默认标准错误）。
+ * 默认实现：在作用域内缓冲结构化事件，dispose() 时经 {@see Diary} 写出 `monitoring.session`（默认标准错误 JSON 行）。
  *
  * SQL 绑定值只做长度与类型摘要，避免日志泄露敏感数据。HTTP 正文只记录字节数。
+ * 写入目标与格式由根容器上的 JournalWriter / JournalFormatter 决定，与 RequestLog 等共用一套日记管道。
  */
 final class LoggingMonitoring implements Monitoring
 {
@@ -17,13 +20,16 @@ final class LoggingMonitoring implements Monitoring
     private float $started = 0.0;
     private ?MonitoringContext $context = null;
     private mixed $writer;
+    private ?Diary $diary;
 
     /**
-     * @param ?callable $writer 接收一行 JSON 的回调；null 时写入 php://stderr。
+     * @param ?callable $writer 接收一行已序列化文本的回调；非 null 时优先于 Diary（兼容测试）。默认 null。
+     * @param ?Diary $diary 未提供 writer 时写入应用日记。从容器解析时自动注入。默认 null。
      */
-    public function __construct(?callable $writer = null)
+    public function __construct(?callable $writer = null, ?Diary $diary = null)
     {
         $this->writer = $writer;
+        $this->diary = $diary;
     }
 
     public function begin(MonitoringContext $context): void
@@ -102,19 +108,26 @@ final class LoggingMonitoring implements Monitoring
         $this->active = false;
         $context = $this->context;
         $duration = round(max(0.0, microtime(true) - $this->started) * 1000, 3);
-        $line = json_encode([
-            'time' => gmdate('Y-m-d\TH:i:s\Z'),
-            'event' => 'monitoring.session',
+        $fields = [
             'channel' => $context?->channel ?? 'unknown',
             'tags' => $context?->tags ?? [],
             'duration_ms' => $duration,
             'entries' => $this->entries,
-        ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n";
+        ];
         try {
             if ($this->writer !== null) {
                 $writer = $this->writer;
-                $writer($line);
+                $writer(json_encode([
+                    'time' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'event' => 'monitoring.session',
+                ] + $fields, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n");
+            } elseif ($this->diary !== null) {
+                $this->diary->event('monitoring.session', $fields);
             } else {
+                $line = json_encode([
+                    'time' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'event' => 'monitoring.session',
+                ] + $fields, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n";
                 $stream = @fopen('php://stderr', 'w');
                 if ($stream !== false) {
                     try {

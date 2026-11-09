@@ -131,7 +131,7 @@ $data = $stored->toArray();
 
 路由支持闭包、可调用控制器、多方法控制器、路径参数、命名 URL、嵌套分组与中间件。闭包的参数由 `Loom\Invoker` 绑定：`Request` 来自这次请求，其他类类型参数从请求作用域解析。Request 参数、属性及中间件声明保留既有脚本 API。HEAD 调用路由后抑制正文；404/405 使用 problem 响应，405 带 Allow。未捕获异常对客户端返回通用 500，细节写入 stderr。
 
-`loom.php` 用 `$app->use(RequestLog::class)` 登记 `Loom\Http\Middleware\RequestLog` 全局中间件，每次应用请求结束后向 stderr 输出一行 JSON，包含 UTC 时间 `time`、`event=http.request`、`method`、`path`、`status` 和毫秒耗时 `duration_ms`。404、405、HttpError 和未捕获异常（500）都会记录；不记录请求头、查询参数或请求正文。通过 `scripts/dev-server.ps1` 启动时可在 `storage/logs/dev-server.err.log` 查看。由运行时直接处理的 `/assets/` 静态文件不经过应用中间件。可通过构造参数传入接收日志字符串的 callable，自定义输出位置。
+`loom.php` 用 `$app->use(RequestLog::class)` 登记 `Loom\Http\Middleware\RequestLog` 全局中间件。它经根容器上的 `Loom\Logging\Diary` 写出 `http.request` 访问行（默认 JSON 到 stderr）。作用域级 SQL/HTTP 摘要由 `Loom\Monitoring\LoggingMonitoring` 在收尾时写出 `monitoring.session`，同样走 Diary，详见 [统一监控](monitoring.md)。`config/diary.php` 可切换写入器（`stderr`、`file`、`null`）与格式化器（`json`、`text`）。404、405、HttpError 和未捕获异常（500）都会记录；不记录请求头、查询参数或请求正文。由运行时直接处理的 `/assets/` 静态文件不经过应用中间件。测试仍可向 `RequestLog` 或 `LoggingMonitoring` 传入 callable 覆盖输出。
 
 输入通过 `Request::json()` 与 `Input` 显式校验。视图使用隔离输出缓冲和 `$data` 参数，使用 `Loom\escape()` 转义。`public/` 内的文件通过 `/assets/` 提供，规范化路径必须仍在 public 内；不公开脚本、配置或数据库。
 

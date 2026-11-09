@@ -4,7 +4,7 @@ Loom 把一次 **ServiceScope** 内的 HTTP 输入输出、SQL、命令结果与
 
 ## 登记与替换
 
-框架默认登记 scoped 的 `LoggingMonitoring`（作用域结束时写一行 JSON 到标准错误）：
+框架默认登记 scoped 的 `LoggingMonitoring`。作用域结束时它经根容器单例 `Loom\Logging\Diary`（`JournalWriter` + `JournalFormatter`）写出 `event=monitoring.session` 一行，默认落到标准错误；与 `RequestLog` 的 `http.request` 共用 `config/diary.php`，不要为监控再实现一套写 stderr 的逻辑：
 
 ```php
 $builder = Application::createBuilder(__DIR__);
@@ -36,7 +36,17 @@ $app = $builder->build();
 - **命令**：`Console::dispatch` 记录命令名与退出码。
 - **队列**：`Queue::tick` 认领任务时 `recordEvent('queue.job.claimed', …)`；子进程内 `queue.job.dispatch`。
 
-业务代码在作用域内注入 `Monitoring` 后可直接 `recordEvent()`。
+业务代码在作用域内注入 `Monitoring` 后可直接 `recordEvent()`；这些事件进入本会话的 `entries`，随 `monitoring.session` 一次性刷出。
+
+### 与日记（Diary）的边界
+
+| 能力 | 接口 | 何时用 |
+|------|------|--------|
+| 作用域内观测（SQL、HTTP 摘要、队列/定时器标签） | `Monitoring` | 宿主已 `begin()`；在 `dispose()` 前 `record*` |
+| 立刻写出的一条结构化日志（含 HTTP 访问行） | `Loom\Logging\Diary` | `RequestLog`、运维脚本、应独立成行的审计 |
+| 写出目标与 JSON/文本格式 | `JournalWriter` / `JournalFormatter` | `ApplicationBuilder` 或 `config/diary.php` 配置一次，Monitoring 与 Diary 共享 |
+
+自定义 `Monitoring` 实现若需要落盘，应在 `dispose()` 里调用已注入的 `Diary`，而不是直接 `fwrite` stderr。测试仍可向 `LoggingMonitoring` 传入 callable 覆盖输出，行为与改造前一致。
 
 ## 手动包一层作用域
 
