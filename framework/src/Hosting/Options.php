@@ -59,6 +59,29 @@ final class Options
     }
 
     /**
+     * 与 bind 相同，但配置节不存在时当作空数组，保留选项类属性上的默认值。
+     * 仅适用于所有公开选项属性在类上已初始化的选项类型。
+     *
+     * @param string $class 拥有无必填参数构造函数的具体类名。
+     * @param string $section 点分配置节。
+     */
+    public function bindOptional(string $class, string $section): object
+    {
+        if ($class === '' || $section === '') {
+            throw new \InvalidArgumentException('Options class and section must not be empty');
+        }
+        $missing = new \stdClass();
+        $data = $this->config->get($section, $missing);
+        if ($data === $missing) {
+            $data = [];
+        }
+        if (!is_array($data)) {
+            throw new \LogicException('Configuration "' . $section . '" must be an array to bind ' . $class);
+        }
+        return $this->fill($class, $data, $section);
+    }
+
+    /**
      * 创建对象并写入公开属性。
      *
      * @param string $class 具体选项类名。

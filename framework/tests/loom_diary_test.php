@@ -91,4 +91,19 @@ if ($httpRecord['event'] !== 'http.request' || $httpRecord['status'] !== 204 || 
     throw new RuntimeException('RequestLog diary record must include http.request metadata');
 }
 
+// 未提供 config/diary.php 时 bindOptional 回落到类默认值（与样板 diary.php 一致）。
+$bareRoot = sys_get_temp_dir() . '/loom-diary-bare-' . bin2hex(random_bytes(6));
+mkdir($bareRoot . '/config', 0700, true);
+try {
+    file_put_contents($bareRoot . '/config/modules.php', '<?php return [];');
+    $bare = (new Loom\Options(new Loom\Config($bareRoot)))->bindOptional(Loom\Logging\DiaryOptions::class, 'diary');
+    if (!($bare instanceof Loom\Logging\DiaryOptions) || $bare->writer !== 'stderr' || $bare->formatter !== 'json' || $bare->file !== '') {
+        throw new RuntimeException('Missing diary config must keep DiaryOptions defaults');
+    }
+} finally {
+    unlink($bareRoot . '/config/modules.php');
+    rmdir($bareRoot . '/config');
+    rmdir($bareRoot);
+}
+
 echo "loom_diary_test: OK\n";
