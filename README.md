@@ -64,11 +64,18 @@ Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供
 
 ### 定时器示例
 
-在 `app/Timers/` 下创建类，在类上声明 `#[Timer(5)]` 并实现无参数的 `public __invoke()` 即可。框架在 `serve` 启动时自动递归发现并注册，不需要手写协程或注册配置。例如 `app/Timers/Heartbeat.php`：
+在 `app/Console/Timers/` 下创建类（与命令同属 `app/Console`），用 `#[Timer]` 声明**固定秒间隔**或 **五段 Cron**（二者互斥），并实现无参数的 `public __invoke()`。生成骨架：
+
+```powershell
+./build/loom.exe make:timer Ping --seconds=5
+./build/loom.exe make:timer Digest --cron="0 9 * * 1-5" --timezone=Asia/Shanghai
+```
+
+`schedule:list`、`schedule:run Heartbeat`、`schedule:listen` 与 `serve` 共用同一套发现结果。例如 `app/Console/Timers/Heartbeat.php`：
 
 ```php
 <?php
-namespace App\Timers;
+namespace App\Console\Timers;
 
 use Loom\Timer;
 
@@ -82,6 +89,8 @@ final class Heartbeat
 }
 ```
 
+> **迁移说明**：旧版 `app/Timers/`（命名空间 `App\Timers`）已迁至 `app/Console/Timers/`（`App\Console\Timers`）。移动文件并更新 namespace 后重启 `serve` 即可。
+
 仓库中的 Heartbeat 示例还会通过 `RuntimePulse` 将执行时间和本次启动的执行次数写入配置的数据库，供后台运行监控与发布验收诊断展示；上面仅保留最小日志示例。完成存储配置后运行 `./build/loom.exe serve`，首次在约 5 秒后输出：
 
 ```text
@@ -89,7 +98,7 @@ final class Heartbeat
 [2026-10-31 22:00:10] [INFO] timer: service is running
 ```
 
-周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。每次触发在新作用域里解析定时器类，支持构造注入、`InjectConfig` 和 `loom.php` 里登记的工厂；需要跨触发保留状态时登记为单例，例如 Heartbeat 用 `#[Service('', 'singleton')]`。类名、命名空间需与 `app/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
+周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。每次触发在新作用域里解析定时器类，支持构造注入、`InjectConfig` 和 `loom.php` 里登记的工厂；需要跨触发保留状态时登记为单例，例如 Heartbeat 用 `#[Service('', 'singleton')]`。类名、命名空间需与 `app/Console/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
 
 只有 `serve` 启动 `Host`：每个 HTTP 服务进程把这组定时器装进 Host，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务的登记方式见 [宿主、应用与选项](docs/hosting.md)。
 
@@ -182,7 +191,7 @@ composer format:check
 - `#[Service]` 登记服务，第二个参数选择生命周期（默认 `scoped`）；`#[Service('service.id')]` 以该标识登记；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('service.id')]` 注入。`InjectConfig` 继续用于配置注入。
 - 模型直接使用 std 的 `Database\Annotation\Table`、`Column`、`Id`、`GeneratedValue`；字段类型取自属性声明，所有已映射字段均可写入，无需声明字段白名单，实体使用 public 强类型属性；可继承 `Loom\Model`，直接使用 `User::whereName("TEST")->first()` 等原生 ORM 快捷入口，详见 [基础模型](docs/models.md)。连接由框架根据配置自动初始化，与 PDO 共用事务；应用统一使用基础模型入口，旧 EntityManager 已移除；业务通过模型操作数据，必要的并发 SQL 封装在对应模型方法中。
 - `#[Job('studio.digest')]` 声明队列任务类型，默认调用 `handle(Request): Response`；不同任务不再共用一个 `job_handler`。
-- `#[Timer(5)]` 声明固定周期任务；`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
+- `#[Timer(5)]` 或 `#[Timer(cron: '*/5 * * * *', timezone: 'UTC')]` 声明代码定时器（秒间隔与 cron 不能同时写）；`make:timer` 可生成骨架。`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
 
 除原生数据库注解、`Loom\Timer`、`Loom\InjectConfig` 外，上述注解都在 `Loom\Attributes` 命名空间。现有应用类已迁移；具体用法和生命周期见 [框架文档](docs/framework.md)。注解之外的路由、命令、gRPC 方法和服务登记写在 `loom.php` 里，重复路由会报错，显式登记优先于服务注解。
 

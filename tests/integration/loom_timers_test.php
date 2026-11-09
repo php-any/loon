@@ -47,9 +47,9 @@ try {
         }
     });
     $runner = $app->services->get(\Loom\TimerRunner::class);
-    timerCheck(($runner->timers()[\App\Timers\Heartbeat::class] ?? null) === 5, 'Heartbeat is registered with the timer runner');
-    $first = $app->services->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(\App\Timers\Heartbeat::class));
-    $second = $app->services->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(\App\Timers\Heartbeat::class));
+    timerCheck(($runner->timers()[\App\Console\Timers\Heartbeat::class] ?? null) === 5, 'Heartbeat is registered with the timer runner');
+    $first = $app->services->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(\App\Console\Timers\Heartbeat::class));
+    $second = $app->services->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(\App\Console\Timers\Heartbeat::class));
     timerCheck($first === $second, 'Heartbeat keeps its state across ticks as a singleton');
     echo "loom_timers_test: OK\n";
 } finally {

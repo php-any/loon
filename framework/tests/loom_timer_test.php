@@ -26,8 +26,8 @@ require dirname(__DIR__, 2) . '/tests/fixtures/timers/Declarations.php';
 $services = (new \Loom\ServiceScope($runtimeServices->get(\Loom\Config::class)))->container();
 $runner = new \Loom\TimerRunner($services);
 $runner->register(NotATimer::class);
-$runner->discover($runtimeServices->get(\Loom\Config::class)->path('app/Timers'));
-foreach ([InvalidTimerInterval::class, InvalidTimerHandler::class, DuplicateTimer::class] as $class) {
+$runner->discover($runtimeServices->get(\Loom\Config::class)->path('app/Console/Timers'));
+foreach ([InvalidTimerInterval::class, InvalidTimerHandler::class, DuplicateTimer::class, InvalidTimerBoth::class, InvalidTimerCron::class] as $class) {
     $rejected = false;
     try {
         $runner->register($class);
@@ -70,4 +70,13 @@ foreach ($slow->starts as $index => $at) {
 foreach ($short->starts as $index => $at) {
     checkTimer(abs($at - $startedAt - (1 + $index)) < 0.25, 'Handler duration must not shift the period');
 }
+$cronOnly = new \Loom\TimerRunner($services);
+checkTimer($cronOnly->register(CronTimerProbe::class), 'Cron timer registers');
+checkTimer(($cronOnly->timers()[CronTimerProbe::class] ?? -1) === 0, 'Cron timer maps to zero seconds sentinel');
+$cronFive = new \Loom\Cron('*/5 * * * *', 'UTC');
+$beforeDue = strtotime('2026-06-01 12:03:00 UTC');
+$nextDue = $cronFive->next($beforeDue);
+checkTimer($nextDue === strtotime('2026-06-01 12:05:00 UTC'), 'Cron next matches five-minute grid');
+$notYet = strtotime('2026-06-01 12:04:30 UTC');
+checkTimer($cronFive->next($notYet) === strtotime('2026-06-01 12:05:00 UTC'), 'Cron next skips before due minute');
 echo "loom_timer_test: OK\n";

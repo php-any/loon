@@ -14,7 +14,7 @@ use Loom\GrpcGenerator;
 use Loom\ProtoTools;
 
 /**
- * 代码生成命令：make:command、make:proto、proto:check、make:grpc。由 Application 在构建时登记。
+ * 代码生成命令：make:command、make:timer、make:proto、proto:check、make:grpc。由 Application 在构建时登记。
  *
  * @example ScaffoldCommands::register($console);
  */
@@ -65,6 +65,61 @@ final class ScaffoldCommands
             $output->info('已创建：' . $path);
             return 0;
         }, '生成自动注册的 PHP 命令类，不覆盖已有文件');
+
+        $console->command('make:timer {name : PascalCase 定时器类名} {--seconds= : 固定周期（秒，至少 1）} {--cron= : 五段 Cron 表达式} {--timezone=UTC : Cron IANA 时区}', static function (Input $input, Output $output, Config $config): int {
+            $name = $input->argument('name');
+            if (!preg_match('/^[A-Z][A-Za-z0-9]{0,79}$/D', $name)) {
+                throw new InputError('name 必须是单个 PascalCase 类名，不接受路径或命名空间');
+            }
+            if (in_array(strtolower($name), explode(' ', self::RESERVED), true)) {
+                throw new InputError('name 不能是 PHP 保留字');
+            }
+            $cron = trim((string)$input->option('cron'));
+            $secondsRaw = $input->option('seconds');
+            $hasSeconds = $secondsRaw !== null && $secondsRaw !== '';
+            $seconds = $hasSeconds ? (int)$secondsRaw : 0;
+            if ($cron !== '' && $hasSeconds) {
+                throw new InputError('不能同时指定 --seconds 与 --cron');
+            }
+            if ($cron === '' && !$hasSeconds) {
+                $seconds = 60;
+            }
+            if ($cron === '' && $seconds < 1) {
+                throw new InputError('seconds 必须至少为 1');
+            }
+            if ($cron !== '') {
+                try {
+                    new \Loom\Cron($cron, (string)$input->option('timezone'));
+                } catch (\Loom\HttpError $error) {
+                    throw new InputError($error->getMessage());
+                }
+            }
+            $directory = $config->root() . '/app/Console/Timers';
+            if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
+                throw new \RuntimeException('无法创建定时器目录');
+            }
+            $path = $directory . '/' . $name . '.php';
+            if (file_exists($path)) {
+                throw new InputError('定时器文件已存在，未覆盖：' . $path);
+            }
+            $attribute = $cron !== ''
+                ? "#[Timer(cron: " . var_export($cron, true) . ", timezone: " . var_export((string)$input->option('timezone'), true) . ")]"
+                : "#[Timer(" . $seconds . ")]";
+            $source = "<?php\ndeclare(strict_types=1);\n\nnamespace App\\Console\\Timers;\n\nuse Loom\\Timer;\n\n" . $attribute . "\nfinal class " . $name . "\n{\n    public function __invoke(): void\n    {\n        // 定时任务逻辑\n    }\n}\n";
+            $handle = fopen($path, 'x');
+            if ($handle === false) {
+                throw new \RuntimeException('无法独占创建定时器文件');
+            }
+            try {
+                if (fwrite($handle, $source) !== strlen($source)) {
+                    throw new \RuntimeException('定时器文件写入不完整');
+                }
+            } finally {
+                fclose($handle);
+            }
+            $output->info('已创建：' . $path);
+            return 0;
+        }, '生成带 #[Timer] 注解的定时器类，不覆盖已有文件');
 
         $console->command('make:proto {name : PascalCase 名称，例如 User} {--package=app : Protobuf 包名}', static function (Input $input, ProtoTools $tools): int {
             $tools->create($input->argument('name'), $input->option('package'));

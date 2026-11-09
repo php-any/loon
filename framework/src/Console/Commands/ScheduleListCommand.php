@@ -53,8 +53,8 @@ final class ScheduleListCommand extends \Loom\Console\Command
         }
         if ($payload['timers'] !== []) {
             $this->info('代码定时器（#[Timer]）');
-            $this->table(['类', '周期（秒）', '说明'], array_map(
-                static fn (array $row): array => [$row['class'], (string)$row['seconds'], $row['state']],
+            $this->table(['类', '调度', '说明'], array_map(
+                static fn (array $row): array => [$row['class'], $row['schedule'] ?? (string)$row['seconds'], $row['state']],
                 $payload['timers'],
             ));
         }

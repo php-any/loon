@@ -121,7 +121,7 @@ $data = $stored->toArray();
 
 `ConsoleCommand` 标记继承 `Loom\Console\Command` 的类，沿用 signature/description/handle 契约。命令生成器自动添加此注解，闭包命令在 `loom.php` 里用 `$app->mapCommand()` 登记。
 
-`Timer` 同样由模块发现，登记进单例 `TimerRunner`。`serve` 通过 `TimerHostedService` 把它接进 `Host`，在监听前启动、退出时停止。每次触发在新作用域里解析定时器；需要跨触发保留计数等状态的定时器登记为单例。固定周期、超时跳过、不补跑、同一定时器不重叠的语义保持不变。启动顺序见 [宿主、应用与选项](hosting.md)。
+`Timer` 同样由模块发现，登记进单例 `TimerRunner`。支持固定秒间隔或五段 Cron（互斥）；Cron 使用与 `Schedule` 相同的 `Loom\Cron` 解析。`serve` 通过 `TimerHostedService` 把它接进 `Host`，在监听前启动、退出时停止。每次触发在新作用域里解析定时器；需要跨触发保留计数等状态的定时器登记为单例。忙碌时跳过节拍、不补跑、同一定时器不重叠的语义保持不变。启动顺序见 [宿主、应用与选项](hosting.md)。
 
 各入口共享登记，而非共享业务实例：每个 HTTP 请求、TCP 消息、gRPC 调用、命令，以及队列、调度、定时器的每次节拍各开一个作用域。发现阶段不实例化控制器或服务，也不启动后台任务。手动 HTTP/WebSocket 路由写在 `loom.php` 里；与已声明的注解路由重名或重叠会报错。HTTP 启动时预先校验路由，修改注解或 `loom.php` 后需重启长期运行的进程。
 

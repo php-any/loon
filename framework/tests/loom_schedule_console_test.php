@@ -51,11 +51,18 @@ try {
     scheduleConsoleCheck(isset($decoded['timers'], $decoded['plans'], $decoded['now']), 'schedule:list JSON shape');
     $hasHeartbeat = false;
     foreach ($decoded['timers'] as $row) {
-        if (($row['class'] ?? '') === \App\Timers\Heartbeat::class) {
+        if (($row['class'] ?? '') === \App\Console\Timers\Heartbeat::class) {
             $hasHeartbeat = true;
         }
     }
     scheduleConsoleCheck($hasHeartbeat, 'schedule:list includes Heartbeat timer');
+    $heartbeatRow = null;
+    foreach ($decoded['timers'] as $row) {
+        if (($row['class'] ?? '') === \App\Console\Timers\Heartbeat::class) {
+            $heartbeatRow = $row;
+        }
+    }
+    scheduleConsoleCheck(($heartbeatRow['seconds'] ?? null) === 5 && ($heartbeatRow['schedule'] ?? '') === '每 5 秒', 'Heartbeat schedule metadata');
     $app->services->withScope(static function (\Loom\ServiceScope $scope): void {
         $scope->get(\Loom\Schedule::class)->every('console.probe', 60, 'scheduled', [], 1);
         $scope->get(\Loom\Database::class)->execute('UPDATE loom_schedules SET next_run=1 WHERE name=?', ['console.probe']);
@@ -83,7 +90,7 @@ try {
     scheduleConsoleCheck($missing === 2, 'unknown timer returns input error, got ' . $missing);
     $scopeProbe = 0;
     $app->services->withScope(static function (\Loom\ServiceScope $scope) use (&$scopeProbe): void {
-        $scope->get(\App\Timers\Heartbeat::class);
+        $scope->get(\App\Console\Timers\Heartbeat::class);
         $scopeProbe++;
     });
     scheduleConsoleCheck($scopeProbe === 1, 'Heartbeat singleton warm-up');

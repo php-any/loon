@@ -77,7 +77,7 @@ final class ModuleDiscovery
      *
      * 参数：无。
      *
-     * @return array 每项含 class、seconds、state。没有定时器时为空数组。
+     * @return array 每项含 class、seconds、expression、timezone、schedule、state。没有定时器时为空数组。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $rows = $discovery->timerDefinitions();
@@ -87,7 +87,14 @@ final class ModuleDiscovery
         $out = [];
         foreach ($this->timers as $class) {
             $timer = self::attribute(new \ReflectionClass($class), \Loom\Timer::class);
-            $out[] = ['class' => $class, 'seconds' => $timer->seconds, 'state' => '代码声明；独立运行状态未采集'];
+            $out[] = [
+                'class' => $class,
+                'seconds' => $timer->isInterval() ? $timer->seconds : null,
+                'expression' => $timer->isCron() ? $timer->cron : null,
+                'timezone' => $timer->isCron() ? $timer->timezone : null,
+                'schedule' => $timer->scheduleLabel(),
+                'state' => '代码声明；独立运行状态未采集',
+            ];
         }
         return $out;
     }

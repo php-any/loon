@@ -47,7 +47,7 @@ Webhook 配置填写 `https://接收端域名/路径` 和环境变量名称 `LOO
 - 订单创建：`action=create,user_id,request_key,items`；明细含 `name,quantity,unit_price`。`unit_price` 为整数分，数量为正整数，总额由服务器计算，币种固定 CNY。请求标识由客户端生成并保留至提交成功，重复提交返回 409。
 - 订单流转：`action=transition,id,expected,status`。待处理可转处理中或取消，处理中可转完成或取消；终态不可更改，不提供删除。
 - 队列重试：`action=retry,id`，只允许失败任务。队列详情只公开允许的结构化数字/布尔结果，不显示任意任务载荷和自由文本输出。
-- 定时器：`GET /api/admin/operations/schedules` 只列出代码中的 `#[Timer(...)]` 声明，支持按任务类搜索及分页，字段为 `class`、`seconds`、`state`。后台不支持新增、编辑、删除或启停；POST 返回 405。旧的 `/api/studio/cron`、`/api/studio/schedule` 写入路由已移除。周期和任务逻辑通过代码维护，未采集的运行状态明确显示为未采集。
+- 定时器：`GET /api/admin/operations/schedules` 只列出代码中的 `#[Timer(...)]` 声明，支持按任务类搜索及分页，字段为 `class`、`seconds`（仅秒间隔）、`expression`/`timezone`（仅 Cron）、`schedule`（可读说明）、`state`。后台不支持新增、编辑、删除或启停；POST 返回 405。旧的 `/api/studio/cron`、`/api/studio/schedule` 写入路由已移除。周期和任务逻辑通过代码维护，未采集的运行状态明确显示为未采集。
 - 通知发送：`action=send,user_id,title,body,request_key`；相同发送者及请求标识幂等。投递重试为 `action=retry,id`。个人已读为向 `inbox` 提交 `action=read,id`。
 
 状态冲突返回 409，输入错误返回 422，缺少权限返回 403。所有 POST 沿用会话、Origin 与 CSRF 校验。新增查看、管理、重试、发送及渠道配置权限在角色编辑中分别分配；使用页面还需拥有相应查看权限。
