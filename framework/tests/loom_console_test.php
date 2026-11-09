@@ -2,6 +2,7 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 
+use Loom\Console\CommandSuggestions;
 use Loom\Console\Console;
 use Loom\Console\Command;
 use Loom\Console\Definition;
@@ -75,6 +76,24 @@ consoleCheck($console->run(['required', '--help']) === 0 && $called === 0 && str
 consoleCheck($console->run(['hello']) === 0 && $called === 1 && strpos($out, '你好，世界') !== false, '闭包命令');
 consoleCheck($console->run(['hello', 'A', 'B']) === 2 && $called === 1, '多余参数阻止命令执行');
 consoleCheck($console->run(['missing']) === 2 && strpos($err, '未知命令') !== false, '未知命令退出码');
+$err = '';
+$console->command('reports:dispatch', function ($input, $output) {
+    return 0;
+}, '报表派发');
+$console->command('reports:status', function ($input, $output) {
+    return 0;
+}, '报表状态');
+consoleCheck(
+    CommandSuggestions::match('reports:dispatc', ['reports:dispatch', 'reports:status', 'hello'])[0] === 'reports:dispatch',
+    'suggestion ranking prefers close dispatch typo',
+);
+consoleCheck(CommandSuggestions::match('xyzzytotallyunknown', ['hello', 'reports:dispatch']) === [], 'suggestion skips unrelated input');
+consoleCheck($console->run(['reports:dispatc']) === 2 && strpos($err, '未知命令') !== false && strpos($err, 'reports:dispatch') !== false, 'unknown command suggests close match');
+$err = '';
+consoleCheck($console->run(['help', 'reports:dispatc']) === 2 && strpos($err, 'reports:dispatch') !== false, 'help with unknown suggests close match');
+$err = '';
+consoleCheck($console->run(['qzxqzxqzxqzx']) === 2 && !str_contains($err, '你是不是想执行'), 'unrelated unknown without spurious suggestions');
+consoleCheck($console->run(['reports:dispatch', '-h']) === 0, 'valid command help unchanged');
 $console->command('fail', function ($i, $o) {
     throw new RuntimeException('可见的失败信息');
 });
