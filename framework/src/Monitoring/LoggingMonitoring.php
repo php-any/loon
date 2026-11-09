@@ -16,12 +16,14 @@ final class LoggingMonitoring implements Monitoring
     private bool $active = false;
     private float $started = 0.0;
     private ?MonitoringContext $context = null;
+    private mixed $writer;
 
     /**
      * @param ?callable $writer 接收一行 JSON 的回调；null 时写入 php://stderr。
      */
-    public function __construct(private readonly ?callable $writer = null)
+    public function __construct(?callable $writer = null)
     {
+        $this->writer = $writer;
     }
 
     public function begin(MonitoringContext $context): void
