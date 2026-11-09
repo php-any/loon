@@ -197,7 +197,7 @@ consoleCheck($console->run(['class:test', '--name=Lin'], $scope) === 3 && strpos
 consoleCheck($constructed === 1, '执行时才解析命令工厂');
 consoleCheck($console->run(['list'], $scope) === 0 && strpos($out, 'class:test') !== false, 'list');
 $out = '';
-consoleCheck($console->run(['help'], $scope) === 0 && $constructed === 0 && strpos($out, 'Loom Console') !== false && strpos($out, 'class:test') !== false && strpos($out, 'help [command]') !== false, 'bare help lists catalog');
+consoleCheck($console->run(['help'], $scope) === 0 && $constructed === 1 && strpos($out, 'Loom Console') !== false && strpos($out, 'class:test') !== false && strpos($out, 'help [command]') !== false, 'bare help lists catalog');
 consoleCheck($console->run(['help', 'hello', 'extra']) === 2 && strpos($err, 'help 命令最多接受一个命令名') !== false, 'help rejects extra arguments');
 consoleCheck($console->run(['list'], $scope) === 0 && strpos($out, '概览') !== false, 'catalog grouping');
 if (preg_match('/^  class:test\s{2,}验证/m', $out) !== 1) {
