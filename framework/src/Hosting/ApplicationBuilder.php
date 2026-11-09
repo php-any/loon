@@ -42,7 +42,13 @@ final class ApplicationBuilder
         $services->addSingleton(GrpcServer::class);
         $services->addSingleton(JobDispatcher::class);
         $services->configure(HttpServerOptions::class, 'http');
-        $services->configure(\Loom\Logging\DiaryOptions::class, 'diary');
+        $services->tryAddSingleton(\Loom\Logging\DiaryOptions::class, static function (ServiceResolver $resolver): \Loom\Logging\DiaryOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\Logging\DiaryOptions::class, 'diary');
+            if (!($bound instanceof \Loom\Logging\DiaryOptions)) {
+                throw new \LogicException('DiaryOptions binding must return DiaryOptions');
+            }
+            return $bound;
+        });
         $services->tryAddSingleton(\Loom\Logging\JournalWriter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalWriter {
             $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
             return match ($options->writer) {

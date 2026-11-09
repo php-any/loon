@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom\Logging;
 
 /**
- * 日记模块选项，对应 config/diary.php。由 ApplicationBuilder 通过 configure(DiaryOptions::class, 'diary') 绑定。
+ * 日记模块选项，对应 config/diary.php。节缺失时保留类上默认值（stderr / json）。由 ApplicationBuilder 通过 bindOptional 绑定。
  *
  * @example $options = $services->get(DiaryOptions::class);
  */
