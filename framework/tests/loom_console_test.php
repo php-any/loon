@@ -177,6 +177,9 @@ consoleCheck($console->run(['class:test', '--unknown'], $scope) === 2 && $constr
 consoleCheck($console->run(['class:test', '--name=Lin'], $scope) === 3 && strpos($out, 'injected Lin') !== false && strpos($err, '标准错误流正常') !== false, '命令类工厂与输出流');
 consoleCheck($constructed === 1, '执行时才解析命令工厂');
 consoleCheck($console->run(['list'], $scope) === 0 && strpos($out, 'class:test') !== false, 'list');
+$out = '';
+consoleCheck($console->run(['help'], $scope) === 0 && $constructed === 0 && strpos($out, 'Loom Console') !== false && strpos($out, 'class:test') !== false && strpos($out, 'help [command]') !== false, 'bare help lists catalog');
+consoleCheck($console->run(['help', 'hello', 'extra']) === 2 && strpos($err, 'help 命令最多接受一个命令名') !== false, 'help rejects extra arguments');
 $console->command('scoped', function (Loom\Console\Input $input, Loom\Console\Output $output, Loom\ServiceScope $current, ConsoleGreeter $greeter) use ($scope) {
     return $current === $scope && $greeter === $scope->get(ConsoleGreeter::class) ? 5 : 6;
 });
