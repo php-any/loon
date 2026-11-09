@@ -11,7 +11,7 @@ use Loom\ServiceScope;
  */
 final class ScheduleWorkCommand extends \Loom\Console\Command
 {
-    protected string $signature = 'schedule:work {--once : 执行一次后退出}';
+    protected string $signature = 'schedule:work {--once : 执行一次后退出} {--dry-run : 仅列出到期计划，不投递任务}';
     protected string $description = '生成到期任务';
 
     public function __construct(
@@ -26,6 +26,14 @@ final class ScheduleWorkCommand extends \Loom\Console\Command
     {
         $this->doctor->check();
         $this->migrations->migrate();
+        if ($this->option('dry-run')) {
+            $due = $this->services->withScope(static function (\Loom\ServiceScope $scope): array {
+                return $scope->get(\Loom\Schedule::class)->dueSnapshot();
+            });
+            $this->json(['due' => $due, 'count' => count($due)]);
+
+            return 0;
+        }
         $once = $this->option('once');
         $pulse = new \Loom\RuntimePulse($this->config, 'scheduler', 1);
         do {
