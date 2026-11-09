@@ -45,7 +45,7 @@ try {
     checkCli($result['code'] === 0 && str_contains($result['stdout'], '概览') && preg_match('/\s{2,}serve\s{2,}/', $result['stdout']) === 1 && !str_contains($result['stdout'], '_job'), 'one registry, hidden worker command');
     $result = $process->run([PHP_BINARY, $entry, 'help']);
     checkCli($result['code'] === 0 && str_contains($result['stdout'], 'Loom Console') && str_contains($result['stdout'], 'migrate ·') && preg_match('/\s{2,}serve\s{2,}/', $result['stdout']) === 1 && !str_contains($result['stdout'], '_job'), 'bare help lists full catalog');
-    foreach (['serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:work'] as $name) {
+    foreach (['serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:list', 'schedule:run', 'schedule:listen', 'schedule:work'] as $name) {
         $result = $process->run([PHP_BINARY, $entry, 'help', $name]);
         checkCli($result['code'] === 0 && str_contains($result['stdout'], '用法：' . $name), 'full built-in help: ' . $name);
         $result = $process->run([PHP_BINARY, $entry, $name, '--unknown']);
@@ -54,7 +54,7 @@ try {
     $result = $process->run([PHP_BINARY, $entry, 'doctor']);
     checkCli($result['code'] === 0 && str_contains($result['stdout'], 'Origami std: OK'), 'doctor');
     // 迁移与 worker 使用测试运行器为本脚本创建的独立数据库。
-    foreach ([['migrate:up'], ['migrate:status'], ['schedule:work', '--once'], ['queue:work', '--once']] as $args) {
+    foreach ([['migrate:up'], ['migrate:status'], ['schedule:list', '--json'], ['schedule:work', '--dry-run'], ['schedule:work', '--once'], ['schedule:listen', '--once'], ['queue:work', '--once']] as $args) {
         $result = $process->run(array_merge([PHP_BINARY, $entry], $args));
         checkCli($result['code'] === 0, 'built-in execution ' . implode(' ', $args) . ': ' . $result['stderr']);
     }

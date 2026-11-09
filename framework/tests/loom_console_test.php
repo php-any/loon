@@ -236,7 +236,7 @@ try {
         return 7;
     });
     $registry = $app->services->get(Console::class);
-    foreach (['doctor', 'serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:work', '_job', 'make:command', 'fixture:status'] as $name) {
+    foreach (['doctor', 'serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:list', 'schedule:run', 'schedule:listen', 'schedule:work', '_job', 'make:command', 'fixture:status'] as $name) {
         consoleCheck($registry->has($name), 'Unified registry: ' . $name);
         ob_start();
         try {

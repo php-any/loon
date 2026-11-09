@@ -122,6 +122,10 @@ try {
         $schedule->tick(100);
         $schedule->tick(100);
         checkService(count($database->query("SELECT id FROM loom_jobs WHERE kind='scheduled'")) === 1, 'schedule tick atomic and idempotent');
+        $schedule->every('probe.manual', 60, 'scheduled', [], 1);
+        $database->execute('UPDATE loom_schedules SET next_run=? WHERE name=?', [time() + 86400, 'probe.manual']);
+        $schedule->runNow('probe.manual', 200);
+        checkService(count($database->query("SELECT id FROM loom_jobs WHERE kind='scheduled'")) === 2, 'schedule runNow dispatches when not due');
     });
 } finally {
     $app->dispose();

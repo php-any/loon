@@ -86,6 +86,9 @@ final class ApplicationBuilder
         $console->add(Console\Commands\MigrateDownCommand::class);
         $console->add(Console\Commands\MigrateStatusCommand::class);
         $console->add(Console\Commands\QueueWorkCommand::class);
+        $console->add(Console\Commands\ScheduleListCommand::class);
+        $console->add(Console\Commands\ScheduleRunCommand::class);
+        $console->add(Console\Commands\ScheduleListenCommand::class);
         $console->add(Console\Commands\ScheduleWorkCommand::class);
         $console->add(Console\Commands\JobCommand::class);
         Console\Commands\ScaffoldCommands::register($console);

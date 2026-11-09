@@ -106,11 +106,59 @@ final class Schedule
         $now = $now ?? time();
         $this->database->transaction(function () use ($now): void {
             foreach (Models\ScheduledJob::due($this->database, $now) as $schedule) {
-                $next = $schedule['expression'] !== null ? (new Cron($schedule['expression'], $schedule['timezone']))->next($now) : $now + (int)$schedule['interval_seconds'];
-                $job = Models\Job::create(['kind' => $schedule['kind'], 'payload' => $schedule['payload'], 'owner' => (int)$schedule['owner'], 'available' => $now, 'created' => $now]);
-                Models\ScheduleRun::create(['schedule_name' => $schedule['name'], 'job_id' => $job->id, 'created' => $now]);
-                Models\ScheduledJob::whereName($schedule['name'])->update(['next_run' => $next]);
+                $this->dispatchSchedule($schedule, $now);
             }
         });
+    }
+
+    /**
+     * 读取当前已到期的计划行，不锁定也不投递任务。供 CLI 预演与测试使用。
+     *
+     * @param ?int $now 比较的 Unix 秒；null 使用当前时间。
+     * @return array 到期计划行，字段同 loom_schedules 查询结果。
+     */
+    public function dueSnapshot(?int $now = null): array
+    {
+        $now = $now ?? time();
+
+        return $this->database->query(
+            'SELECT name, kind, next_run, interval_seconds, expression, timezone, enabled FROM loom_schedules WHERE enabled=1 AND next_run<=? ORDER BY name LIMIT 100',
+            [$now],
+        );
+    }
+
+    /**
+     * 按名称立即投递一次计划任务并推进下次运行时间，不要求 next_run 已到期。
+     *
+     * @param string $name loom_schedules.name。
+     * @param ?int $now 用作投递时间与 Cron 推进基准；null 使用当前时间。
+     */
+    public function runNow(string $name, ?int $now = null): void
+    {
+        if ($name === '') {
+            throw new HttpError(422, 'Invalid schedule');
+        }
+        $now = $now ?? time();
+        $this->database->transaction(function () use ($name, $now): void {
+            $schedule = $this->database->query('SELECT * FROM loom_schedules WHERE name=? FOR UPDATE', [$name])[0] ?? null;
+            if ($schedule === null) {
+                throw new HttpError(404, 'Schedule not found');
+            }
+            if (!(int)$schedule['enabled']) {
+                throw new HttpError(422, 'Schedule disabled');
+            }
+            $this->dispatchSchedule($schedule, $now);
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $schedule loom_schedules 一行
+     */
+    private function dispatchSchedule(array $schedule, int $now): void
+    {
+        $next = $schedule['expression'] !== null ? (new Cron($schedule['expression'], $schedule['timezone']))->next($now) : $now + (int)$schedule['interval_seconds'];
+        $job = Models\Job::create(['kind' => $schedule['kind'], 'payload' => $schedule['payload'], 'owner' => (int)$schedule['owner'], 'available' => $now, 'created' => $now]);
+        Models\ScheduleRun::create(['schedule_name' => $schedule['name'], 'job_id' => $job->id, 'created' => $now]);
+        Models\ScheduledJob::whereName($schedule['name'])->update(['next_run' => $next]);
     }
 }
