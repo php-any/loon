@@ -5,26 +5,55 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 标在类上的周期秒数。本类只保存数字，是否至少一秒由 TimerRunner 注册时检查。
+ * 标在类上的固定秒间隔或五段 Cron。秒间隔与 cron 互斥，至少配置一种；秒间隔须 ≥1。
+ * Cron 使用与 {@see Cron} 相同的「分 时 日 月 周」五字段；时区默认为 UTC（IANA 名称）。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $timer = new Timer(5);
+ * @example #[Timer(5)]
+ * @example #[Timer(cron: '*/5 * * * *')]
+ * @example #[Timer(cron: '0 9 * * 1-5', timezone: 'Asia/Shanghai')]
  */
 #[\Attribute(\Attribute::TARGET_CLASS)]
 final class Timer
 {
-    public int $seconds;
+    public int $seconds = 0;
+    public string $cron = '';
+    public string $timezone = 'UTC';
+
     /**
-     * 把周期秒数存进公开属性 $seconds。这里不检查是否大于 0。
-     *
-     * @param int $seconds 要保存的周期，单位秒。
-     * @return void 不返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $timer = new Timer(5);
+     * @param int $seconds 固定周期秒数；与 $cron 同时指定时注册失败。
+     * @param string $cron 五段 Cron 表达式；非空时忽略 $seconds。
+     * @param string $timezone Cron 使用的 IANA 时区；仅 cron 模式有效。
      */
-    public function __construct(int $seconds)
+    public function __construct(int $seconds = 0, string $cron = '', string $timezone = 'UTC')
     {
         $this->seconds = $seconds;
+        $this->cron = trim($cron);
+        $this->timezone = trim($timezone);
+        if ($this->timezone === '') {
+            $this->timezone = 'UTC';
+        }
+    }
+
+    public function isInterval(): bool
+    {
+        return $this->cron === '';
+    }
+
+    public function isCron(): bool
+    {
+        return $this->cron !== '';
+    }
+
+    /**
+     * 供 schedule:list 与运维列表展示的人类可读调度说明。
+     */
+    public function scheduleLabel(): string
+    {
+        if ($this->isCron()) {
+            return 'cron ' . $this->cron . ' (' . $this->timezone . ')';
+        }
+
+        return '每 ' . $this->seconds . ' 秒';
     }
 }

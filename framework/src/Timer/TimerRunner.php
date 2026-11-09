@@ -15,7 +15,7 @@ namespace Loom;
  */
 final class TimerRunner
 {
-    /** @var array<string, array{seconds: int, state: \stdClass}> */
+    /** @var array<string, array{mode: string, seconds: int, cron: ?Cron, state: \stdClass}> */
     private array $timers = [];
     private bool $running = false;
     private int $generation = 0;
@@ -41,7 +41,7 @@ final class TimerRunner
     }
 
     /**
-     * 校验唯一的 Timer 注解、正周期和公开无参 __invoke，并登记。没有 Timer 注解返回 false；已登记返回 true。
+     * 校验唯一的 Timer 注解、调度声明和公开无参 __invoke，并登记。没有 Timer 注解返回 false；已登记返回 true。
      * 这里不创建定时器实例，实例在节拍里从作用域解析。
      *
      * @param string $class 定时器类名。
@@ -64,7 +64,10 @@ final class TimerRunner
             throw new \LogicException('Duplicate Timer on ' . $class);
         }
         $timer = $attributes[0]->newInstance();
-        if ($timer->seconds < 1) {
+        if ($timer->isCron() && $timer->seconds >= 1) {
+            throw new \LogicException('Timer cannot set both seconds and cron: ' . $class);
+        }
+        if (!$timer->isCron() && $timer->seconds < 1) {
             throw new \InvalidArgumentException('Timer interval must be at least one second: ' . $class);
         }
         if (!$reflection->isInstantiable() || !$reflection->hasMethod('__invoke')) {
@@ -76,12 +79,22 @@ final class TimerRunner
         }
         $state = new \stdClass();
         $state->executing = false;
-        $this->timers[$class] = ['seconds' => $timer->seconds, 'state' => $state];
+        if ($timer->isCron()) {
+            try {
+                $cron = new Cron($timer->cron, $timer->timezone);
+            } catch (HttpError $error) {
+                throw new \InvalidArgumentException('Invalid Timer cron on ' . $class . ': ' . $error->getMessage());
+            }
+            $this->timers[$class] = ['mode' => 'cron', 'seconds' => 0, 'cron' => $cron, 'state' => $state];
+        } else {
+            $this->timers[$class] = ['mode' => 'interval', 'seconds' => $timer->seconds, 'cron' => null, 'state' => $state];
+        }
+
         return true;
     }
 
     /**
-     * @return array<string, int> 已登记的定时器类名到周期秒数。
+     * @return array<string, int> 已登记的定时器类名到周期秒数；Cron 定时器值为 0。
      */
     public function timers(): array
     {
@@ -89,6 +102,7 @@ final class TimerRunner
         foreach ($this->timers as $class => $timer) {
             $out[$class] = $timer['seconds'];
         }
+
         return $out;
     }
 
@@ -124,6 +138,44 @@ final class TimerRunner
         $startedAt = microtime(true);
         foreach ($this->timers as $class => $timer) {
             $runner = $this;
+            if ($timer['mode'] === 'cron') {
+                $cron = $timer['cron'];
+                \spawn(function () use ($runner, $class, $cron, $timer, $generation): void {
+                    $state = $timer['state'];
+                    $next = $cron->next(time() - 60);
+                    while ($runner->running && $runner->generation === $generation) {
+                        $now = time();
+                        if ($now < $next) {
+                            $remaining = $next - $now;
+                            if ($remaining > 1) {
+                                sleep(1);
+                            } else {
+                                usleep((int) max(1, $remaining) * 1000000);
+                            }
+                            continue;
+                        }
+                        if (!$runner->running || $runner->generation !== $generation) {
+                            break;
+                        }
+                        if (!$state->executing) {
+                            $state->executing = true;
+                            try {
+                                $runner->tick($class);
+                            } catch (\Throwable $error) {
+                                fwrite(fopen('php://stderr', 'w'), '[timer ' . $class . '] ' . $error->getMessage() . "\n");
+                            } finally {
+                                $state->executing = false;
+                            }
+                        }
+                        try {
+                            $next = $cron->next(max($next, time()));
+                        } catch (\Throwable) {
+                            sleep(1);
+                        }
+                    }
+                });
+                continue;
+            }
             \spawn(function () use ($runner, $class, $timer, $generation, $startedAt): void {
                 $period = $timer['seconds'];
                 $state = $timer['state'];

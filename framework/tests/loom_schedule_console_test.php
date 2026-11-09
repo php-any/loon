@@ -56,6 +56,13 @@ try {
         }
     }
     scheduleConsoleCheck($hasHeartbeat, 'schedule:list includes Heartbeat timer');
+    $heartbeatRow = null;
+    foreach ($decoded['timers'] as $row) {
+        if (($row['class'] ?? '') === \App\Console\Timers\Heartbeat::class) {
+            $heartbeatRow = $row;
+        }
+    }
+    scheduleConsoleCheck(($heartbeatRow['seconds'] ?? null) === 5 && ($heartbeatRow['schedule'] ?? '') === '每 5 秒', 'Heartbeat schedule metadata');
     $app->services->withScope(static function (\Loom\ServiceScope $scope): void {
         $scope->get(\Loom\Schedule::class)->every('console.probe', 60, 'scheduled', [], 1);
         $scope->get(\Loom\Database::class)->execute('UPDATE loom_schedules SET next_run=1 WHERE name=?', ['console.probe']);

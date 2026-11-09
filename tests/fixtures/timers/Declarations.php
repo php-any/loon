@@ -36,4 +36,16 @@ final class ShortTimerProbe {
     }
 }
 
+#[\Loom\Timer(cron: '*/5 * * * *', timezone: 'UTC')]
+final class CronTimerProbe {
+    public int $calls = 0;
+    public function __invoke(): void { $this->calls++; }
+}
+
+#[\Loom\Timer(5, '*/5 * * * *')]
+final class InvalidTimerBoth { public function __invoke(): void {} }
+
+#[\Loom\Timer(cron: 'not-a-cron')]
+final class InvalidTimerCron { public function __invoke(): void {} }
+
 

@@ -11,7 +11,7 @@ const [Grid] = useVbenVxeGrid({
   gridOptions: {
     columns: [
       { field: 'class', title: '任务类', minWidth: 300 },
-      { field: 'seconds', title: '执行周期（秒）', minWidth: 140 },
+      { field: 'schedule', title: '调度', minWidth: 200 },
       { field: 'state', title: '运行状态', minWidth: 280 },
     ].map((column) => ({ ...column, formatter: displayCell })),
     height: 'auto',
