@@ -75,9 +75,18 @@ $cronOnly = new \Loom\TimerRunner($provider);
 checkTimer($cronOnly->register(CronTimerProbe::class), 'Cron timer registers');
 checkTimer(($cronOnly->timers()[CronTimerProbe::class] ?? -1) === 0, 'Cron timer maps to zero seconds sentinel');
 $cronFive = new \Loom\Cron('*/5 * * * *', 'UTC');
-$beforeDue = strtotime('2026-06-01 12:03:00 UTC');
+// 使用固定 Unix 秒数：Origami 的 strtotime 对常见英文字符串日期常返回 false。
+$beforeDue = 1780315380; // 2026-06-01 12:03:00 UTC
+$atFive = 1780315500; // 2026-06-01 12:05:00 UTC
+$notYet = 1780315470; // 2026-06-01 12:04:30 UTC
 $nextDue = $cronFive->next($beforeDue);
-checkTimer($nextDue === strtotime('2026-06-01 12:05:00 UTC'), 'Cron next matches five-minute grid');
-$notYet = strtotime('2026-06-01 12:04:30 UTC');
-checkTimer($cronFive->next($notYet) === strtotime('2026-06-01 12:05:00 UTC'), 'Cron next skips before due minute');
+checkTimer($nextDue === $atFive, 'Cron next matches five-minute grid');
+checkTimer($cronFive->next($notYet) === $atFive, 'Cron next skips before due minute');
+$cronRejected = false;
+try {
+    $cronFive->next(false);
+} catch (\Loom\HttpError $error) {
+    $cronRejected = $error->status === 422;
+}
+checkTimer($cronRejected, 'Cron next rejects false timestamp');
 echo "loom_timer_test: OK\n";
