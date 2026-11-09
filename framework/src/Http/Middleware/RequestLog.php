@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Loom\Http\Middleware;
 
+use Loom\Logging\Diary;
 use Loom\HttpError;
 use Loom\Middleware;
 use Loom\Request;
@@ -13,7 +14,8 @@ use Loom\Response;
  * 在请求处理结束后写一行 JSON 日志，内容为方法、路径、状态码和耗时。写日志失败不替换响应，也不掩盖原来的异常。
  *
  * 构造参数：
- * - $writer（?callable）：接收一行 JSON 字符串的回调。null 时写入标准错误。默认 null。
+ * - $writer（?callable）：接收一行已序列化字符串的回调；非 null 时优先于 Diary（兼容旧测试）。默认 null。
+ * - $diary（?Diary）：未提供 writer 时写入应用日记单例。从容器解析时自动注入。默认 null。
  *
  * 返回值：使用 new 构造时得到 RequestLog 实例。
  *
@@ -23,19 +25,18 @@ use Loom\Response;
 final class RequestLog implements Middleware
 {
     private mixed $writer;
+    private ?Diary $diary;
 
     /**
-     * 保存日志回调。null 留到 handle 时再写标准错误，构造时不打开流。
+     * 保存可选的 callable 写入器与应用日记。writer 非 null 时不使用 diary。
      *
-     * @param ?callable $writer 接收一行 JSON 字符串的回调。null 时改写 php://stderr。默认 null。
-     * @return void 无直接返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $logger = new RequestLog(static function (string $line): void { echo $line; });
+     * @param ?callable $writer 接收一行已序列化字符串的回调。默认 null。
+     * @param ?Diary $diary 应用日记，容器解析时注入。默认 null。
      */
-    public function __construct(?callable $writer = null)
+    public function __construct(?callable $writer = null, ?Diary $diary = null)
     {
         $this->writer = $writer;
+        $this->diary = $diary;
     }
 
     /**
@@ -62,18 +63,25 @@ final class RequestLog implements Middleware
         } finally {
             // 日志记录不得替换响应或掩盖原始异常。
             try {
-                $line = json_encode([
-                    'time' => gmdate('Y-m-d\TH:i:s\Z'),
-                    'event' => 'http.request',
+                $fields = [
                     'method' => $request->method(),
                     'path' => $request->path(),
                     'status' => $status,
                     'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
-                ], JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n";
+                ];
                 if ($this->writer !== null) {
                     $writer = $this->writer;
-                    $writer($line);
+                    $writer(json_encode([
+                        'time' => gmdate('Y-m-d\TH:i:s\Z'),
+                        'event' => 'http.request',
+                    ] + $fields, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n");
+                } elseif ($this->diary !== null) {
+                    $this->diary->event('http.request', $fields);
                 } else {
+                    $line = json_encode([
+                        'time' => gmdate('Y-m-d\TH:i:s\Z'),
+                        'event' => 'http.request',
+                    ] + $fields, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES) . "\n";
                     $stream = @fopen('php://stderr', 'w');
                     if ($stream !== false) {
                         try {

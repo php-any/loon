@@ -42,6 +42,27 @@ final class ApplicationBuilder
         $services->addSingleton(GrpcServer::class);
         $services->addSingleton(JobDispatcher::class);
         $services->configure(HttpServerOptions::class, 'http');
+        $services->configure(\Loom\Logging\DiaryOptions::class, 'diary');
+        $services->tryAddSingleton(\Loom\Logging\JournalWriter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalWriter {
+            $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
+            return match ($options->writer) {
+                'file' => new \Loom\Logging\FileJournalWriter(
+                    $options->file !== ''
+                        ? $options->file
+                        : $resolver->get(Config::class)->path('storage/logs/diary.log'),
+                ),
+                'null' => new \Loom\Logging\NullJournalWriter(),
+                default => new \Loom\Logging\StderrJournalWriter(),
+            };
+        });
+        $services->tryAddSingleton(\Loom\Logging\JournalFormatter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalFormatter {
+            $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
+            return match ($options->formatter) {
+                'text', 'plain' => new \Loom\Logging\PlainTextJournalFormatter(),
+                default => new \Loom\Logging\JsonLineJournalFormatter(),
+            };
+        });
+        $services->tryAddSingleton(\Loom\Logging\Diary::class);
         $services->addHostedService(TimerHostedService::class);
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
