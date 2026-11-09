@@ -42,9 +42,9 @@ try {
     }
     $entry = $app->configuration->root() . '/loom.php';
     $result = $process->run([PHP_BINARY, $entry, 'list']);
-    checkCli($result['code'] === 0 && substr_count($result['stdout'], '  serve  ') === 1 && !str_contains($result['stdout'], '_job'), 'one registry, hidden worker command');
+    checkCli($result['code'] === 0 && str_contains($result['stdout'], '概览') && preg_match('/\s{2,}serve\s{2,}/', $result['stdout']) === 1 && !str_contains($result['stdout'], '_job'), 'one registry, hidden worker command');
     $result = $process->run([PHP_BINARY, $entry, 'help']);
-    checkCli($result['code'] === 0 && str_contains($result['stdout'], 'Loom Console') && substr_count($result['stdout'], '  serve  ') === 1 && !str_contains($result['stdout'], '_job'), 'bare help lists full catalog');
+    checkCli($result['code'] === 0 && str_contains($result['stdout'], 'Loom Console') && str_contains($result['stdout'], 'migrate ·') && preg_match('/\s{2,}serve\s{2,}/', $result['stdout']) === 1 && !str_contains($result['stdout'], '_job'), 'bare help lists full catalog');
     foreach (['serve', 'tcp:serve', 'grpc:serve', 'migrate:up', 'migrate:down', 'migrate:status', 'queue:work', 'schedule:work'] as $name) {
         $result = $process->run([PHP_BINARY, $entry, 'help', $name]);
         checkCli($result['code'] === 0 && str_contains($result['stdout'], '用法：' . $name), 'full built-in help: ' . $name);
