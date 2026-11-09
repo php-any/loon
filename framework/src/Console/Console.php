@@ -88,7 +88,7 @@ final class Console
 
     /**
      * 执行 list、help 或已登记命令。$argv 为 null 时读 $GLOBALS['argv'] 并去掉程序名。
-     * list 带参数、help 不是恰好跟一个命令名、未知命令都返回 2。单独的 -- 之前出现 --help 或 -h 时只打印帮助。
+     * list 带参数、help 带超过一个命令名、未知命令都返回 2。单独的 -- 之前出现 --help 或 -h 时只打印帮助。无参数的 help 与 list 一样列出命令。
      * 处理器返回 null 视为 0；不是 0–255 的整数时返回 1。InputError 返回 2，其它异常返回 1。
      *
      * @param ?array $argv 第一项是命令名。
@@ -141,20 +141,17 @@ final class Console
             if (count($argv) > 1) {
                 throw new InputError('list 命令不接受参数');
             }
-            $this->output->info('Loom Console');
-            $this->output->line('  list  列出所有命令');
-            $this->output->line('  help <command>  显示帮助');
-            foreach ($this->commands as $command) {
-                if (!$command['hidden']) {
-                    $this->output->line('  ' . $command['definition']->name . '  ' . $command['definition']->description);
-                }
-            }
+            $this->listCatalog();
             return 0;
         }
         $help = $name === 'help';
         if ($help) {
+            if (count($argv) === 1) {
+                $this->listCatalog();
+                return 0;
+            }
             if (count($argv) !== 2) {
-                throw new InputError('用法：help <command>');
+                throw new InputError('help 命令最多接受一个命令名');
             }
             $name = $argv[1];
         }
@@ -184,6 +181,18 @@ final class Console
             throw new \LogicException('命令必须返回 0–255 的整数退出码');
         }
         return $code;
+    }
+
+    private function listCatalog(): void
+    {
+        $this->output->info('Loom Console');
+        $this->output->line('  list  列出所有命令');
+        $this->output->line('  help [command]  列出所有命令或显示指定命令的帮助');
+        foreach ($this->commands as $command) {
+            if (!$command['hidden']) {
+                $this->output->line('  ' . $command['definition']->name . '  ' . $command['definition']->description);
+            }
+        }
     }
 
     private function help(Definition $definition): void
