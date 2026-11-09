@@ -25,8 +25,11 @@ try {
         }
     }
     $out = '';
-    $console = new \Loom\Console\Console(new \Loom\Console\Output(function ($text, $stderr) use (&$out): void {
-        if (!$stderr) {
+    $err = '';
+    $console = new \Loom\Console\Console(new \Loom\Console\Output(function ($text, $stderr) use (&$out, &$err): void {
+        if ($stderr) {
+            $err .= $text;
+        } else {
             $out .= $text;
         }
     }));
@@ -38,16 +41,12 @@ try {
     ] as $class) {
         $console->add($class);
     }
-    $listJson = $app->services->withScope(static function (\Loom\ServiceScope $scope) use ($console): string {
-        ob_start();
-        try {
-            $code = $console->run(['schedule:list', '--json'], $scope);
-            scheduleConsoleCheck($code === 0, 'schedule:list --json exit code');
-        } finally {
-            return ob_get_clean() ?: '';
-        }
+    $app->services->withScope(static function (\Loom\ServiceScope $scope) use ($console, &$out): void {
+        $out = '';
+        $code = $console->run(['schedule:list', '--json'], $scope);
+        scheduleConsoleCheck($code === 0, 'schedule:list --json exit code');
     });
-    $decoded = json_decode($listJson, true, 64, JSON_THROW_ON_ERROR);
+    $decoded = json_decode(trim($out), true, 64, JSON_THROW_ON_ERROR);
     scheduleConsoleCheck(isset($decoded['timers'], $decoded['plans'], $decoded['now']), 'schedule:list JSON shape');
     $hasHeartbeat = false;
     foreach ($decoded['timers'] as $row) {
@@ -60,17 +59,21 @@ try {
         $scope->get(\Loom\Schedule::class)->every('console.probe', 60, 'scheduled', [], 1);
         $scope->get(\Loom\Database::class)->execute('UPDATE loom_schedules SET next_run=1 WHERE name=?', ['console.probe']);
     });
-    $dryRun = $app->services->withScope(static function (\Loom\ServiceScope $scope) use ($console): array {
-        ob_start();
-        try {
-            scheduleConsoleCheck($console->run(['schedule:work', '--dry-run'], $scope) === 0, 'dry-run exit');
-        } finally {
-            return json_decode(ob_get_clean() ?: '{}', true, 64, JSON_THROW_ON_ERROR);
-        }
+    $dryRun = $app->services->withScope(static function (\Loom\ServiceScope $scope) use ($console, &$out): array {
+        $out = '';
+        scheduleConsoleCheck($console->run(['schedule:work', '--dry-run'], $scope) === 0, 'dry-run exit');
+
+        return json_decode(trim($out), true, 64, JSON_THROW_ON_ERROR);
     });
     scheduleConsoleCheck(($dryRun['count'] ?? 0) >= 1, 'dry-run lists due plan');
     $beforeJobs = $app->services->withScope(static fn (\Loom\ServiceScope $scope): int => count($scope->get(\Loom\Database::class)->query("SELECT id FROM loom_jobs WHERE kind='scheduled'")));
-    scheduleConsoleCheck($app->run(['schedule:work', '--dry-run']) === 0, 'dry-run from Application::run');
+    ob_start();
+    try {
+        scheduleConsoleCheck($app->run(['schedule:work', '--dry-run']) === 0, 'dry-run from Application::run');
+    } finally {
+        $appDryRun = json_decode(trim(ob_get_clean() ?: ''), true, 64, JSON_THROW_ON_ERROR);
+    }
+    scheduleConsoleCheck(($appDryRun['count'] ?? 0) >= 1, 'Application dry-run JSON');
     $afterDry = $app->services->withScope(static fn (\Loom\ServiceScope $scope): int => count($scope->get(\Loom\Database::class)->query("SELECT id FROM loom_jobs WHERE kind='scheduled'")));
     scheduleConsoleCheck($beforeJobs === $afterDry, 'dry-run must not enqueue jobs');
     scheduleConsoleCheck($app->run(['schedule:run', 'console.probe', '--plan']) === 0, 'schedule:run plan');
