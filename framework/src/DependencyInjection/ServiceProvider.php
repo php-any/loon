@@ -92,6 +92,16 @@ final class ServiceProvider implements ServiceResolver
     }
 
     /**
+     * 打开作用域、绑定 Monitoring 会话、执行回调，结束时释放作用域（Monitoring 随作用域 dispose 收尾）。
+     *
+     * @example ScopeMonitoring::run($provider, MonitoringContext::timer($class), static fn (ServiceScope $scope) => ...);
+     */
+    public function withMonitoredScope(\Loom\Monitoring\MonitoringContext $context, callable $operation): mixed
+    {
+        return \Loom\Monitoring\ScopeMonitoring::run($this, $context, $operation);
+    }
+
+    /**
      * 按创建的相反顺序释放容器创建的单例。之后不能再解析服务。重复调用直接返回。
      */
     public function dispose(): void

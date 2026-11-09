@@ -29,6 +29,9 @@ final class JobCommand extends \Loom\Console\Command
             throw new \InvalidArgumentException('Invalid job envelope');
         }
         $request = new \Loom\Request(['method' => 'POST', 'path' => '/', 'headers' => ['content-type' => ['application/json']], 'query' => [], 'body' => $payload]);
+        $monitoring = $this->scope->tryGet(\Loom\Monitoring\Monitoring::class);
+        $monitoring?->begin(\Loom\Monitoring\MonitoringContext::job((string)$job['kind'], (int)$job['id']));
+        $monitoring?->recordEvent('queue.job.dispatch', ['id' => $job['id'], 'kind' => $job['kind'], 'attempt' => $job['attempt']]);
         $result = $this->jobs->dispatch($job['kind'], $request, $this->scope)->toArray();
         if ($result['status'] >= 300) {
             throw new \RuntimeException('Job failed: ' . $result['body']);

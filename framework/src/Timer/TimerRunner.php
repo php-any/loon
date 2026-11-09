@@ -116,13 +116,16 @@ final class TimerRunner
         if (!isset($this->timers[$class])) {
             throw new \LogicException('Timer is not registered: ' . $class);
         }
-        $this->services->withScope(static function (ServiceScope $scope) use ($class): void {
-            $handler = $scope->get($class);
-            if (!is_callable($handler)) {
-                throw new \LogicException('Timer service is not callable: ' . $class);
-            }
-            $handler();
-        });
+        $this->services->withMonitoredScope(
+            \Loom\Monitoring\MonitoringContext::timer($class),
+            static function (ServiceScope $scope) use ($class): void {
+                $handler = $scope->get($class);
+                if (!is_callable($handler)) {
+                    throw new \LogicException('Timer service is not callable: ' . $class);
+                }
+                $handler();
+            },
+        );
     }
 
     /**

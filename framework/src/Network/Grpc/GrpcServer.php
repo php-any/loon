@@ -73,7 +73,10 @@ final class GrpcServer
             $request = json_decode($call->requestJson(), true, 64, JSON_THROW_ON_ERROR);
             $method = $call->method();
             $dispatcher = $this->dispatcher;
-            $result = $this->services->withScope(static fn (ServiceScope $scope): array => $dispatcher->handle($scope, $method, $request));
+            $result = $this->services->withMonitoredScope(
+                \Loom\Monitoring\MonitoringContext::grpc($method),
+                static fn (ServiceScope $scope): array => $dispatcher->handle($scope, $method, $request),
+            );
             if (isset($result['error'])) {
                 $call->fail(self::STATUS[$result['error']['code']] ?? 2, $result['error']['message']);
             } else {

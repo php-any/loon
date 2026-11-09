@@ -69,7 +69,10 @@ final class TcpServer
                 }
                 $reply = $message === null
                     ? ['ok' => false, 'error' => 'invalid_message']
-                    : $this->services->withScope(static fn (ServiceScope $scope): array => $scope->get($handler)->handle($message));
+                    : $this->services->withMonitoredScope(
+                        \Loom\Monitoring\MonitoringContext::tcp(),
+                        static fn (ServiceScope $scope): array => $scope->get($handler)->handle($message),
+                    );
                 $bytes = json_encode($reply, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE) . "\n";
                 if (strlen($bytes) > $limits['maxResponseBytes']) {
                     throw new \RuntimeException('TCP response too large');

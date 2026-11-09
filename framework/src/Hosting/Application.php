@@ -139,7 +139,9 @@ final class Application
     public function handle(Request $request): Response
     {
         $kernel = $this->kernel;
-        return $this->services->withScope(static fn (ServiceScope $scope): Response => $kernel->handle($request, $scope));
+        $path = $request->path();
+        $context = \Loom\Monitoring\MonitoringContext::http($request->method(), $path);
+        return $this->services->withMonitoredScope($context, static fn (ServiceScope $scope): Response => $kernel->handle($request, $scope));
     }
 
     /**
@@ -151,7 +153,10 @@ final class Application
     {
         $console = $this->console;
         try {
-            return $this->services->withScope(static fn (ServiceScope $scope): int => $console->run($args, $scope));
+            return $this->services->withMonitoredScope(
+                \Loom\Monitoring\MonitoringContext::console($args[0] ?? 'list'),
+                static fn (ServiceScope $scope): int => $console->run($args, $scope),
+            );
         } catch (\Throwable $error) {
             $console->output()->error($error->getMessage());
             return 1;

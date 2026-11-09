@@ -60,7 +60,8 @@ final class HttpServer
     public function handle(mixed $native, mixed $writer): void
     {
         $listener = $this;
-        $this->services->withScope(static function (ServiceScope $scope) use ($listener, $native, $writer): void {
+        $context = \Loom\Monitoring\MonitoringContext::http($native->method(), $native->path());
+        $this->services->withMonitoredScope($context, static function (ServiceScope $scope) use ($listener, $native, $writer): void {
             $listener->respond($scope, $native, $writer);
         });
     }
@@ -72,6 +73,9 @@ final class HttpServer
     {
         $transport = new HttpTransport($this->network, $native, $writer);
         $scope->get(RequestContext::class)->attach($transport);
+        $monitoring = $scope->tryGet(\Loom\Monitoring\Monitoring::class);
+        $started = microtime(true);
+        $status = 500;
         try {
             set_time_limit(10);
             $body = file_get_contents('php://input');
@@ -79,13 +83,33 @@ final class HttpServer
                 throw new HttpError(400, 'Cannot read request body');
             }
             $request = RequestFactory::fromNative($native, $_SERVER, $body, $this->network->limits('http')['maxBodyBytes']);
+            $monitoring?->recordHttpInput([
+                'method' => $request->method(),
+                'path' => $request->path(),
+                'body_bytes' => strlen($body),
+            ]);
             $response = str_starts_with($request->path(), '/assets/')
                 ? $this->assets->handle($request)
                 : $this->kernel->handle($request, $scope);
+            $status = $response->toArray()['status'];
+            $monitoring?->recordHttpOutput([
+                'status' => $status,
+                'body_bytes' => strlen((string)$response->toArray()['body']),
+                'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
+            ]);
             $transport->send($response, $request->method() === 'HEAD');
         } catch (HttpError $error) {
+            $status = $error->status;
+            $monitoring?->recordHttpOutput([
+                'status' => $status,
+                'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
+            ]);
             $transport->send(Response::json(['type' => 'about:blank', 'title' => $error->getMessage(), 'status' => $error->status], $error->status), $native->method() === 'HEAD');
         } catch (\Throwable $error) {
+            $monitoring?->recordHttpOutput([
+                'status' => 500,
+                'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
+            ]);
             fwrite(fopen('php://stderr', 'w'), $error->getMessage() . "\n");
             $transport->send(Response::json(['type' => 'about:blank', 'title' => 'Internal Server Error', 'status' => 500], 500), $native->method() === 'HEAD');
         }
