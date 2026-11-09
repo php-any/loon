@@ -17,11 +17,13 @@ function checkTimer(bool $condition, string $message): void
 $root = dirname(__DIR__, 2);
 $config = new \Loom\Config($root);
 $config->load();
-$provider = (new \Loom\ServiceCollection())
-    ->addInstance(\Loom\Config::class, $config)
-    ->build();
-
+$collection = (new \Loom\ServiceCollection())->addInstance(\Loom\Config::class, $config);
 require $root . '/tests/fixtures/timers/Declarations.php';
+foreach ([TimerProbe::class, SlowTimerProbe::class, ShortTimerProbe::class] as $class) {
+    // 与 tick 内 withScope 解析一致；登记为 singleton 以便跨节拍累计调用次数（与 Heartbeat 示例相同）。
+    $collection->addSingleton($class);
+}
+$provider = $collection->build();
 
 $runner = new \Loom\TimerRunner($provider);
 $runner->register(NotATimer::class);
@@ -37,7 +39,7 @@ foreach ([InvalidTimerInterval::class, InvalidTimerHandler::class, DuplicateTime
 }
 $runner->register(TimerProbe::class);
 $runner->register(TimerProbe::class);
-$probe = $provider->get(TimerProbe::class);
+$probe = $provider->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(TimerProbe::class));
 $runner->start();
 $runner->start();
 checkTimer($probe->calls === 0, 'First execution must wait for interval');
@@ -54,8 +56,8 @@ $runner->stop();
 $timed = new \Loom\TimerRunner($provider);
 $timed->register(SlowTimerProbe::class);
 $timed->register(ShortTimerProbe::class);
-$slow = $provider->get(SlowTimerProbe::class);
-$short = $provider->get(ShortTimerProbe::class);
+$slow = $provider->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(SlowTimerProbe::class));
+$short = $provider->withScope(static fn (\Loom\ServiceScope $scope) => $scope->get(ShortTimerProbe::class));
 $startedAt = microtime(true);
 $timed->start();
 usleep(4700000);
