@@ -150,6 +150,7 @@ class ConsoleGreeter
 class TestConsoleCommand extends Command
 {
     protected string $signature = 'class:test {--name=Ada}';
+    protected string $description = '验证';
     private ConsoleGreeter $greeter;
     /**
      * 初始化 TestConsoleCommand 实例及其依赖。验证命令参数、注入服务、输出通道和自定义退出码。
