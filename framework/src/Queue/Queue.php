@@ -27,8 +27,12 @@ final class Queue
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $queue = new Queue($process, $config, $redisQueue);
      */
-    public function __construct(\Loom\Process $process, \Loom\Config $config, \Loom\RedisQueue $redisQueue)
-    {
+    public function __construct(
+        \Loom\Process $process,
+        \Loom\Config $config,
+        \Loom\RedisQueue $redisQueue,
+        private readonly ?\Loom\Monitoring\Monitoring $monitoring = null,
+    ) {
         $this->process = $process;
         $this->config = $config;
         $this->redisQueue = $redisQueue;
@@ -104,6 +108,11 @@ final class Queue
         if ($job === null) {
             return false;
         }
+        $this->monitoring?->recordEvent('queue.job.claimed', [
+            'id' => $job['id'],
+            'kind' => $job['kind'],
+            'attempt' => $job['attempt'],
+        ]);
         try {
             $result = $this->runIsolated($job);
         } catch (\Throwable $error) {

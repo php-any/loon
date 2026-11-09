@@ -178,8 +178,19 @@ final class Console
             return 0;
         }
         $input = $command['definition']->parse($tokens);
+        $monitoring = $this->services->tryGet(\Loom\Monitoring\Monitoring::class);
+        $monitoring?->begin(new \Loom\Monitoring\MonitoringContext('console', ['command' => $name]));
+        $started = microtime(true);
         $code = Invoker::call($command['handler'], $this->services, [$input, $this->output]);
         if ($code === null) {
+            $code = 0;
+        }
+        $monitoring?->recordConsole([
+            'command' => $name,
+            'exit_code' => $code,
+            'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
+        ]);
+        if ($code === 0) {
             return 0;
         }
         if (!is_int($code) || $code < 0 || $code > 255) {

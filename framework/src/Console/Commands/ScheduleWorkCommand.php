@@ -40,9 +40,12 @@ final class ScheduleWorkCommand extends \Loom\Console\Command
             if (!$once) {
                 $pulse->beat();
             }
-            $this->services->withScope(static function (ServiceScope $scope): void {
-                $scope->get(\Loom\Schedule::class)->tick();
-            });
+            $this->services->withMonitoredScope(
+                \Loom\Monitoring\MonitoringContext::schedule(),
+                static function (ServiceScope $scope): void {
+                    $scope->get(\Loom\Schedule::class)->tick();
+                },
+            );
             if (!$once) {
                 sleep(1);
             }

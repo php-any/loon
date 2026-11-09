@@ -45,6 +45,7 @@ final class ApplicationBuilder
         $services->addHostedService(TimerHostedService::class);
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
+        $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, \Loom\Monitoring\LoggingMonitoring::class);
     }
 
     /**

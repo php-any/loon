@@ -34,7 +34,7 @@ final class Database
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $database = new Database($config);
      */
-    public function __construct(\Loom\Config $config)
+    public function __construct(\Loom\Config $config, private readonly ?\Loom\Monitoring\Monitoring $monitoring = null)
     {
         $this->config = $config;
     }
@@ -83,7 +83,7 @@ final class Database
             return $this;
         }
         if (!isset($this->opened[$name])) {
-            $child = new self($this->config);
+            $child = new self($this->config, $this->monitoring);
             $child->name = $name;
             $child->manager = $this;
             $child->driverDsn();
@@ -497,11 +497,16 @@ final class Database
      */
     public function query(string $sql, array $args = []): array
     {
+        $started = microtime(true);
         $rows = [];
-        foreach ($this->runner($this->tx)->query($sql, $args) as $row) {
-            $rows[] = get_object_vars($row);
+        try {
+            foreach ($this->runner($this->tx)->query($sql, $args) as $row) {
+                $rows[] = get_object_vars($row);
+            }
+            return $rows;
+        } finally {
+            $this->monitoring?->recordSql($sql, $args, (microtime(true) - $started) * 1000, count($rows));
         }
-        return $rows;
     }
 
     /**
@@ -516,8 +521,13 @@ final class Database
      */
     public function execute(string $sql, array $args = []): array
     {
-        $result = $this->runner($this->tx)->execute($sql, $args);
-        return ['id' => (int)$result->lastInsertId, 'affected' => (int)$result->rowsAffected];
+        $started = microtime(true);
+        try {
+            $result = $this->runner($this->tx)->execute($sql, $args);
+            return ['id' => (int)$result->lastInsertId, 'affected' => (int)$result->rowsAffected];
+        } finally {
+            $this->monitoring?->recordSql($sql, $args, (microtime(true) - $started) * 1000, null);
+        }
     }
 
     /**

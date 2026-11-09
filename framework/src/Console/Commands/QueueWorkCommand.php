@@ -32,9 +32,12 @@ final class QueueWorkCommand extends \Loom\Console\Command
             if (!$once) {
                 $pulse->beat();
             }
-            $this->services->withScope(static function (ServiceScope $scope): void {
-                $scope->get(\Loom\Queue::class)->tick();
-            });
+            $this->services->withMonitoredScope(
+                \Loom\Monitoring\MonitoringContext::queue(),
+                static function (ServiceScope $scope): void {
+                    $scope->get(\Loom\Queue::class)->tick();
+                },
+            );
             if (!$once) {
                 sleep(1);
             }

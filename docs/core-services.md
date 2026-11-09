@@ -96,4 +96,6 @@ $app->mapGet('/tasks', static fn (\Loom\Request $request, TaskRepository $tasks)
 $app->mapCommand('tasks:count', static fn (\Loom\Console\Output $output, TaskRepository $tasks) => $output->line((string) $tasks->count()));
 ```
 
+一次工作单元内的 HTTP/SQL/队列等观测见 [统一监控](monitoring.md)（scoped 的 `Monitoring` 接口，默认 `LoggingMonitoring`）。
+
 源码：[ServiceCollection](../framework/src/DependencyInjection/ServiceCollection.php)、[ServiceProvider](../framework/src/DependencyInjection/ServiceProvider.php)、[ServiceScope](../framework/src/DependencyInjection/ServiceScope.php)、[Invoker](../framework/src/DependencyInjection/Invoker.php)、[ModelContext](../framework/src/Database/Orm/ModelContext.php)。
