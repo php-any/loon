@@ -17,6 +17,7 @@ foreach ([
     'Monitoring/Correlation.php',
     'Monitoring/CorrelationId.php',
     'Monitoring/HttpCorrelation.php',
+    'Monitoring/GrpcCorrelation.php',
     'Monitoring/MonitoringContext.php',
     'Monitoring/NullMonitoring.php',
     'Monitoring/LoggingMonitoring.php',

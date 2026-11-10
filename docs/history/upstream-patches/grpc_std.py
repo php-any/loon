@@ -45,7 +45,9 @@ import (
  grpcsrc "google.golang.org/grpc"
  "google.golang.org/grpc/codes"
  "google.golang.org/grpc/status"
+ "google.golang.org/grpc/metadata"
  "google.golang.org/grpc/keepalive"
+ "strings"
  _ "google.golang.org/grpc/encoding/gzip"
  "google.golang.org/grpc/reflection"
  rv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
@@ -79,6 +81,7 @@ func callClass(call *rpcCall)data.ClassStmt{
  c.Methods=[]data.Method{
  &script.Method{Name:"method",Run:func(data.Context)(data.GetValue,error){if call==nil{return nil,fmt.Errorf("uninitialized RPC")};return data.NewStringValue(call.method),nil}},
  &script.Method{Name:"requestJson",Run:func(data.Context)(data.GetValue,error){if call==nil{return nil,fmt.Errorf("uninitialized RPC")};return data.NewStringValue(call.input),nil}},
+ &script.Method{Name:"incomingMetadata",Args:[]string{"name"},Run:func(ctx data.Context)(data.GetValue,error){if call==nil{return nil,fmt.Errorf("uninitialized RPC")};name,e:=utils.ConvertFromIndex[string](ctx,0);if e!=nil{return nil,e};if md,ok:=metadata.FromIncomingContext(call.ctx);ok{vals:=md.Get(strings.ToLower(name));if len(vals)>0{return data.NewStringValue(vals[0]),nil}};return data.NewStringValue(""),nil}},
  &script.Method{Name:"respondJson",Args:[]string{"json"},Run:func(ctx data.Context)(data.GetValue,error){if e:=valid();e!=nil{return nil,e};v,e:=utils.ConvertFromIndex[string](ctx,0);if e==nil{call.output=v;call.answered=true};return nil,e}},
  &script.Method{Name:"fail",Args:[]string{"code","message"},Run:func(ctx data.Context)(data.GetValue,error){if e:=valid();e!=nil{return nil,e};code,e:=utils.ConvertFromIndex[int](ctx,0);if e!=nil{return nil,e};if code<1||code>16{return nil,fmt.Errorf("gRPC error code must be 1..16")};message,e:=utils.ConvertFromIndex[string](ctx,1);if e==nil{call.err=status.Error(codes.Code(code),message);call.answered=true};return nil,e}},
  };return c

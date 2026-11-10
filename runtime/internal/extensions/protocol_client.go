@@ -34,17 +34,7 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 	correlation := CorrelationFromContext(parent)
 	switch protocol {
 	case "tcp":
-		if correlation != "" {
-			var envelope map[string]any
-			if json.Unmarshal([]byte(payload), &envelope) == nil && envelope != nil {
-				if _, exists := envelope["_loom_correlation_id"]; !exists {
-					envelope["_loom_correlation_id"] = correlation
-					if stamped, marshalErr := json.Marshal(envelope); marshalErr == nil {
-						payload = string(stamped)
-					}
-				}
-			}
-		}
+		payload = stampCorrelationPayload(payload, correlation)
 		if len(payload) > 4096 || strings.ContainsAny(payload, "\r\n") {
 			err = fmt.Errorf("TCP requires one JSON line of at most 4096 bytes")
 			break
@@ -72,6 +62,7 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 		}
 		response = line
 	case "grpc":
+		payload = stampCorrelationPayload(payload, correlation)
 		request := new(wrapperspb.StringValue)
 		if err = protojson.Unmarshal([]byte(payload), request); err != nil {
 			break
@@ -83,12 +74,11 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 		}
 		defer client.Close()
 		reply := new(wrapperspb.StringValue)
+		invokeCtx := ctx
 		if correlation != "" {
-			header := metadata.Pairs("x-loom-correlation-id", correlation)
-			err = client.Invoke(ctx, method, request, reply, grpc.Header(&header))
-		} else {
-			err = client.Invoke(ctx, method, request, reply)
+			invokeCtx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-loom-correlation-id", correlation))
 		}
+		err = client.Invoke(invokeCtx, method, request, reply)
 		if err != nil {
 			result["status"] = status.Code(err).String()
 			break

@@ -73,7 +73,7 @@ $app->services->withMonitoredScope(
 
 应用代码在作用域内注入 `Loom\Monitoring\CorrelationId` 并调用 `current()` 读取当前 id。常量与校验见 `Loom\Monitoring\Correlation`。
 
-出站 **TCP**（`Loom\Native\protocolRequest`）会在当前作用域有 id 时，把 `_loom_correlation_id` 合并进单行 JSON（调用方未手写时）。出站 **gRPC** 附带 metadata `x-loom-correlation-id`。入站 TCP / gRPC 可从消息 JSON 的 `_loom_correlation_id`（或 `correlation_id`）沿用。
+出站 **TCP**（`Loom\Native\protocolRequest`）会在当前作用域有 id 时，把 `_loom_correlation_id` 合并进单行 JSON（调用方未手写时）。出站 **gRPC** 同样合并进请求 JSON（含 `StringValue` 双层编码情形），并以 metadata `x-loom-correlation-id` 发出。入站 TCP / gRPC 优先读 Call 上的入站 metadata（Origami `Net\Grpc\Call::incomingMetadata`），否则从请求 JSON 的 `_loom_correlation_id`（或 `correlation_id`）沿用。
 
 grep 示例：
 

@@ -89,6 +89,17 @@ $request = new Loom\Request([
 ]);
 correlationCheck(Loom\Monitoring\HttpCorrelation::fromRequest($request) === $headerId, 'Request header parsed');
 
+$metadataCall = new class () {
+    public function incomingMetadata(string $name): string
+    {
+        return $name === Loom\Monitoring\Correlation::HEADER ? 'meta-grpc-trace' : '';
+    }
+};
+correlationCheck(
+    Loom\Monitoring\GrpcCorrelation::fromCall($metadataCall, [Loom\Monitoring\Correlation::PAYLOAD_KEY => 'body-only']) === 'meta-grpc-trace',
+    'gRPC metadata precedes JSON body',
+);
+
 $logLines = [];
 $logger = new Loom\Http\Middleware\RequestLog(static function (string $line) use (&$logLines): void {
     $logLines[] = $line;
