@@ -17,6 +17,7 @@ final class ApplicationBuilder
 {
     public readonly ServiceCollection $services;
     public readonly Config $configuration;
+    public readonly \Loom\MonitoringBuilder $monitoring;
     private bool $built = false;
     private ?\Closure $onStop = null;
 
@@ -76,6 +77,19 @@ final class ApplicationBuilder
         $services->addScoped(RequestContext::class);
         $services->addScoped(\Loom\Monitoring\CorrelationId::class);
         $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, \Loom\Monitoring\LoggingMonitoring::class);
+        $monitoringRegistration = new \Loom\Monitoring\MonitoringRegistration();
+        $services->addInstance(\Loom\Monitoring\MonitoringRegistration::class, $monitoringRegistration);
+        $this->monitoring = new \Loom\MonitoringBuilder($services, $monitoringRegistration);
+        $services->tryAddSingleton(\Loom\Monitoring\MonitoringOptions::class, static function (ServiceResolver $resolver): \Loom\Monitoring\MonitoringOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\Monitoring\MonitoringOptions::class, 'monitoring');
+            if (!($bound instanceof \Loom\Monitoring\MonitoringOptions)) {
+                throw new \LogicException('MonitoringOptions binding must return MonitoringOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\Monitoring\DatabaseMonitoringStore::class);
+        $services->tryAddSingleton(\Loom\Monitoring\MonitoringRepository::class);
+        $services->tryAddTransient(\Loom\Monitoring\MonitoringDashboard::class);
     }
 
     /**
@@ -99,11 +113,30 @@ final class ApplicationBuilder
         }
         $this->built = true;
         $services = $this->services;
+        $registration = $this->monitoring->registration();
+        if (!$registration->monitoringReplaced() && count($services->descriptors(\Loom\Monitoring\Monitoring::class)) <= 1) {
+            $services->addScoped(\Loom\Monitoring\Monitoring::class, static function (ServiceResolver $resolver): \Loom\Monitoring\Monitoring {
+                $options = $resolver->get(\Loom\Monitoring\MonitoringOptions::class);
+                $configured = new \Loom\Monitoring\ConfigurableMonitoring(
+                    $options,
+                    $resolver->get(\Loom\Monitoring\MonitoringRegistration::class),
+                    $resolver->get(\Loom\Logging\Diary::class),
+                    $resolver->get(\Loom\Monitoring\DatabaseMonitoringStore::class),
+                    $resolver->get(Database::class),
+                );
+                $configured->bindScope($resolver->get(ServiceScope::class));
+                return $configured;
+            });
+        }
         $discovery = ModuleDiscovery::configured($this->configuration);
         foreach ($discovery->services() as $id => $class) {
             $services->tryAdd(new ServiceDescriptor($id, ServiceLifetime::from($discovery->serviceLifetime($id)), $class));
         }
         $router = $discovery->router();
+        $monitoringOptions = (new Options($this->configuration))->bindOptional(\Loom\Monitoring\MonitoringOptions::class, 'monitoring');
+        if ($monitoringOptions instanceof \Loom\Monitoring\MonitoringOptions) {
+            \Loom\Monitoring\MonitoringDashboard::register($router, $monitoringOptions->dashboard->path, $monitoringOptions);
+        }
         $kernel = new HttpKernel($router);
         $console = new Console\Console();
         $grpc = new Grpc\Dispatcher($this->configuration);
@@ -133,6 +166,7 @@ final class ApplicationBuilder
         $console->add(Console\Commands\ScheduleListenCommand::class);
         $console->add(Console\Commands\ScheduleWorkCommand::class);
         $console->add(Console\Commands\JobCommand::class);
+        $console->add(Console\Commands\MonitoringPruneCommand::class);
         Console\Commands\ScaffoldCommands::register($console);
         foreach ($discovery->commands() as $class) {
             $console->add($class);

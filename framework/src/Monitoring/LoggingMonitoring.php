@@ -154,7 +154,7 @@ final class LoggingMonitoring implements Monitoring
      * @param array<int, mixed> $bindings
      * @return list<array{type: string, length: int}>
      */
-    private static function summarizeBindings(array $bindings): array
+    public static function summarizeBindings(array $bindings): array
     {
         $out = [];
         foreach ($bindings as $value) {
