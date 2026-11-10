@@ -17,9 +17,9 @@
         ],
         "doctor": "build/loom doctor",
         "build": "pwsh -NoProfile -File scripts/build.ps1",
-        "format:install": "@composer --working-dir=tools/php-cs-fixer install --no-interaction",
-        "format": "@php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential",
-        "format:check": "@php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential --dry-run --diff"
+        "format:install": "@composer --working-dir=scripts/php-cs-fixer install --no-interaction",
+        "format": "@php scripts/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential",
+        "format:check": "@php scripts/php-cs-fixer/vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.dist.php --allow-risky=no --sequential --dry-run --diff"
     },
     "autoload": {
         "psr-4": {

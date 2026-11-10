@@ -48,7 +48,7 @@ HTTP 按职责组合：`ApplicationBuilder` 组合服务，`Application` 暴露 
 
 应用不注册问候、回声或返回固定假用户的协议接口。TCP 的 `ReleaseSnapshotHandler` 读取发布任务快照，gRPC 的 `proto/release.proto` 校验验收规则；WebSocket 升级、传输和同源校验放在独立 HTTP 测试应用中验证。模型覆盖测试检查 MySQL 的全部持久化表、字段映射及复合主键操作。
 
-`scripts/` 只存开发工具。`build/` 只保留本机构建产物，Python 测试依赖放 `.venv/`。历史上直接修改 Origami 源码的临时补丁保存在 `docs/history/upstream-patches/`，不参与安装、启动或测试；正式上游依赖与缺口见 [运行时要求](runtime-requirements.md)。旧迁移设计见 [历史方案](history/script-runtime-migration.md)。
+`scripts/` 存放开发工具：PowerShell 构建与服务脚本，以及独立 Composer 安装的 PHP CS Fixer（`scripts/php-cs-fixer/`，不进入应用 `vendor`）。`build/` 只保留本机构建产物，Python 测试依赖放 `.venv/`。历史上直接修改 Origami 源码的临时补丁保存在 `docs/history/upstream-patches/`，不参与安装、启动或测试；正式上游依赖与缺口见 [运行时要求](runtime-requirements.md)。旧迁移设计见 [历史方案](history/script-runtime-migration.md)。
 
 ## Origami std 复用边界
 
