@@ -59,3 +59,40 @@ if (!function_exists('env')) {
         return $text;
     }
 }
+
+if (!function_exists('loom_bool_value')) {
+    /**
+     * @param mixed $raw 配置或 env 原始值。
+     */
+    function loom_bool_value(mixed $raw, bool $default): bool
+    {
+        if (is_bool($raw)) {
+            return $raw;
+        }
+        if (is_int($raw)) {
+            return $raw !== 0;
+        }
+        $s = strtolower(trim((string)$raw));
+        return match ($s) {
+            '1', 'true', '(true)', 'yes', 'on' => true,
+            '0', 'false', '(false)', 'no', 'off', '' => false,
+            default => $default,
+        };
+    }
+}
+
+if (!function_exists('env_bool')) {
+    /**
+     * 读取环境变量并转为布尔值；兼容 true/false、1/0、yes/no、on/off（与 env() 未覆盖的 1/0 数字串不同）。
+     *
+     * @param ?string $key 环境变量名。
+     * @param bool $default 变量不存在时的默认值。
+     */
+    function env_bool(?string $key, bool $default = false): bool
+    {
+        if ($key === null || $key === '') {
+            return $default;
+        }
+        return loom_bool_value(env($key, $default), $default);
+    }
+}

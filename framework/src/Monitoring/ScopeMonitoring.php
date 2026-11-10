@@ -22,9 +22,17 @@ final class ScopeMonitoring
         return $services->withScope(static function (ServiceScope $scope) use ($context, $operation): mixed {
             $correlation = $scope->get(CorrelationId::class)->establish($context->incomingCorrelationId());
             $active = $context->withCorrelationId($correlation);
-            $run = static function () use ($scope, $active, $operation): mixed {
-                if ($scope->has(Monitoring::class)) {
-                    $scope->get(Monitoring::class)->begin($active);
+            $collect = true;
+            if ($scope->has(MonitoringOptions::class)) {
+                $collect = MonitoringCollector::shouldCollect($scope->get(MonitoringOptions::class), $active);
+            }
+            $run = static function () use ($scope, $active, $operation, $collect): mixed {
+                if ($collect && $scope->has(Monitoring::class)) {
+                    $monitoring = $scope->get(Monitoring::class);
+                    if ($monitoring instanceof ConfigurableMonitoring) {
+                        $monitoring->bindScope($scope);
+                    }
+                    $monitoring->begin($active);
                 }
                 return $operation($scope);
             };

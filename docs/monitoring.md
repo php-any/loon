@@ -2,20 +2,65 @@
 
 Loom 把一次 **ServiceScope** 内的 HTTP 输入输出、SQL、命令结果与队列事件收进同一份 **Monitoring** 会话。业务依赖 `Loom\Monitoring\Monitoring` 接口，可在应用 `build()` 前换绑实现。
 
-## 登记与替换
+监控分三层，互不替代：
 
-框架默认登记 scoped 的 `LoggingMonitoring`。作用域结束时它经根容器单例 `Loom\Logging\Diary`（`JournalWriter` + `JournalFormatter`）写出 `event=monitoring.session` 一行，默认落到标准错误；与 `RequestLog` 的 `http.request` 共用 `config/diary.php`，不要为监控再实现一套写 stderr 的逻辑：
+| 层 | 职责 |
+|----|------|
+| **Diary**（`config/diary.php`） | 结构化日志管道；`monitoring.session` 在 driver=log 或 database 时经此写出（database 可同时落库）。 |
+| **CorrelationId** | 每个工作单元必定建立关联 id（入站沿用、队列/TCP/gRPC 传递）；与采集开关无关。 |
+| **Monitoring 采集 + 仪表盘**（`config/monitoring.php`） | Telescope 风格会话与条目；可配置观测器、忽略列表、仪表盘与保留策略。 |
+
+## 配置 `config/monitoring.php`
+
+由 `MonitoringOptions` 经 `Options::bindOptional` 绑定；**文件缺失不报错**，使用类默认值：`enabled=true`、`driver=log`、全部 watcher 开启、`dashboard.enabled=false`。
+
+主要键：
+
+- `enabled` / `driver`：`log`（仅 Diary）、`database`（表 + 可选 Diary 行）、`null`（不采集，关联 id 仍有效）。
+- `ignore_paths` / `ignore_commands`：命中则**跳过整段采集**（不 `begin()`），关联 id 照常。
+- `watchers.*`：控制会话**内部**记什么（例如关闭 `sql` 仍保留 HTTP 摘要）；`sql.slow` 为毫秒阈值，&gt;0 时只记录慢于阈值的语句。
+- `dashboard`：HTTP 查询 UI 路径（默认 `monitoring`）；**必须**在 builder 上登记 `authorize` 否则一律 403。
+- `storage.retain_hours`：`monitoring:prune` 清理窗口。
+
+环境变量见 `config/monitoring.php`；布尔项使用 `env_bool()`，支持 `LOOM_MONITORING_DASHBOARD=1` / `0`（以及 `true`/`false`）。`bindOptional` 后 `MonitoringOptions::finalize()` 会为仪表盘 URL 自动追加 `ignore_paths`。
+
+## ApplicationBuilder API
+
+闭包不能写在配置文件里；在 `build()` 前链式配置：
 
 ```php
 $builder = Application::createBuilder(__DIR__);
-$builder->services->addScoped(
-    \Loom\Monitoring\Monitoring::class,
-    \Loom\Monitoring\NullMonitoring::class,
-);
+$builder->monitoring
+    ->filter(static function (\Loom\Monitoring\MonitoringSession $session): bool {
+        return $session->channel !== 'schedule' || ($session->durationMs ?? 0) < 60000;
+    })
+    ->tag(static function (\Loom\Monitoring\MonitoringSession $session): array {
+        return ['env' => 'prod'];
+    })
+    ->addWatcher(new \App\Monitoring\BillingWatcher())
+    ->authorize(static function (): bool {
+        return true; // 生产环境应做真实鉴权
+    });
 $app = $builder->build();
 ```
 
-自定义 APM 适配器实现 `Monitoring` 与 `Disposable`，在 `dispose()` 里把缓冲 Span/事件刷到外部系统即可。
+- `filter`：在落 Diary/库之前执行；返回 false 丢弃本会话。
+- `tag`：合并进会话 tags。
+- `addWatcher`：实现 `MonitoringWatcher`（`start`/`stop` 内可 `recordEvent`）。
+- `authorize`：仪表盘门禁（Telescope 风格）。
+- `replaceMonitoring()` 或在 `services` 上 `addScoped(Monitoring::class, …)`：**完整替换**实现，框架不再套用 watcher/filter。
+
+## 登记与替换
+
+默认 scoped 实现为 `ConfigurableMonitoring`（`build()` 时登记，覆盖 `LoggingMonitoring` 占位）。作用域结束时按 driver 写 Diary 和/或 `loom_monitoring_*` 表。写出失败不得影响业务。
+
+```php
+$builder->monitoring->replaceMonitoring(\Loom\Monitoring\NullMonitoring::class);
+// 或
+$builder->services->addScoped(\Loom\Monitoring\Monitoring::class, \App\Monitoring\ApmMonitoring::class);
+```
+
+测试仍可直接 `new LoggingMonitoring($callable)` 或使用 `ConfigurableMonitoring` 的 test writer 参数（内部用法）。
 
 ## 宿主入口
 
@@ -29,24 +74,46 @@ $app = $builder->build();
 | 队列子进程 `_job` | `job` | `JobCommand` 在解析信封后 `begin` |
 | TCP / gRPC | `tcp` / `grpc` | 各 `*Server::handle` |
 
+`ScopeMonitoring` 流程：打开作用域 → **establish CorrelationId** → 若配置允许采集则 `begin()` → 业务 → `dispose()` 时 filter/tag → 持久化。
+
 ## 观测挂钩
 
-- **SQL**：`Database::query` / `execute` 自动调用 `recordSql`（绑定值只记录类型与长度）。
-- **HTTP**：`HttpServer::respond` 记录请求方法与正文字节数、响应状态与耗时。
-- **命令**：`Console::dispatch` 记录命令名与退出码。
-- **队列**：`Queue::tick` 认领任务时 `recordEvent('queue.job.claimed', …)`；子进程内 `queue.job.dispatch`。
+- **SQL**：`Database::query` / `execute` → `recordSql`（绑定值仅类型与长度；`watchers.sql.slow` 过滤）。
+- **HTTP**：方法与正文字节、状态与耗时（可忽略 method/status 列表）。
+- **命令**：命令名与退出码。
+- **队列 / 调度 / 事件 / tcp / grpc**：按 watcher 开关与事件名前缀归类。
 
-业务代码在作用域内注入 `Monitoring` 后可直接 `recordEvent()`；这些事件进入本会话的 `entries`，随 `monitoring.session` 一次性刷出。
+HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
 ### 与日记（Diary）的边界
 
 | 能力 | 接口 | 何时用 |
 |------|------|--------|
-| 作用域内观测（SQL、HTTP 摘要、队列/定时器标签） | `Monitoring` | 宿主已 `begin()`；在 `dispose()` 前 `record*` |
-| 立刻写出的一条结构化日志（含 HTTP 访问行） | `Loom\Logging\Diary` | `RequestLog`、运维脚本、应独立成行的审计 |
-| 写出目标与 JSON/文本格式 | `JournalWriter` / `JournalFormatter` | `ApplicationBuilder` 或 `config/diary.php` 配置一次，Monitoring 与 Diary 共享 |
+| 作用域内观测 | `Monitoring` | 采集已 `begin()`；`dispose()` 前 `record*` |
+| 独立一行日志 | `Diary` | `RequestLog`、审计脚本 |
+| 写出目标与格式 | `JournalWriter` / `JournalFormatter` | 仅 `config/diary.php` |
 
-自定义 `Monitoring` 实现若需要落盘，应在 `dispose()` 里调用已注入的 `Diary`，而不是直接 `fwrite` stderr。测试仍可向 `LoggingMonitoring` 传入 callable 覆盖输出，行为与改造前一致。
+不要为监控再增加第二套 log-file 配置。
+
+## 仪表盘
+
+`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/事件列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
+
+迁移：`framework/resources/migrations/0006_monitoring.*`（`migrate:up`）。
+
+清理：`php loom.php monitoring:prune`  honor `storage.retain_hours`。
+
+## 关联 id（跨进程）
+
+每次工作单元在 `ScopeMonitoring` 中建立 **correlation id**。日记字段 `correlation_id` 与 `tags.correlation_id` 一致。
+
+| 名称 | 含义 |
+|------|------|
+| HTTP 头 `X-Loom-Correlation-Id` | 合法入站 id 则沿用 |
+| `_loom_correlation_id` | 队列 payload、出站 TCP/gRPC JSON |
+| `_job` 信封 `correlation_id` | 子进程 `JobCommand` adopt |
+
+作用域内注入 `CorrelationId::current()`。常量见 `Loom\Monitoring\Correlation`。
 
 ## 手动包一层作用域
 
@@ -59,28 +126,6 @@ $app->services->withMonitoredScope(
 );
 ```
 
-（`ServiceProvider::withMonitoredScope` 与 `ScopeMonitoring::run` 等价。）
-
-## 关联 id（跨进程）
-
-每次工作单元（HTTP、命令、定时器、队列节拍、`_job`、TCP、gRPC）在打开监控作用域时都会有一个 **correlation id**。框架在下列 JSON 日记字段中写入同一名字：`correlation_id`（`monitoring.session`、`http.request` 等），并在 `MonitoringContext` 的 `tags.correlation_id` 中保留一份。
-
-| 名称 | 含义 |
-|------|------|
-| HTTP 头 `X-Loom-Correlation-Id` | 入站请求若携带合法 id 则沿用；否则在入口生成 |
-| 任务 payload 字段 `_loom_correlation_id` | `Queue::dispatch` 在已监控作用域内自动写入当前 id |
-| `_job` 信封字段 `correlation_id` | worker 投递子进程前从 payload 提升，子进程 `JobCommand` 采用 |
-
-应用代码在作用域内注入 `Loom\Monitoring\CorrelationId` 并调用 `current()` 读取当前 id。常量与校验见 `Loom\Monitoring\Correlation`。
-
-出站 **TCP**（`Loom\Native\protocolRequest`）会在当前作用域有 id 时，把 `_loom_correlation_id` 合并进单行 JSON（调用方未手写时）。出站 **gRPC** 同样合并进请求 JSON（含 `StringValue` 双层编码情形），并以 metadata `x-loom-correlation-id` 发出。入站 TCP / gRPC 优先读 Call 上的入站 metadata（Origami `Net\Grpc\Call::incomingMetadata`），否则从请求 JSON 的 `_loom_correlation_id`（或 `correlation_id`）沿用。
-
-grep 示例：
-
-```text
-grep '"correlation_id":"7f3a..."' storage/logs/diary.log
-```
-
 ## 队列说明
 
-Worker 节拍在父进程内监控；任务处理器在 **独立子进程**（`loom.php _job`）中再开一次监控会话。父进程只观测认领/结算，子进程观测实际 Job 处理与 SQL。HTTP 入队的工作应把父请求的 `correlation_id` 经 payload 传到 `_job`，便于在同一份日志里串起整条链路。
+Worker 节拍在父进程监控；`_job` 子进程单独会话。HTTP 入队应把父请求 correlation 写入 payload，便于日志与仪表盘串联。

@@ -24,6 +24,7 @@ $services->addScoped(
     },
 );
 $services->addScoped(Loom\Database::class);
+$services->addScoped(Loom\Monitoring\CorrelationId::class);
 $provider = $services->build();
 
 $provider->withMonitoredScope(
