@@ -6,7 +6,7 @@
 # 依赖与构建产物
 /build/
 /vendor/
-/tools/php-cs-fixer/vendor/
+/scripts/php-cs-fixer/vendor/
 /.php-cs-fixer.cache
 /.php-cs-fixer.php
 node_modules/

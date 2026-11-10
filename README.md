@@ -170,9 +170,9 @@ composer format
 composer format:check
 ```
 
-`format:install` 根据 `tools/php-cs-fixer/composer.lock` 安装固定版本的 PHP CS Fixer；`format` 修复格式；`format:check` 只检查并显示差异，有未格式化代码时返回非零退出码，可用于 CI。格式化规则在 `.php-cs-fixer.dist.php`：PSR-12、4 空格缩进、LF 换行、字符串连接符两侧空格，禁用风险规则和语法升级规则。
+`format:install` 根据 `scripts/php-cs-fixer/composer.lock` 安装固定版本的 PHP CS Fixer；`format` 修复格式；`format:check` 只检查并显示差异，有未格式化代码时返回非零退出码，可用于 CI。格式化规则在 `.php-cs-fixer.dist.php`：PSR-12、4 空格缩进、LF 换行、字符串连接符两侧空格，禁用风险规则和语法升级规则。
 
-工具依赖独立安装到 `tools/php-cs-fixer/vendor/`，不进入应用的 `vendor/autoload.php`，不需要安装到部署环境。格式化命令必须使用标准 PHP，不能用 `build/loom.exe` 执行工具。源码中的 Origami 原生类、注解和显式加载顺序保持不变。生成目录 `generated/`、构建与运行数据、依赖目录、`resources/views/` 混合 HTML 模板和 `tests/fixtures/`、`framework/tests/fixtures/` 测试夹具不参与自动格式化；模板和夹具中的空白或特殊语法可能是行为的一部分。源码生成器的字符串模板也不会作为独立源码格式化。
+工具依赖独立安装到 `scripts/php-cs-fixer/vendor/`，不进入应用的 `vendor/autoload.php`，不需要安装到部署环境。格式化命令必须使用标准 PHP，不能用 `build/loom.exe` 执行工具。源码中的 Origami 原生类、注解和显式加载顺序保持不变。生成目录 `generated/`、构建与运行数据、依赖目录、`resources/views/` 混合 HTML 模板和 `tests/fixtures/`、`framework/tests/fixtures/` 测试夹具不参与自动格式化；模板和夹具中的空白或特殊语法可能是行为的一部分。源码生成器的字符串模板也不会作为独立源码格式化。
 
 批量格式化后使用 Origami 验证行为：
 
@@ -296,7 +296,7 @@ public/               admin/ 后台资源；official/ 官网资源；demo/ 演�
 tests/integration/    项目装配、ORM 和生成器测试
 tests/e2e/            HTTP、请求隔离、协议与网络限额测试
 tests/fixtures/       独立测试应用与协议探针
-scripts/              开发服务与测试环境安装工具
+scripts/              开发工具：PowerShell 构建/服务/测试脚本与独立安装的 PHP CS Fixer
 storage/              database、logs、run、testing、archive
 build/                本机运行程序等构建产物（不提交）
 .venv/                Python 测试依赖（不提交）
