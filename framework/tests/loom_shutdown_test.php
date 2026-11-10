@@ -54,15 +54,25 @@ $command = [$loom, $probe, $marker, $log, 'handler'];
 $probeStarted = microtime(true);
 $process = proc_open(
     $command,
-    [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes,
     $repoRoot,
 );
 if (!is_resource($process)) {
-    throw new RuntimeException('Cannot start stop probe');
+    throw new LogicException('Cannot start stop probe via proc_open');
+}
+foreach ($pipes as $pipe) {
+    if (is_resource($pipe)) {
+        fclose($pipe);
+    }
 }
 usleep(250000);
-proc_terminate($process, 15);
+$status = proc_get_status($process);
+if (($status['pid'] ?? 0) > 0 && function_exists('posix_kill')) {
+    posix_kill((int)$status['pid'], \SIGTERM);
+} else {
+    proc_terminate($process, 15);
+}
 proc_close($process);
 stopCheck(microtime(true) - $probeStarted < 2.5, 'Stop exits without waiting for in-flight sleep');
 stopCheck(is_file($log) && trim((string)file_get_contents($log)) === 'handler', 'Subprocess onStop handler ran on SIGTERM');
@@ -75,12 +85,25 @@ $commandBare = [$loom, $probe, $marker, $log, 'none'];
 $bareStarted = microtime(true);
 $bare = proc_open(
     $commandBare,
-    [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipesBare,
     $repoRoot,
 );
+if (!is_resource($bare)) {
+    throw new LogicException('Cannot start bare stop probe via proc_open');
+}
+foreach ($pipesBare as $pipe) {
+    if (is_resource($pipe)) {
+        fclose($pipe);
+    }
+}
 usleep(250000);
-proc_terminate($bare, 15);
+$bareStatus = proc_get_status($bare);
+if (($bareStatus['pid'] ?? 0) > 0 && function_exists('posix_kill')) {
+    posix_kill((int)$bareStatus['pid'], \SIGTERM);
+} else {
+    proc_terminate($bare, 15);
+}
 $bareCode = proc_close($bare);
 stopCheck(microtime(true) - $bareStarted < 2.5, 'No handler exits promptly');
 stopCheck($bareCode === 0 || $bareCode === 143 || $bareCode === -15 || $bareCode === 15, 'No handler still terminates on signal');
