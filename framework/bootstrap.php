@@ -72,6 +72,7 @@ foreach ([
     'Process/Process.php',
     'Process/RuntimePulse.php',
     'Process/RuntimeStatus.php',
+    'Process/StopSignal.php',
     'Console/Doctor.php',
     'Database/Database.php',
     'Database/StatementResult.php',

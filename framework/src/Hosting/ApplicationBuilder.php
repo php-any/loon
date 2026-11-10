@@ -18,6 +18,7 @@ final class ApplicationBuilder
     public readonly ServiceCollection $services;
     public readonly Config $configuration;
     private bool $built = false;
+    private ?\Closure $onStop = null;
 
     /**
      * @param string $root 项目根目录。
@@ -36,6 +37,7 @@ final class ApplicationBuilder
         $services->addSingleton(Options::class);
         $services->addSingleton(Network::class);
         $services->addSingleton(Process::class);
+        $services->addSingleton(StopSignal::class);
         $services->addSingleton(Host::class);
         $services->addSingleton(HttpServer::class);
         $services->addSingleton(TcpServer::class);
@@ -73,6 +75,17 @@ final class ApplicationBuilder
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
         $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, \Loom\Monitoring\LoggingMonitoring::class);
+    }
+
+    /**
+     * 登记长驻进程收到停止信号时要执行的回调。可在 build() 之前调用；未登记则直接退出。
+     *
+     * @example $builder->onStop(static function (): void { fwrite(STDERR, "bye\n"); });
+     */
+    public function onStop(callable $handler): self
+    {
+        $this->onStop = $handler(...);
+        return $this;
     }
 
     /**
@@ -123,6 +136,10 @@ final class ApplicationBuilder
         foreach ($discovery->commands() as $class) {
             $console->add($class);
         }
-        return new Application($services->build(), $this->configuration, $router, $kernel, $console, $grpc);
+        $provider = $services->build();
+        if ($this->onStop !== null) {
+            $provider->get(StopSignal::class)->onStop($this->onStop);
+        }
+        return new Application($provider, $this->configuration, $router, $kernel, $console, $grpc);
     }
 }

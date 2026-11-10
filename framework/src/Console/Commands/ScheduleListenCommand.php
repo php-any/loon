@@ -16,6 +16,7 @@ final class ScheduleListenCommand extends \Loom\Console\Command
         private \Loom\Doctor $doctor,
         private \Loom\Migrations $migrations,
         private \Loom\TimerRunner $timers,
+        private \Loom\StopSignal $stopSignal,
     ) {
     }
 
@@ -37,6 +38,7 @@ final class ScheduleListenCommand extends \Loom\Console\Command
 
             return 0;
         }
+        $this->stopSignal->listen();
         $this->timers->start();
         $this->info('代码定时器已启动，按 Ctrl+C 结束。');
         while (true) {

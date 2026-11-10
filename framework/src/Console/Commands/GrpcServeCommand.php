@@ -12,12 +12,15 @@ final class GrpcServeCommand extends \Loom\Console\Command
     protected string $signature = 'grpc:serve';
     protected string $description = '启动 gRPC 服务';
 
-    public function __construct(private \Loom\GrpcServer $server)
-    {
+    public function __construct(
+        private \Loom\GrpcServer $server,
+        private \Loom\StopSignal $stopSignal,
+    ) {
     }
 
     public function handle(): int
     {
+        $this->stopSignal->listen();
         $this->server->run();
         return 0;
     }

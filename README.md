@@ -334,7 +334,7 @@ HTTP、WebSocket、TCP、gRPC 和后台业务核心链路均通过脚本启动�
 
 创建新协议可执行 `./build/loom.exe make:proto Invoice --package=app.billing`，编辑后运行 `proto:check`，再用 `make:grpc proto/invoice.proto --dry-run` 预览并生成。生成器保留手写服务并提示待实现方法；完整流程见 [协议开发说明](docs/protocols.md)。
 
-TCP 使用 JSON 行协议；gRPC 支持 unary RPC、动态 proto imports、反射及 gzip，生成器保留业务文件。网络限额由脚本配置、通用 std 执行，包含请求体、消息大小、连接数、并发准入和超时。应用 streaming RPC、TLS 终止及统一优雅停机编排不在当前实现内。参见 [协议与限额](docs/protocols.md)。
+TCP 使用 JSON 行协议；gRPC 支持 unary RPC、动态 proto imports、反射及 gzip，生成器保留业务文件。网络限额由脚本配置、通用 std 执行，包含请求体、消息大小、连接数、并发准入和超时。应用 streaming RPC 与 TLS 终止不在当前实现内。长驻进程提供停止信号与用户可选的 `onStop` 回调，不含内置排空；参见 [协议与限额](docs/protocols.md) 与 [宿主说明](docs/hosting.md)。
 
 ## 完整验证与开发工具
 

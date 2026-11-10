@@ -19,6 +19,7 @@ final class ScheduleWorkCommand extends \Loom\Console\Command
         private \Loom\Migrations $migrations,
         private \Loom\Config $config,
         private \Loom\ServiceProvider $services,
+        private \Loom\StopSignal $stopSignal,
     ) {
     }
 
@@ -35,6 +36,9 @@ final class ScheduleWorkCommand extends \Loom\Console\Command
             return 0;
         }
         $once = $this->option('once');
+        if (!$once) {
+            $this->stopSignal->listen();
+        }
         $pulse = new \Loom\RuntimePulse($this->config, 'scheduler', 1);
         do {
             if (!$once) {

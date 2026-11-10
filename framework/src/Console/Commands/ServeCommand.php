@@ -17,6 +17,7 @@ final class ServeCommand extends \Loom\Console\Command
         private \Loom\Migrations $migrations,
         private \Loom\Host $host,
         private \Loom\HttpServer $server,
+        private \Loom\StopSignal $stopSignal,
     ) {
     }
 
@@ -24,6 +25,7 @@ final class ServeCommand extends \Loom\Console\Command
     {
         $this->doctor->check();
         $this->migrations->migrate();
+        $this->stopSignal->listen();
         $server = $this->server;
         $this->host->run(static function () use ($server): void {
             $server->run();

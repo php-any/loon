@@ -12,12 +12,15 @@ final class TcpServeCommand extends \Loom\Console\Command
     protected string $signature = 'tcp:serve';
     protected string $description = '启动 TCP JSON 行协议服务';
 
-    public function __construct(private \Loom\TcpServer $server)
-    {
+    public function __construct(
+        private \Loom\TcpServer $server,
+        private \Loom\StopSignal $stopSignal,
+    ) {
     }
 
     public function handle(): int
     {
+        $this->stopSignal->listen();
         $this->server->run();
         return 0;
     }

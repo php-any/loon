@@ -19,6 +19,7 @@ final class QueueWorkCommand extends \Loom\Console\Command
         private \Loom\Migrations $migrations,
         private \Loom\Config $config,
         private \Loom\ServiceProvider $services,
+        private \Loom\StopSignal $stopSignal,
     ) {
     }
 
@@ -27,6 +28,9 @@ final class QueueWorkCommand extends \Loom\Console\Command
         $this->doctor->check();
         $this->migrations->migrate();
         $once = $this->option('once');
+        if (!$once) {
+            $this->stopSignal->listen();
+        }
         $pulse = new \Loom\RuntimePulse($this->config, 'queue', 1);
         do {
             if (!$once) {
