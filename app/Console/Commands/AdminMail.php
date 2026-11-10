@@ -7,8 +7,6 @@ namespace App\Console\Commands;
 #[\Loom\Attributes\ConsoleCommand]
 final class AdminMail extends \Loom\Console\Command
 {
-    private \App\Services\Identity\Account $account;
-
     public function __construct(
         private \App\Services\Identity\Account $account,
         private \Loom\StopSignal $stopSignal,

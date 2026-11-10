@@ -11,6 +11,18 @@ function stopCheck(bool $condition, string $message): void
     }
 }
 
+function loomTestBinary(string $root): string
+{
+    foreach (['loom.exe', 'loom'] as $name) {
+        $candidate = $root . '/build/' . $name;
+        if (is_file($candidate)) {
+            return $candidate;
+        }
+    }
+
+    throw new LogicException('Build the Loom host first (expected build/loom or build/loom.exe under ' . $root . ')');
+}
+
 $signal = new Loom\StopSignal();
 $invoked = false;
 $signal->onStop(static function () use (&$invoked): void {
@@ -28,10 +40,9 @@ $again->dispatch(false);
 $again->dispatch(false);
 stopCheck($count === 1, 'Dispatch runs handler only once');
 
+$repoRoot = dirname(__DIR__, 2);
 $probe = dirname(__DIR__) . '/tests/fixtures/stop_signal_probe.php';
-$loom = dirname(__DIR__, 2) . '/build/loom';
-$runner = is_file($loom) ? $loom : PHP_BINARY;
-$runTarget = is_file($loom) ? $probe : $probe;
+$loom = loomTestBinary($repoRoot);
 
 $token = bin2hex(random_bytes(8));
 $marker = sys_get_temp_dir() . '/loom-stop-' . $token;
@@ -39,15 +50,13 @@ $log = sys_get_temp_dir() . '/loom-stop-log-' . $token;
 @unlink($marker);
 @unlink($log);
 
-$command = is_file($loom)
-    ? [$loom, $runTarget, $marker, $log, 'handler']
-    : [PHP_BINARY, $runTarget, $marker, $log, 'handler'];
+$command = [$loom, $probe, $marker, $log, 'handler'];
 $probeStarted = microtime(true);
 $process = proc_open(
     $command,
     [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
     $pipes,
-    dirname(__DIR__, 2),
+    $repoRoot,
 );
 if (!is_resource($process)) {
     throw new RuntimeException('Cannot start stop probe');
@@ -62,15 +71,13 @@ stopCheck(!is_file($marker) || trim((string)@file_get_contents($marker)) !== 'do
 @unlink($marker);
 @unlink($log);
 
-$commandBare = is_file($loom)
-    ? [$loom, $runTarget, $marker, $log, 'none']
-    : [PHP_BINARY, $runTarget, $marker, $log, 'none'];
+$commandBare = [$loom, $probe, $marker, $log, 'none'];
 $bareStarted = microtime(true);
 $bare = proc_open(
     $commandBare,
     [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']],
     $pipesBare,
-    dirname(__DIR__, 2),
+    $repoRoot,
 );
 usleep(250000);
 proc_terminate($bare, 15);
