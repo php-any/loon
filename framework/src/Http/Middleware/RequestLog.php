@@ -7,6 +7,7 @@ namespace Loom\Http\Middleware;
 use Loom\Logging\Diary;
 use Loom\HttpError;
 use Loom\Middleware;
+use Loom\Monitoring\CorrelationId;
 use Loom\Request;
 use Loom\Response;
 
@@ -26,17 +27,20 @@ final class RequestLog implements Middleware
 {
     private mixed $writer;
     private ?Diary $diary;
+    private ?CorrelationId $correlation;
 
     /**
      * 保存可选的 callable 写入器与应用日记。writer 非 null 时不使用 diary。
      *
      * @param ?callable $writer 接收一行已序列化字符串的回调。默认 null。
      * @param ?Diary $diary 应用日记，容器解析时注入。默认 null。
+     * @param ?CorrelationId $correlation 当前请求作用域的关联 id。默认 null。
      */
-    public function __construct(?callable $writer = null, ?Diary $diary = null)
+    public function __construct(?callable $writer = null, ?Diary $diary = null, ?CorrelationId $correlation = null)
     {
         $this->writer = $writer;
         $this->diary = $diary;
+        $this->correlation = $correlation;
     }
 
     /**
@@ -63,11 +67,13 @@ final class RequestLog implements Middleware
         } finally {
             // 日志记录不得替换响应或掩盖原始异常。
             try {
+                $correlation = $this->correlation?->tryCurrent();
                 $fields = [
                     'method' => $request->method(),
                     'path' => $request->path(),
                     'status' => $status,
                     'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
+                    'correlation_id' => $correlation,
                 ];
                 if ($this->writer !== null) {
                     $writer = $this->writer;

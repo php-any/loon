@@ -32,6 +32,7 @@ final class Queue
         \Loom\Config $config,
         \Loom\RedisQueue $redisQueue,
         private readonly ?\Loom\Monitoring\Monitoring $monitoring = null,
+        private readonly ?\Loom\Monitoring\CorrelationId $correlationId = null,
     ) {
         $this->process = $process;
         $this->config = $config;
@@ -55,6 +56,7 @@ final class Queue
         if ($kind === '' || $delay < 0 || $delay > 2592000) {
             throw new HttpError(422, 'Invalid job');
         }
+        $payload = \Loom\Monitoring\Correlation::stampPayload($payload, $this->correlationId?->tryCurrent());
         return Models\Job::create(['kind' => $kind, 'payload' => json_encode($payload, JSON_THROW_ON_ERROR), 'owner' => $owner, 'available' => time() + $delay, 'created' => time()])->id;
     }
     /**
@@ -134,6 +136,13 @@ final class Queue
      */
     private function runIsolated(array $job): string
     {
+        $job = \Loom\Monitoring\Correlation::enrichJobEnvelope($job);
+        if (!isset($job['correlation_id']) || $job['correlation_id'] === '') {
+            $current = $this->correlationId?->tryCurrent();
+            if ($current !== null && $current !== '') {
+                $job['correlation_id'] = $current;
+            }
+        }
         $input = tempnam(sys_get_temp_dir(), 'loom-job-');
         try {
             chmod($input, 0600);

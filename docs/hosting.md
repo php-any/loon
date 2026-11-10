@@ -50,7 +50,7 @@ $app = (static function () {
 - 实例：`Config`。
 - 单例：`Options`、`Network`、`Process`、`Host`、`HttpServer`、`TcpServer`、`GrpcServer`、`JobDispatcher`；`HttpServerOptions` 绑定 `config/http.php`。
 - 后台服务：`TimerHostedService`。
-- scoped：`Database`、`RequestContext`。
+- scoped：`Database`、`RequestContext`、`Loom\Monitoring\CorrelationId`。
 
 `build()` 扫描 `config/modules.php` 里的模块：
 

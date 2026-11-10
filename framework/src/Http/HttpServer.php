@@ -60,7 +60,8 @@ final class HttpServer
     public function handle(mixed $native, mixed $writer): void
     {
         $listener = $this;
-        $context = \Loom\Monitoring\MonitoringContext::http($native->method(), $native->path());
+        $context = \Loom\Monitoring\MonitoringContext::http($native->method(), $native->path())
+            ->withIncomingCorrelation(\Loom\Monitoring\HttpCorrelation::fromServer($_SERVER));
         $this->services->withMonitoredScope($context, static function (ServiceScope $scope) use ($listener, $native, $writer): void {
             $listener->respond($scope, $native, $writer);
         });

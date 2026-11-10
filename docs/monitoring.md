@@ -61,6 +61,26 @@ $app->services->withMonitoredScope(
 
 （`ServiceProvider::withMonitoredScope` 与 `ScopeMonitoring::run` 等价。）
 
+## 关联 id（跨进程）
+
+每次工作单元（HTTP、命令、定时器、队列节拍、`_job`、TCP、gRPC）在打开监控作用域时都会有一个 **correlation id**。框架在下列 JSON 日记字段中写入同一名字：`correlation_id`（`monitoring.session`、`http.request` 等），并在 `MonitoringContext` 的 `tags.correlation_id` 中保留一份。
+
+| 名称 | 含义 |
+|------|------|
+| HTTP 头 `X-Loom-Correlation-Id` | 入站请求若携带合法 id 则沿用；否则在入口生成 |
+| 任务 payload 字段 `_loom_correlation_id` | `Queue::dispatch` 在已监控作用域内自动写入当前 id |
+| `_job` 信封字段 `correlation_id` | worker 投递子进程前从 payload 提升，子进程 `JobCommand` 采用 |
+
+应用代码在作用域内注入 `Loom\Monitoring\CorrelationId` 并调用 `current()` 读取当前 id。常量与校验见 `Loom\Monitoring\Correlation`。
+
+出站 **TCP**（`Loom\Native\protocolRequest`）会在当前作用域有 id 时，把 `_loom_correlation_id` 合并进单行 JSON（调用方未手写时）。出站 **gRPC** 附带 metadata `x-loom-correlation-id`。入站 TCP / gRPC 可从消息 JSON 的 `_loom_correlation_id`（或 `correlation_id`）沿用。
+
+grep 示例：
+
+```text
+grep '"correlation_id":"7f3a..."' storage/logs/diary.log
+```
+
 ## 队列说明
 
-Worker 节拍在父进程内监控；任务处理器在 **独立子进程**（`loom.php _job`）中再开一次监控会话。父进程只观测认领/结算，子进程观测实际 Job 处理与 SQL。
+Worker 节拍在父进程内监控；任务处理器在 **独立子进程**（`loom.php _job`）中再开一次监控会话。父进程只观测认领/结算，子进程观测实际 Job 处理与 SQL。HTTP 入队的工作应把父请求的 `correlation_id` 经 payload 传到 `_job`，便于在同一份日志里串起整条链路。
