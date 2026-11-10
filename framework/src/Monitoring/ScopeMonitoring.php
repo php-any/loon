@@ -20,10 +20,18 @@ final class ScopeMonitoring
     public static function run(ServiceProvider $services, MonitoringContext $context, callable $operation): mixed
     {
         return $services->withScope(static function (ServiceScope $scope) use ($context, $operation): mixed {
-            if ($scope->has(Monitoring::class)) {
-                $scope->get(Monitoring::class)->begin($context);
+            $correlation = $scope->get(CorrelationId::class)->establish($context->incomingCorrelationId());
+            $active = $context->withCorrelationId($correlation);
+            $run = static function () use ($scope, $active, $operation): mixed {
+                if ($scope->has(Monitoring::class)) {
+                    $scope->get(Monitoring::class)->begin($active);
+                }
+                return $operation($scope);
+            };
+            if (\function_exists('Loom\\Native\\withCorrelation')) {
+                return \Loom\Native\withCorrelation($correlation, $run);
             }
-            return $operation($scope);
+            return $run();
         });
     }
 }

@@ -22,6 +22,7 @@ func Load(vm data.VM) {
 	allowProcessPoolAcrossRequests()
 	vm.SetConstant("LOOM_RUNTIME", data.NewStringValue("loom"))
 	vm.AddFunc(&protocolRequest{})
+	vm.AddFunc(&withCorrelation{})
 	vm.AddFunc(&sendMail{})
 	vm.AddFunc(&webhook{})
 	vm.AddFunc(&withSingletonLock{})

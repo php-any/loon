@@ -15,7 +15,24 @@ final class MonitoringContext
     public function __construct(
         public readonly string $channel,
         public readonly array $tags = [],
+        public readonly ?string $incomingCorrelationId = null,
     ) {
+    }
+
+    /** 宿主在 begin 之前解析出的入站关联 id（可能为 null，表示由作用域生成）。 */
+    public function incomingCorrelationId(): ?string
+    {
+        return $this->incomingCorrelationId;
+    }
+
+    public function withIncomingCorrelation(?string $id): self
+    {
+        return new self($this->channel, $this->tags, $id);
+    }
+
+    public function withCorrelationId(string $id): self
+    {
+        return new self($this->channel, array_merge($this->tags, ['correlation_id' => $id]), $this->incomingCorrelationId);
     }
 
     public static function http(string $method, string $path): self
@@ -60,6 +77,6 @@ final class MonitoringContext
 
     public function withTags(array $tags): self
     {
-        return new self($this->channel, array_merge($this->tags, $tags));
+        return new self($this->channel, array_merge($this->tags, $tags), $this->incomingCorrelationId);
     }
 }

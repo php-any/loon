@@ -70,7 +70,8 @@ final class TcpServer
                 $reply = $message === null
                     ? ['ok' => false, 'error' => 'invalid_message']
                     : $this->services->withMonitoredScope(
-                        \Loom\Monitoring\MonitoringContext::tcp(),
+                        \Loom\Monitoring\MonitoringContext::tcp()
+                            ->withIncomingCorrelation(\Loom\Monitoring\Correlation::fromTcpMessage($message)),
                         static fn (ServiceScope $scope): array => $scope->get($handler)->handle($message),
                     );
                 $bytes = json_encode($reply, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE) . "\n";

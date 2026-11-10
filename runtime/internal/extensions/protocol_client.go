@@ -15,6 +15,7 @@ import (
 	"github.com/php-any/origami/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -30,8 +31,10 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 	defer cancel()
 	var response json.RawMessage
 	var err error
+	correlation := CorrelationFromContext(parent)
 	switch protocol {
 	case "tcp":
+		payload = stampCorrelationPayload(payload, correlation)
 		if len(payload) > 4096 || strings.ContainsAny(payload, "\r\n") {
 			err = fmt.Errorf("TCP requires one JSON line of at most 4096 bytes")
 			break
@@ -59,6 +62,7 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 		}
 		response = line
 	case "grpc":
+		payload = stampCorrelationPayload(payload, correlation)
 		request := new(wrapperspb.StringValue)
 		if err = protojson.Unmarshal([]byte(payload), request); err != nil {
 			break
@@ -70,7 +74,11 @@ func protocolExchange(parent context.Context, protocol, address, method, payload
 		}
 		defer client.Close()
 		reply := new(wrapperspb.StringValue)
-		err = client.Invoke(ctx, method, request, reply)
+		invokeCtx := ctx
+		if correlation != "" {
+			invokeCtx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-loom-correlation-id", correlation))
+		}
+		err = client.Invoke(invokeCtx, method, request, reply)
 		if err != nil {
 			result["status"] = status.Code(err).String()
 			break

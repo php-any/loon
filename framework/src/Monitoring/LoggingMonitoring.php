@@ -112,9 +112,11 @@ final class LoggingMonitoring implements Monitoring
         $this->active = false;
         $context = $this->context;
         $duration = round(max(0.0, microtime(true) - $this->started) * 1000, 3);
+        $correlationId = $context?->tags['correlation_id'] ?? null;
         $fields = [
             'channel' => $context?->channel ?? 'unknown',
             'tags' => $context?->tags ?? [],
+            'correlation_id' => is_string($correlationId) ? $correlationId : null,
             'duration_ms' => $duration,
             'entries' => $this->entries,
         ];

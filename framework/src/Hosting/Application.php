@@ -149,7 +149,8 @@ final class Application
     {
         $kernel = $this->kernel;
         $path = $request->path();
-        $context = \Loom\Monitoring\MonitoringContext::http($request->method(), $path);
+        $context = \Loom\Monitoring\MonitoringContext::http($request->method(), $path)
+            ->withIncomingCorrelation(\Loom\Monitoring\HttpCorrelation::fromRequest($request));
         return $this->services->withMonitoredScope($context, static fn (ServiceScope $scope): Response => $kernel->handle($request, $scope));
     }
 

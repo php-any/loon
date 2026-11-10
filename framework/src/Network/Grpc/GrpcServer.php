@@ -73,8 +73,9 @@ final class GrpcServer
             $request = json_decode($call->requestJson(), true, 64, JSON_THROW_ON_ERROR);
             $method = $call->method();
             $dispatcher = $this->dispatcher;
+            $incoming = \Loom\Monitoring\GrpcCorrelation::fromCall($call, $request);
             $result = $this->services->withMonitoredScope(
-                \Loom\Monitoring\MonitoringContext::grpc($method),
+                \Loom\Monitoring\MonitoringContext::grpc($method)->withIncomingCorrelation($incoming),
                 static fn (ServiceScope $scope): array => $dispatcher->handle($scope, $method, $request),
             );
             if (isset($result['error'])) {

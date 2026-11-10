@@ -14,6 +14,7 @@ function monitoringCheck(bool $condition, string $message): void
 $lines = [];
 $services = new Loom\ServiceCollection();
 $services->addSingleton(Loom\Config::class, static fn (): Loom\Config => new Loom\Config(sys_get_temp_dir()));
+$services->addScoped(Loom\Monitoring\CorrelationId::class);
 $services->addScoped(
     Loom\Monitoring\Monitoring::class,
     static function () use (&$lines): Loom\Monitoring\Monitoring {
@@ -89,7 +90,10 @@ monitoringCheck($session['channel'] === 'http', 'HTTP channel');
 $events = array_column($session['entries'], 'event');
 monitoringCheck(in_array('http.input', $events, true) && in_array('http.output', $events, true), 'HTTP IO events');
 
-$nullProvider = (new Loom\ServiceCollection())->addScoped(Loom\Monitoring\Monitoring::class, Loom\Monitoring\NullMonitoring::class)->build();
+$nullProvider = (new Loom\ServiceCollection())
+    ->addScoped(Loom\Monitoring\CorrelationId::class)
+    ->addScoped(Loom\Monitoring\Monitoring::class, Loom\Monitoring\NullMonitoring::class)
+    ->build();
 $silent = [];
 $nullProvider->withMonitoredScope(
     Loom\Monitoring\MonitoringContext::queue(),
