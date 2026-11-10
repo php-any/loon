@@ -40,6 +40,36 @@ monitoringCheck($session['entries'][0]['event'] === 'test.event', 'Custom event 
 
 $lines = [];
 $provider->withMonitoredScope(
+    Loom\Monitoring\MonitoringContext::console('_job'),
+    static function (Loom\ServiceScope $scope): void {
+        $monitoring = $scope->get(Loom\Monitoring\Monitoring::class);
+        $monitoring->begin(Loom\Monitoring\MonitoringContext::console('_job'));
+        $monitoring->begin(Loom\Monitoring\MonitoringContext::job('mail.deliver', 42));
+        $monitoring->recordEvent('queue.job.dispatch', ['id' => 42, 'kind' => 'mail.deliver', 'attempt' => 1]);
+    },
+);
+monitoringCheck(count($lines) === 1, 'Job nested console scope flushes one line');
+$session = json_decode($lines[0], true, 64, JSON_THROW_ON_ERROR);
+monitoringCheck($session['channel'] === 'job', 'Job channel after console outer scope and dispatch');
+monitoringCheck(($session['tags']['job_kind'] ?? '') === 'mail.deliver' && ($session['tags']['job_id'] ?? 0) === 42, 'Job tags preserved');
+$events = array_column($session['entries'], 'event');
+monitoringCheck(in_array('queue.job.dispatch', $events, true), 'Job dispatch event in session');
+
+$lines = [];
+$provider->withMonitoredScope(
+    Loom\Monitoring\MonitoringContext::console('probe'),
+    static function (Loom\ServiceScope $scope): void {
+        $monitoring = $scope->get(Loom\Monitoring\Monitoring::class);
+        $monitoring->begin(Loom\Monitoring\MonitoringContext::console('migrate:up'));
+    },
+);
+monitoringCheck(count($lines) === 1, 'Nested console begin flushes');
+$session = json_decode($lines[0], true, 64, JSON_THROW_ON_ERROR);
+monitoringCheck($session['channel'] === 'console', 'Console channel unchanged on merge');
+monitoringCheck(($session['tags']['command'] ?? '') === 'migrate:up', 'Later console command tag wins');
+
+$lines = [];
+$provider->withMonitoredScope(
     Loom\Monitoring\MonitoringContext::http('GET', '/sql'),
     static function (Loom\ServiceScope $scope): void {
         $database = $scope->get(Loom\Database::class);

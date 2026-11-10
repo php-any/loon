@@ -45,7 +45,11 @@ final class LoggingMonitoring implements Monitoring
             $this->context = $context;
             return;
         }
-        $channel = $this->context->channel !== '' ? $this->context->channel : $context->channel;
+        // console 嵌套 begin 仍留在 console；更具体的通道（如 _job 内的 job）可取代外层通道。
+        $channel = $this->context->channel;
+        if ($context->channel !== '' && $context->channel !== $this->context->channel) {
+            $channel = $context->channel;
+        }
         $this->context = new MonitoringContext($channel, array_merge($this->context->tags, $context->tags));
     }
 
