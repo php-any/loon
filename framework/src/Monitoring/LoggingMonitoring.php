@@ -21,15 +21,18 @@ final class LoggingMonitoring implements Monitoring
     private ?MonitoringContext $context = null;
     private mixed $writer;
     private ?Diary $diary;
+    private MonitoringRecordOptions $record;
 
     /**
      * @param ?callable $writer 接收一行已序列化文本的回调；非 null 时优先于 Diary（兼容测试）。默认 null。
      * @param ?Diary $diary 未提供 writer 时写入应用日记。从容器解析时自动注入。默认 null。
+     * @param ?MonitoringOptions $options null 时 record* 全开（兼容手写构造）。
      */
-    public function __construct(?callable $writer = null, ?Diary $diary = null)
+    public function __construct(?callable $writer = null, ?Diary $diary = null, ?MonitoringOptions $options = null)
     {
         $this->writer = $writer;
         $this->diary = $diary;
+        $this->record = $options?->record ?? new MonitoringRecordOptions();
     }
 
     public function begin(MonitoringContext $context): void
@@ -60,7 +63,7 @@ final class LoggingMonitoring implements Monitoring
 
     public function recordSql(string $sql, array $bindings, float $durationMs, ?int $rowCount = null): void
     {
-        if (!$this->active) {
+        if (!$this->active || !$this->record->sql) {
             return;
         }
         $this->entries[] = [
@@ -74,7 +77,7 @@ final class LoggingMonitoring implements Monitoring
 
     public function recordHttpInput(array $input): void
     {
-        if (!$this->active) {
+        if (!$this->active || !$this->record->http) {
             return;
         }
         $this->entries[] = ['event' => 'http.input'] + $input;
@@ -82,7 +85,7 @@ final class LoggingMonitoring implements Monitoring
 
     public function recordHttpOutput(array $output): void
     {
-        if (!$this->active) {
+        if (!$this->active || !$this->record->http) {
             return;
         }
         $this->entries[] = ['event' => 'http.output'] + $output;
@@ -90,7 +93,7 @@ final class LoggingMonitoring implements Monitoring
 
     public function recordConsole(array $detail): void
     {
-        if (!$this->active) {
+        if (!$this->active || !$this->record->console) {
             return;
         }
         $this->entries[] = ['event' => 'console.result'] + $detail;
@@ -98,7 +101,7 @@ final class LoggingMonitoring implements Monitoring
 
     public function recordEvent(string $name, array $data = []): void
     {
-        if (!$this->active) {
+        if (!$this->active || !$this->record->events) {
             return;
         }
         $this->entries[] = ['event' => $name] + $data;

@@ -23,9 +23,7 @@ final class ScopeMonitoring
             $correlation = $scope->get(CorrelationId::class)->establish($context->incomingCorrelationId());
             $active = $context->withCorrelationId($correlation);
             $run = static function () use ($scope, $active, $operation): mixed {
-                if ($scope->has(Monitoring::class)) {
-                    $scope->get(Monitoring::class)->begin($active);
-                }
+                MonitoringGate::begin($scope, $active);
                 return $operation($scope);
             };
             if (\function_exists('Loom\\Native\\withCorrelation')) {

@@ -1,12 +1,41 @@
 # 统一监控
 
-Loom 把一次 **ServiceScope** 内的 HTTP 输入输出、SQL、命令结果与队列事件收进同一份 **Monitoring** 会话。业务依赖 `Loom\Monitoring\Monitoring` 接口，可在应用 `build()` 前换绑实现。
+Loom 把监控分成三层，不要混用：
+
+| 层 | 作用 | 配置 |
+|----|------|------|
+| **Diary** | 结构化日志管道（`http.request`、业务 `Diary::event` 等） | `config/diary.php` → `DiaryOptions` |
+| **CorrelationId** | 每个工作单元的关联 id（入站沿用、出站 `Queue::dispatch` / 协议 stamping） | 无开关；始终 establish |
+| **Monitoring 会话** | 作用域内缓冲 SQL/HTTP/console/events，dispose 写出 `monitoring.session` | `config/monitoring.php` → `MonitoringOptions` |
+
+业务依赖 `Loom\Monitoring\Monitoring` 接口采集会话数据；关联 id 用 `Loom\Monitoring\CorrelationId::current()`。**Monitoring 输出必须经 Diary**，不要在 `config/monitoring.php` 里再配一套日志文件。
+
+## 配置（`config/monitoring.php`）
+
+`ApplicationBuilder` 用 `Options::bindOptional` 绑定 `MonitoringOptions`：文件缺失时与仓库样板一致（`driver=log`、全部通道与 record 开关为 `true`），应用不会因缺文件而启动失败。
+
+| 键 | 含义 |
+|----|------|
+| `driver` | `log`（默认）：scoped `LoggingMonitoring`；`null`：默认解析为 `NullMonitoring`，且不对任何通道 `begin()` |
+| `channels.*` | 按宿主入口（`http`、`console`、`timer`、`queue`、`schedule`、`job`、`tcp`、`grpc`）过滤是否开启会话；`false` 时跳过 `begin()` 与缓冲，**CorrelationId 仍会 establish** |
+| `record.*` | 在已 active 的会话内控制 `recordSql` / `recordHttp*` / `recordConsole` / `recordEvent` |
+
+环境变量 `LOOM_MONITORING_DRIVER` 可覆盖 `driver`。日记写出目标与 JSON/文本格式仍只由 `config/diary.php` 决定。
 
 ## 登记与替换
 
-框架默认登记 scoped 的 `LoggingMonitoring`。作用域结束时它经根容器单例 `Loom\Logging\Diary`（`JournalWriter` + `JournalFormatter`）写出 `event=monitoring.session` 一行，默认落到标准错误；与 `RequestLog` 的 `http.request` 共用 `config/diary.php`，不要为监控再实现一套写 stderr 的逻辑：
+框架默认登记 scoped 的 `LoggingMonitoring`（`driver=log` 时）。作用域结束时它经根容器单例 `Loom\Logging\Diary` 写出 `event=monitoring.session`；与 `RequestLog` 共用 `JournalWriter` / `JournalFormatter`。
+
+`tryAddScoped(Monitoring::class, …)` 仍可在 `build()` 前覆盖：**自定义绑定会取代默认工厂**（含 `driver` 选择）。自定义 APM 适配器可实现 `Monitoring` 与 `Disposable`，并在需要时注入 `MonitoringOptions` 以复用 `channels` / `record` 过滤；在 `dispose()` 里把缓冲数据刷到外部系统或经 `Diary` 写出。
+
+关闭收集的两种方式：
 
 ```php
+// 配置：config/monitoring.php 中 driver => 'null' 或关闭单个 channels.*
+```
+
+```php
+// 代码：build() 前换绑实现（与配置无关，优先级高于默认工厂）
 $builder = Application::createBuilder(__DIR__);
 $builder->services->addScoped(
     \Loom\Monitoring\Monitoring::class,
@@ -14,8 +43,6 @@ $builder->services->addScoped(
 );
 $app = $builder->build();
 ```
-
-自定义 APM 适配器实现 `Monitoring` 与 `Disposable`，在 `dispose()` 里把缓冲 Span/事件刷到外部系统即可。
 
 ## 宿主入口
 

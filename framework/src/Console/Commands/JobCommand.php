@@ -32,8 +32,9 @@ final class JobCommand extends \Loom\Console\Command
         $correlation = $this->scope->get(\Loom\Monitoring\CorrelationId::class)->adopt($incoming);
         $execute = function () use ($job, $correlation, $payload): int {
             $request = new \Loom\Request(['method' => 'POST', 'path' => '/', 'headers' => ['content-type' => ['application/json']], 'query' => [], 'body' => $payload]);
+            $jobContext = \Loom\Monitoring\MonitoringContext::job((string)$job['kind'], (int)$job['id'])->withCorrelationId($correlation);
+            \Loom\Monitoring\MonitoringGate::begin($this->scope, $jobContext);
             $monitoring = $this->scope->tryGet(\Loom\Monitoring\Monitoring::class);
-            $monitoring?->begin(\Loom\Monitoring\MonitoringContext::job((string)$job['kind'], (int)$job['id'])->withCorrelationId($correlation));
             $monitoring?->recordEvent('queue.job.dispatch', ['id' => $job['id'], 'kind' => $job['kind'], 'attempt' => $job['attempt']]);
             $result = $this->jobs->dispatch($job['kind'], $request, $this->scope)->toArray();
             if ($result['status'] >= 300) {

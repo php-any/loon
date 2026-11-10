@@ -178,8 +178,11 @@ final class Console
             return 0;
         }
         $input = $command['definition']->parse($tokens);
-        $monitoring = $this->services->tryGet(\Loom\Monitoring\Monitoring::class);
-        $monitoring?->begin(new \Loom\Monitoring\MonitoringContext('console', ['command' => $name]));
+        $context = new \Loom\Monitoring\MonitoringContext('console', ['command' => $name]);
+        if ($this->services !== null) {
+            \Loom\Monitoring\MonitoringGate::begin($this->services, $context);
+        }
+        $monitoring = $this->services?->tryGet(\Loom\Monitoring\Monitoring::class);
         $started = microtime(true);
         $code = Invoker::call($command['handler'], $this->services, [$input, $this->output]);
         if ($code === null) {

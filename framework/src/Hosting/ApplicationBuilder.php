@@ -71,11 +71,28 @@ final class ApplicationBuilder
             };
         });
         $services->tryAddSingleton(\Loom\Logging\Diary::class);
+        $services->tryAddSingleton(\Loom\Monitoring\MonitoringOptions::class, static function (ServiceResolver $resolver): \Loom\Monitoring\MonitoringOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\Monitoring\MonitoringOptions::class, 'monitoring');
+            if (!($bound instanceof \Loom\Monitoring\MonitoringOptions)) {
+                throw new \LogicException('MonitoringOptions binding must return MonitoringOptions');
+            }
+            return $bound;
+        });
         $services->addHostedService(TimerHostedService::class);
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
         $services->addScoped(\Loom\Monitoring\CorrelationId::class);
-        $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, \Loom\Monitoring\LoggingMonitoring::class);
+        $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, static function (ServiceResolver $resolver): \Loom\Monitoring\Monitoring {
+            $options = $resolver->get(\Loom\Monitoring\MonitoringOptions::class);
+            if ($options->driver === 'null') {
+                return new \Loom\Monitoring\NullMonitoring();
+            }
+            return new \Loom\Monitoring\LoggingMonitoring(
+                null,
+                $resolver->get(\Loom\Logging\Diary::class),
+                $options,
+            );
+        });
     }
 
     /**
