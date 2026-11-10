@@ -124,6 +124,21 @@ $builder->services->configure(PaymentOptions::class, 'payment', static function 
 
 单个标量仍可用 `InjectConfig`。
 
+## 停止信号与 onStop
+
+长驻命令在阻塞前让单例 `StopSignal` 监听停止信号。应用可在组合根登记退出回调：
+
+```php
+$builder = Application::createBuilder(__DIR__, $envFile);
+$builder->onStop(static function (): void {
+    // 可选：记录日志、触发排空、通知外部系统等
+});
+$app = $builder->build();
+// 或在 build() 之后：$app->onStop(static function (): void { ... });
+```
+
+收到信号时的保证：`listen()` 已启用的进程中，先执行已登记的 `onStop` 回调（若有），再 `exit(0)`。不保证：框架不会等待进行中的请求或任务；`Host::stop()` 不会在信号路径上自动调用。`serve` 仍用 `Host::run()` 在正常返回时按相反顺序停止 HostedService；通过信号退出时进程直接结束。
+
 ## Host 与后台服务
 
 后台服务实现 `Loom\HostedService`（`start()` / `stop()`），用 `addHostedService()` 登记为单例：

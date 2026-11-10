@@ -50,7 +50,7 @@ go test -mod=readonly -timeout 30s ./std/net/tcp ./std/net/http ./std/net/websoc
 go run -mod=readonly ./zy.go tests/php/net_api_test.php
 ```
 
-这些网络修改已在 Origami 正式版 `v1.0.8` 中发布，Loom 直接依赖该版本，无需伪版本或本地补丁。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions.Load` 注册。应用 streaming RPC、TLS 终止和统一优雅停机尚未提供；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md)。
+这些网络修改已在 Origami 正式版 `v1.0.8` 中发布，Loom 直接依赖该版本，无需伪版本或本地补丁。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions/load.go` 注册。应用 streaming RPC 与 TLS 终止尚未提供。长驻命令通过脚本层 `StopSignal` 与 Origami `std/signal` 接收停止信号，可选执行 `onStop` 回调后直接退出，不内置排空；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md) 与 [宿主说明](hosting.md)。
 
 运行验证：`./build/loom.exe tests/run.php`；Windows 端到端验证：`./tests/e2e/http.ps1`。另有 `tests/e2e/protocols.py` 和 `tests/e2e/network_limits.py` 验证真实协议及慢客户端。测试使用独立数据库、临时输出、随机回环端口和独立作业进程，不使用业务数据库。
 
@@ -58,7 +58,7 @@ go run -mod=readonly ./zy.go tests/php/net_api_test.php
 
 2026-11-01 发布 Origami `v1.0.8`（`2ad471122dd5da424f9bcdc1a4f4923113539a36`），合并网络 API、原生 Inject/Named 与 `v1.0.7` 的 HTTP 并发修复。上游 runtime、TCP、gRPC、HTTP、WebSocket、网络脚本绑定的 Go 测试及 `net_api_test.php` 通过；Loom 从 Go 代理下载正式版后，宿主测试、构建、doctor、协议端到端和网络限制测试通过。GitHub Release 四个平台产物构建并发布成功。
 
-2026-10-31 审核补充修复了 DateTimeImmutable 子类及克隆语义、网络绑定闭包和形参绑定、TCP 监听失败清理，以及取消后仍运行的 gRPC 回调限额。受影响 Go 包测试、`go vet -mod=readonly`、PHP 8.1.34 对照回归及 Loom 完整端到端测试通过。本轮未运行 race detector；TLS、应用 streaming RPC 和统一停机编排仍不在支持范围内。
+2026-10-31 审核补充修复了 DateTimeImmutable 子类及克隆语义、网络绑定闭包和形参绑定、TCP 监听失败清理，以及取消后仍运行的 gRPC 回调限额。受影响 Go 包测试、`go vet -mod=readonly`、PHP 8.1.34 对照回归及 Loom 完整端到端测试通过。本轮未运行 race detector；TLS 与应用 streaming RPC 仍不在支持范围内。停止信号与用户 `onStop` 回调由脚本层提供，不含内置排空。
 
 ## 原生 Inject / Named 修复（已合入上游）
 

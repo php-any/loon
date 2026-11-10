@@ -246,6 +246,37 @@ try {
     hostCheck($app->run(['hosting:echo', 'hi']) === 3, 'Commands run in a scope with bound parameters');
     hostCheck($app->services->get(HostingCounter::class)->value === 12, 'Commands share application singletons');
     hostCheck($app->run(['help', 'serve']) === 0, 'Built-in commands are registered');
+    $stopRoot = sys_get_temp_dir() . '/loom-hosting-onstop-' . bin2hex(random_bytes(6));
+    mkdir($stopRoot . '/config', 0777, true);
+    file_put_contents($stopRoot . '/config/modules.php', '<?php return [];');
+    $onStopFlag = false;
+    $stopBuilder = Loom\Application::createBuilder($stopRoot);
+    $stopBuilder->onStop(static function () use (&$onStopFlag): void {
+        $onStopFlag = true;
+    });
+    $stopApp = $stopBuilder->build();
+    $stopApp->services->get(Loom\StopSignal::class)->dispatch(false);
+    hostCheck($onStopFlag, 'ApplicationBuilder onStop registers StopSignal handler');
+    foreach (glob($stopRoot . '/config/*') as $file) {
+        unlink($file);
+    }
+    rmdir($stopRoot . '/config');
+    rmdir($stopRoot);
+    $lateRoot = sys_get_temp_dir() . '/loom-hosting-onstop-late-' . bin2hex(random_bytes(6));
+    mkdir($lateRoot . '/config', 0777, true);
+    file_put_contents($lateRoot . '/config/modules.php', '<?php return [];');
+    $afterFlag = false;
+    $lateApp = Loom\Application::createBuilder($lateRoot)->build();
+    $lateApp->onStop(static function () use (&$afterFlag): void {
+        $afterFlag = true;
+    });
+    $lateApp->services->get(Loom\StopSignal::class)->dispatch(false);
+    hostCheck($afterFlag, 'Application::onStop after build');
+    foreach (glob($lateRoot . '/config/*') as $file) {
+        unlink($file);
+    }
+    rmdir($lateRoot . '/config');
+    rmdir($lateRoot);
     $app->dispose();
     hostReject(static fn () => $app->services->get(HostingCounter::class), 'disposed');
 } finally {

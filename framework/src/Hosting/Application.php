@@ -122,6 +122,15 @@ final class Application
     }
 
     /**
+     * 登记长驻进程停止信号回调，写法同 ApplicationBuilder::onStop()，用于 build() 之后追加或覆盖。
+     */
+    public function onStop(callable $handler): self
+    {
+        $this->services->get(StopSignal::class)->onStop($handler);
+        return $this;
+    }
+
+    /**
      * 登记 gRPC 方法，优先于生成清单里的同名方法。
      *
      * @param string $method 完整 RPC 路径，如 /billing.Invoice/Get。

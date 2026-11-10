@@ -179,7 +179,7 @@ HTTP 仅入队，消费和调度独立运行：
 
 Cron 支持五字段数字、星号、范围、列表和步长，要求明确 IANA 时区。计算在绝对时间轴前进，正确区分 DST 重复时刻；默认时区转换依赖 doctor 验证通过的运行时。
 
-常驻命令依赖标准库和进程管理器处理生命周期；停止时不承诺旧宿主的完整排空语义，未完成任务依靠租约恢复。
+长驻命令（`serve`、`tcp:serve`、`grpc:serve`、`queue:work`、`schedule:work`、`schedule:listen` 等）在阻塞前调用 `StopSignal::listen()` 监听 `SIGINT`/`SIGTERM`（Windows 上含 `SIGBREAK`）。收到停止信号时，框架**不做**内置排空：不等待进行中的 HTTP 请求、队列子进程、定时器 tick 或 HostedService 收尾；可选执行应用在 `ApplicationBuilder::onStop()` 或 `Application::onStop()` 登记的回调，然后以状态码 0 退出。未登记回调时同样直接退出。排空、租约与业务善后由应用在自己的回调里实现；队列未完成的租约仍可由既有回收机制处理。
 
 ## Console
 

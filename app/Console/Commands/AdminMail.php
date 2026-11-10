@@ -9,9 +9,10 @@ final class AdminMail extends \Loom\Console\Command
 {
     private \App\Services\Identity\Account $account;
 
-    public function __construct(\App\Services\Identity\Account $account)
-    {
-        $this->account = $account;
+    public function __construct(
+        private \App\Services\Identity\Account $account,
+        private \Loom\StopSignal $stopSignal,
+    ) {
     }
 
     protected string $signature = 'admin:mail {--once : 只处理一封邮件}';
@@ -19,6 +20,9 @@ final class AdminMail extends \Loom\Console\Command
 
     public function handle(): int
     {
+        if (!$this->option('once')) {
+            $this->stopSignal->listen();
+        }
         do {
             $result = $this->account->deliver();
             if ($result['state'] !== 'empty') {

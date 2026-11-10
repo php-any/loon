@@ -54,7 +54,7 @@
 
 上例生成 `generated/grpc/Billing/InvoiceServiceBase.php`、`app/Grpc/Services/Billing/InvoiceService.php` 并更新 `generated/grpc/routes.json`。实现业务方法后运行完整测试。新增 RPC 时重复执行检查、预览与生成，再补充业务实现；不要编辑生成基类。
 
-当前应用服务只支持 unary RPC；含 streaming 方法的契约启动时明确报错。反射本身使用标准双向流。监听为明文回环地址，没有添加 TLS 终止或跨协议统一优雅停机编排；运行时截止时间是协作取消，不能强制终止任意忽略取消的第三方原生扩展。
+当前应用服务只支持 unary RPC；含 streaming 方法的契约启动时明确报错。反射本身使用标准双向流。监听为明文回环地址，没有 TLS 终止。长驻进程统一监听 `SIGINT`/`SIGTERM`（及 Windows 上合理的 Ctrl+C 等价信号），可选执行应用登记的 `onStop` 回调后以状态码 0 退出；框架不内置排空或跨协议关停编排，运行时截止时间是协作取消，不能强制终止任意忽略取消的第三方原生扩展。
 
 ## 配置与验证
 
