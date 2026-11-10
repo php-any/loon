@@ -44,6 +44,33 @@ final class MonitoringOptions
         $this->storage = new MonitoringStorageOptions();
     }
 
+    public static function coerceBool(mixed $raw, bool $default): bool
+    {
+        return \loom_bool_value($raw, $default);
+    }
+
+    /**
+     * bindOptional 之后调用：规范化 watcher 开关，并在仪表盘开启时自动忽略其 URL 前缀。
+     */
+    public function finalize(): void
+    {
+        $this->enabled = self::coerceBool($this->enabled, true);
+        $this->dashboard->enabled = self::coerceBool($this->dashboard->enabled, false);
+        foreach ($this->watchers as $name => $watcher) {
+            if (!is_array($watcher) || !array_key_exists('enabled', $watcher)) {
+                continue;
+            }
+            $this->watchers[$name]['enabled'] = self::coerceBool($watcher['enabled'], true);
+        }
+        if ($this->dashboard->enabled) {
+            $prefix = '/' . trim($this->dashboard->path !== '' ? $this->dashboard->path : 'monitoring', '/');
+            $this->ignore_paths = array_values(array_unique(array_merge(
+                $this->ignore_paths,
+                [$prefix, $prefix . '/*'],
+            )));
+        }
+    }
+
     public function collects(): bool
     {
         if (!$this->enabled) {
@@ -73,6 +100,6 @@ final class MonitoringOptions
     public function watcherEnabled(string $name): bool
     {
         $w = $this->watcher($name);
-        return ($w['enabled'] ?? true) !== false;
+        return self::coerceBool($w['enabled'] ?? true, true);
     }
 }

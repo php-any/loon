@@ -9,7 +9,6 @@ use Loom\Database;
 use Loom\Request;
 use Loom\Response;
 use Loom\Router;
-use Loom\ServiceScope;
 use Loom\View;
 
 /** 在 ApplicationBuilder::build() 中登记监控仪表盘路由。 */
@@ -27,6 +26,8 @@ final class MonitoringDashboard
         $router->route('GET', $prefix . '/sql', [self::class, 'sqlList']);
         $router->route('GET', $prefix . '/queue', [self::class, 'queueList']);
         $router->route('GET', $prefix . '/schedule', [self::class, 'scheduleList']);
+        $router->route('GET', $prefix . '/tcp', [self::class, 'tcpList']);
+        $router->route('GET', $prefix . '/grpc', [self::class, 'grpcList']);
         $router->route('GET', $prefix . '/events', [self::class, 'eventList']);
         $router->route('GET', $prefix . '/sessions/{id}', [self::class, 'sessionDetail']);
         $router->route('GET', $prefix . '/correlation/{correlationId}', [self::class, 'correlation']);
@@ -40,31 +41,23 @@ final class MonitoringDashboard
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        if (!$this->authorized($registration, $options)) {
-            return Response::html('Forbidden', 403);
+        $gate = $this->gate($request, $registration, $config, $options);
+        if ($gate !== null) {
+            return $gate;
         }
-        $sessions = $repository->recentSessions($database, 40);
+        $filters = $this->activeFilters($request);
+        $sessions = $repository->recentSessions($database, 40, $filters);
         $html = View::render($config->path('framework/resources/views/monitoring/overview.php'), [
             'sessions' => $sessions,
             'base' => $this->basePath($options),
-            'filters' => $this->filters($request),
+            'filters' => $filters,
         ]);
         return Response::html($this->layout($config, $options, '概览', $html));
     }
 
     public function httpList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        if (!$this->authorized($registration, $options)) {
-            return Response::html('Forbidden', 403);
-        }
-        $correlation = $this->filters($request)['correlation_id'] ?? null;
-        $rows = $repository->listEntries($database, 'http.', 120, is_string($correlation) ? $correlation : null);
-        $html = View::render($config->path('framework/resources/views/monitoring/entries.php'), [
-            'title' => 'HTTP',
-            'rows' => $rows,
-            'base' => $this->basePath($options),
-        ]);
-        return Response::html($this->layout($config, $options, 'HTTP', $html));
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'http.', 'HTTP');
     }
 
     public function consoleList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
@@ -87,6 +80,16 @@ final class MonitoringDashboard
         return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'schedule.', 'Schedule / Timer');
     }
 
+    public function tcpList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    {
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'tcp.', 'TCP');
+    }
+
+    public function grpcList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    {
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'grpc.', 'gRPC');
+    }
+
     public function eventList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
         return $this->entryPage($request, $registration, $repository, $database, $config, $options, '', 'Events');
@@ -100,8 +103,9 @@ final class MonitoringDashboard
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        if (!$this->authorized($registration, $options)) {
-            return Response::html('Forbidden', 403);
+        $gate = $this->gate($request, $registration, $config, $options);
+        if ($gate !== null) {
+            return $gate;
         }
         $id = (int)$request->parameter('id');
         $session = $repository->session($database, $id);
@@ -123,8 +127,9 @@ final class MonitoringDashboard
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        if (!$this->authorized($registration, $options)) {
-            return Response::html('Forbidden', 403);
+        $gate = $this->gate($request, $registration, $config, $options);
+        if ($gate !== null) {
+            return $gate;
         }
         $correlationId = (string)$request->parameter('correlationId');
         $sessions = $repository->sessionsByCorrelation($database, $correlationId);
@@ -146,25 +151,34 @@ final class MonitoringDashboard
         string $prefix,
         string $title,
     ): Response {
-        if (!$this->authorized($registration, $options)) {
-            return Response::html('Forbidden', 403);
+        $gate = $this->gate($request, $registration, $config, $options);
+        if ($gate !== null) {
+            return $gate;
         }
-        $correlation = $this->filters($request)['correlation_id'] ?? null;
-        $rows = $repository->listEntries($database, $prefix, 120, is_string($correlation) ? $correlation : null);
+        $filters = $this->activeFilters($request);
+        $rows = $repository->listEntries($database, $prefix, 120, $filters);
         $html = View::render($config->path('framework/resources/views/monitoring/entries.php'), [
             'title' => $title,
             'rows' => $rows,
             'base' => $this->basePath($options),
+            'filters' => $filters,
         ]);
         return Response::html($this->layout($config, $options, $title, $html));
     }
 
-    private function authorized(MonitoringRegistration $registration, MonitoringOptions $options): bool
+    private function gate(Request $request, MonitoringRegistration $registration, Config $config, MonitoringOptions $options): ?Response
     {
-        if (!$options->dashboard->enabled || !$options->writesDatabase()) {
-            return false;
+        if (!$options->dashboard->enabled) {
+            return Response::html('Not found', 404);
         }
-        return $registration->dashboardAuthorized();
+        if (!$options->writesDatabase()) {
+            $html = View::render($config->path('framework/resources/views/monitoring/needs_database.php'), []);
+            return Response::html($this->layout($config, $options, '需要 database 驱动', $html), 503);
+        }
+        if (!$registration->dashboardAuthorized()) {
+            return Response::html('Forbidden', 403);
+        }
+        return null;
     }
 
     private function basePath(MonitoringOptions $options): string
@@ -181,6 +195,21 @@ final class MonitoringDashboard
             'path' => substr($request->query('path')[0] ?? '', 0, 256),
             'status' => substr($request->query('status')[0] ?? '', 0, 8),
         ];
+    }
+
+    /**
+     * @return array{tag?: string, correlation_id?: string, path?: string, status?: string}
+     */
+    private function activeFilters(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $active = [];
+        foreach ($filters as $key => $value) {
+            if ($value !== '') {
+                $active[$key] = $value;
+            }
+        }
+        return $active;
     }
 
     private function layout(Config $config, MonitoringOptions $options, string $title, string $content): string

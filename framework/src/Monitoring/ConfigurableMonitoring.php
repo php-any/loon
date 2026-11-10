@@ -25,7 +25,6 @@ final class ConfigurableMonitoring implements Monitoring
         private readonly MonitoringRegistration $registration,
         private readonly ?Diary $diary,
         private readonly ?MonitoringStore $store,
-        private readonly ?Database $database,
         private readonly mixed $testWriter = null,
     ) {
     }
@@ -176,7 +175,8 @@ final class ConfigurableMonitoring implements Monitoring
         try {
             if ($this->options->writesDatabase() && $this->store !== null) {
                 $persisted = new MonitoringSession($session->channel, $tags, $session->correlationId, $session->durationMs, $session->entries);
-                $this->store->persist($persisted, $this->database);
+                $database = $this->resolveDatabase();
+                $this->store->persist($persisted, $database);
             }
             if ($this->options->writesDiary()) {
                 $this->flushDiary($fields);
@@ -185,6 +185,18 @@ final class ConfigurableMonitoring implements Monitoring
         }
         $this->entries = [];
         $this->context = null;
+    }
+
+    private function resolveDatabase(): ?Database
+    {
+        if ($this->scope === null || !$this->scope->has(Database::class)) {
+            return null;
+        }
+        try {
+            return $this->scope->get(Database::class);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /** @param array<string, mixed> $fields */

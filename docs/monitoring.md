@@ -22,7 +22,7 @@ Loom 把一次 **ServiceScope** 内的 HTTP 输入输出、SQL、命令结果与
 - `dashboard`：HTTP 查询 UI 路径（默认 `monitoring`）；**必须**在 builder 上登记 `authorize` 否则一律 403。
 - `storage.retain_hours`：`monitoring:prune` 清理窗口。
 
-环境变量见仓库内 `config/monitoring.php` 样板（`LOOM_MONITORING_*`）。
+环境变量见 `config/monitoring.php`；布尔项使用 `env_bool()`，支持 `LOOM_MONITORING_DASHBOARD=1` / `0`（以及 `true`/`false`）。`bindOptional` 后 `MonitoringOptions::finalize()` 会为仪表盘 URL 自动追加 `ignore_paths`。
 
 ## ApplicationBuilder API
 
@@ -97,7 +97,7 @@ HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
 ## 仪表盘
 
-`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/事件列表、会话时间线、按 `correlation_id` 串联会话。须登记 `authorize`。
+`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/事件列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
 
 迁移：`framework/resources/migrations/0006_monitoring.*`（`migrate:up`）。
 

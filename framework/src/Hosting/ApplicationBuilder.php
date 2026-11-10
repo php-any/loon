@@ -85,6 +85,7 @@ final class ApplicationBuilder
             if (!($bound instanceof \Loom\Monitoring\MonitoringOptions)) {
                 throw new \LogicException('MonitoringOptions binding must return MonitoringOptions');
             }
+            $bound->finalize();
             return $bound;
         });
         $services->tryAddSingleton(\Loom\Monitoring\DatabaseMonitoringStore::class);
@@ -122,7 +123,6 @@ final class ApplicationBuilder
                     $resolver->get(\Loom\Monitoring\MonitoringRegistration::class),
                     $resolver->get(\Loom\Logging\Diary::class),
                     $resolver->get(\Loom\Monitoring\DatabaseMonitoringStore::class),
-                    $resolver->get(Database::class),
                 );
                 $configured->bindScope($resolver->get(ServiceScope::class));
                 return $configured;
@@ -135,6 +135,7 @@ final class ApplicationBuilder
         $router = $discovery->router();
         $monitoringOptions = (new Options($this->configuration))->bindOptional(\Loom\Monitoring\MonitoringOptions::class, 'monitoring');
         if ($monitoringOptions instanceof \Loom\Monitoring\MonitoringOptions) {
+            $monitoringOptions->finalize();
             \Loom\Monitoring\MonitoringDashboard::register($router, $monitoringOptions->dashboard->path, $monitoringOptions);
         }
         $kernel = new HttpKernel($router);
