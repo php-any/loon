@@ -242,6 +242,12 @@ final class ModuleDiscovery
         foreach ($reflection->getAttributes(\Loom\Attributes\Listens::class) as $attribute) {
             $listens = $attribute->newInstance();
             $this->handler($reflection, $listens->method);
+            if ($listens->queued) {
+                $eventReflection = new \ReflectionClass($listens->event);
+                if (!$eventReflection->implementsInterface(\Loom\Events\QueueableEvent::class)) {
+                    throw new \LogicException('Queued listener requires QueueableEvent: ' . $listens->event);
+                }
+            }
             if (!isset($this->eventListeners[$listens->event])) {
                 $this->eventListeners[$listens->event] = [];
             }
@@ -250,7 +256,7 @@ final class ModuleDiscovery
                     throw new \LogicException('Duplicate event listener: ' . $class . ' for ' . $listens->event);
                 }
             }
-            $this->eventListeners[$listens->event][] = [$class, $listens->method];
+            $this->eventListeners[$listens->event][] = [$class, $listens->method, $listens->queued];
         }
         $this->classes[$class] = true;
     }
@@ -421,7 +427,7 @@ final class ModuleDiscovery
     }
 
     /**
-     * @return array<string, list<array{0: string, 1: string}>>
+     * @return array<string, list<array{0: string, 1: string, 2: bool}>>
      */
     public function eventListeners(): array
     {

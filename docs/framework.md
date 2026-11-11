@@ -166,7 +166,7 @@ $data = $stored->toArray();
 
 宿主显式加载 Origami 的可选 `std/php/redis` 模块。`Loom\Redis` 仅负责 URL 配置、前缀约定、作用域关闭及错误/空值映射，不再实现 RESP、网络连接、AUTH、TLS 或 JSON 桥接。`Redis::using($callback)` 提供一条原生连接，回调结束必定关闭；不把连接缓存到可能被请求或定时器复制的静态状态中。原生 `false` 空值映射为 Loom 的 `null`，命令错误则转为异常，不能混淆二者。
 
-队列每轮在一个连接作用域内，通过原生 pipeline 同步最多 100 条待投递记录。消费组初始化、领取、发布和确认的业务 Lua 位于 `framework/resources/queue/`。网络与协议能力复用 Origami，租约、持久化投递和重试策略仍属于 Loom；当前依赖中的 Laravel Queue 模块只有空入口，不能当成可用队列实现。任务成功后的确认错误不会被当成处理器错误再次完成任务。
+Redis Stream 是队列的投递源：`Queue::dispatch()` 在无事务时立刻 `XADD`，在 `Database::transaction()` 内则登记到提交后入队。延迟任务进入同槽位 `delayed` 有序集，到期由 worker Lua 原子迁入主 Stream。消费组 `loom`、每个 `queue:work` 进程独立 consumer 名；`XREADGROUP` → `_job` 子进程 → `XACK`/`XDEL`；`XAUTOCLAIM` 回收 PEL。失败按 `attempt²×2` 秒退避重入队，超过 3 次写入死信 Stream。`loom_jobs` 仅作运维归档，写入失败不影响 Stream 执行。业务 Lua 位于 `framework/resources/queue/`。
 
 HTTP 仅入队，消费和调度独立运行：
 
@@ -175,7 +175,7 @@ HTTP 仅入队，消费和调度独立运行：
 ./build/loom.exe schedule:work
 ```
 
-`$queue->dispatch()` 支持最多 30 天延迟。队列仅支持 MySQL 存档 + Redis Stream：先写 MySQL 事务待投递记录，到期后通过 XADD 发布到 Stream，使用 XREADGROUP 领取、XACK 确认。XAUTOCLAIM 回收超过 60 秒未确认的消息；数据库租约过期后重新发布下一次尝试。最多 3 次尝试，失败退避分别为 2 秒和 8 秒。MySQL 保留任务历史，完成任务必须持有当前租约；旧 worker 不能覆盖新 worker 的结果。
+`$queue->dispatch()` 支持最多 30 天延迟。至少一次投递；子进程上限 30 秒。应用事件 `queued: true` 监听器使用内置 `loom.event.listen` 任务种类，见 [events.md](events.md)。
 
 每个作业通过 `$process->run()` 启动独立 Origami 进程，使用参数数组而不经 shell。任务输入通过临时文件传递，结束即删除；子进程执行 `loom.php _job <文件>`，在这条命令的作用域里交给 `JobDispatcher`。父进程限制执行 30 秒、输出合计 4 MiB。队列为至少一次交付，Studio 摘要通过唯一 job_id 实现幂等。
 

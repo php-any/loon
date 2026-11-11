@@ -49,7 +49,9 @@ final class ApplicationBuilder
         $services->addSingleton(HttpServer::class);
         $services->addSingleton(TcpServer::class);
         $services->addSingleton(GrpcServer::class);
-        $services->addSingleton(JobDispatcher::class);
+        $services->tryAddSingleton(\Loom\RedisQueue::class);
+        $services->tryAddScoped(\Loom\Queue::class);
+        $services->tryAddScoped(\Loom\Events\EventListenJob::class);
         $services->configure(HttpServerOptions::class, 'http');
         $services->tryAddSingleton(\Loom\Logging\DiaryOptions::class, static function (ServiceResolver $resolver): \Loom\Logging\DiaryOptions {
             $bound = $resolver->get(Options::class)->bindOptional(\Loom\Logging\DiaryOptions::class, 'diary');
@@ -191,13 +193,25 @@ final class ApplicationBuilder
         }
         $discovery = ModuleDiscovery::configured($this->configuration, $this->modules);
         foreach ($discovery->eventListeners() as $event => $listeners) {
-            foreach ($listeners as [$class, $method]) {
-                $this->eventsRegistration->discover($event, $class, $method);
+            foreach ($listeners as $row) {
+                $class = $row[0];
+                $method = $row[1];
+                $queued = $row[2] ?? false;
+                if ($queued) {
+                    $this->eventsRegistration->discoverQueued($event, $class, $method);
+                } else {
+                    $this->eventsRegistration->discover($event, $class, $method);
+                }
             }
         }
         $listenerMap = $this->eventsRegistration->listeners();
+        self::assertQueueableEventListeners($listenerMap);
         $services->tryAddScoped(\Loom\Events\EventDispatcher::class, static function (ServiceResolver $resolver) use ($listenerMap): \Loom\Events\EventDispatcher {
-            return new \Loom\Events\EventDispatcher($listenerMap, $resolver);
+            return new \Loom\Events\EventDispatcher($listenerMap, $resolver, $resolver->get(\Loom\Queue::class));
+        });
+        $builtinJobs = ['loom.event.listen' => [\Loom\Events\EventListenJob::class, 'handle']];
+        $services->addSingleton(JobDispatcher::class, static function (ServiceResolver $resolver) use ($builtinJobs): JobDispatcher {
+            return new JobDispatcher($resolver->get(ModuleDiscovery::class), $builtinJobs);
         });
         foreach ($discovery->services() as $id => $class) {
             $services->tryAdd(new ServiceDescriptor($id, ServiceLifetime::from($discovery->serviceLifetime($id)), $class));
@@ -247,5 +261,23 @@ final class ApplicationBuilder
             $provider->get(StopSignal::class)->onStop($this->onStop);
         }
         return new Application($provider, $this->configuration, $router, $kernel, $console, $grpc);
+    }
+
+  /**
+   * @param array<string, list<array{type: string, listener: string|callable, method?: string, queued?: bool}>> $listenerMap
+   */
+    private static function assertQueueableEventListeners(array $listenerMap): void
+    {
+        foreach ($listenerMap as $event => $entries) {
+            foreach ($entries as $entry) {
+                if (!($entry['queued'] ?? false)) {
+                    continue;
+                }
+                $reflection = new \ReflectionClass($event);
+                if (!$reflection->implementsInterface(\Loom\Events\QueueableEvent::class)) {
+                    throw new \LogicException('Queued event listeners require QueueableEvent: ' . $event);
+                }
+            }
+        }
     }
 }

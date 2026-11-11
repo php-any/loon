@@ -22,6 +22,10 @@ final class Database
     private ?string $source = null;
     private ?string $registered = null;
     private ?\Database\Sql\Tx $tx = null;
+    /** @var list<callable(): void> */
+    private array $afterCommit = [];
+    /** @var list<callable(): void> */
+    private array $afterRollback = [];
     /** @var array<string, \Database\Sql\DB> */
     private static array $pools = [];
 
@@ -154,6 +158,28 @@ final class Database
     public function inTransaction(): bool
     {
         return $this->tx !== null;
+    }
+
+    /**
+     * 在当前事务成功提交后执行回调。必须在 transaction() 回调内调用。
+     */
+    public function afterCommit(callable $callback): void
+    {
+        if ($this->tx === null) {
+            throw new \LogicException('afterCommit requires an active transaction');
+        }
+        $this->afterCommit[] = $callback;
+    }
+
+    /**
+     * 在当前事务回滚后执行回调。必须在 transaction() 回调内调用。
+     */
+    public function afterRollback(callable $callback): void
+    {
+        if ($this->tx === null) {
+            throw new \LogicException('afterRollback requires an active transaction');
+        }
+        $this->afterRollback[] = $callback;
     }
 
     /**
@@ -546,14 +572,33 @@ final class Database
         }
         $tx = $this->pool()->begin();
         $this->tx = $tx;
+        $afterCommit = [];
+        $afterRollback = [];
+        $this->afterCommit = [];
+        $this->afterRollback = [];
         try {
             $result = $operation();
             $tx->commit();
+            $afterCommit = $this->afterCommit;
+            $this->afterCommit = [];
+            $this->afterRollback = [];
+            foreach ($afterCommit as $callback) {
+                $callback();
+            }
             return $result;
         } catch (\Throwable $error) {
+            $afterRollback = $this->afterRollback;
             try {
                 $tx->rollback();
             } catch (\Throwable $rollbackError) {
+            }
+            $this->afterCommit = [];
+            $this->afterRollback = [];
+            foreach ($afterRollback as $callback) {
+                try {
+                    $callback();
+                } catch (\Throwable) {
+                }
             }
             throw $error;
         } finally {

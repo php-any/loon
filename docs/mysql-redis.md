@@ -38,14 +38,13 @@ Redis 传输直接复用 Origami 可选原生模块 `std/php/redis`，宿主在�
 
 ## 队列与会话语义
 
-- 业务事务写入 MySQL `loom_jobs`，同时形成任务历史与待投递记录。消费者只把已经提交的任务投递到 Redis，业务回滚不产生可执行任务。
-- 延迟任务和失败退避保存在 MySQL，到期后通过 XADD 写入 Redis Stream；XREADGROUP 消费，XACK 确认后 XDEL 清理。XAUTOCLAIM 回收未确认消息，过期的数据库租约生成下一次尝试。Lua 保证发布去重和确认的租约校验。Redis 至少需要 6.2。MySQL 条件更新记录尝试次数，只有当前租约的消费者可完成任务。租约为 60 秒，子进程执行上限为 30 秒，最多自动尝试三次。
-- 消费者从 MySQL 恢复 Redis 中丢失的待执行任务；未到期租约不会提前重跑。任务为至少一次执行，业务处理器须幂等。Redis 不可用时停止领取，不静默改为数据库队列。
-- 后台读取 MySQL 任务历史和错误统计，人工重试更新待投递记录，再同步到 Redis。
+- `Queue::dispatch()` 以 Redis Stream 为投递源；无事务时立即 `XADD`，事务内在提交后才入队，回滚不入队。可选写入 `loom_jobs` 归档，失败不阻塞 Stream。
+- 延迟与失败退避使用 Redis `delayed` 有序集与主 Stream；`XREADGROUP` 消费，`XACK` 后 `XDEL`；`XAUTOCLAIM` 回收超 60 秒 PEL。失败退避 `attempt²×2` 秒，超过 3 次进死信 Stream。Redis 至少 6.2；子进程上限 30 秒。至少一次执行，处理器须幂等。
+- 运维面仍可读 `loom_jobs` 历史；不以 MySQL 行状态决定是否可向 Stream 投递。
 - 登录会话仅保存在 Redis，键使用令牌 SHA-256 摘要，TTL 为 24 小时。密码重置和停用通过 MySQL `auth_version` 在同一事务中撤销会话，Redis 中残留的旧会话立即失效。会话丢失要求重新登录。
 - 通知及账户邮件保留各自事务 outbox 与投递审计，由 `admin:notify`、`admin:mail` 投递，不混入业务任务处理器。
 
-升级时先停止旧队列 worker，再启动新版本。队列键使用 `{queue:<数据库 DSN 的 SHA-256>}:stream`、`:published` 和 `:leases`，隔离共享 Redis 前缀但任务 ID 相同的数据库，不读取旧的 `{queue}` 或 ready/running/payload 队列键；未完成任务从 MySQL 恢复，运行中任务等待租约到期。不要混用新旧 worker。应用入口迁移后，也需要重启 `queue:work`、`schedule:work` 和 `admin:notify`，确保它们加载当前配置。
+队列键：`{queue:<DSN SHA-256>}:stream`、`:delayed`、`:dead`，经 `LOOM_REDIS_PREFIX` 加前缀。升级时先停旧 worker 再启新版本，避免混用新旧语义。
 
 ## 迁移与验证
 

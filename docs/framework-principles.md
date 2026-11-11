@@ -215,7 +215,7 @@ Task::whereUserId(...)->whereId(...)->first()
 ## 7. Timer、Queue 与 Schedule
 
 - **Timer**：作为 `HostedService` 跟随 HTTP 服务进程运行，由 `Host` 在监听前启动、退出时停止。按固定周期触发，每次触发在新作用域里解析定时器；同一定时器不重叠执行，忙碌期间的触发跳过。只有 `serve` 启动 Host，多 HTTP 进程会各自执行自己的定时器。与队列、调度的进程边界见 [宿主、应用与选项](hosting.md)。
-- **Queue**：请求提交任务，MySQL 保存任务及待投递记录，Redis Stream 负责投递。独立 `queue:work` 消费，每个作业通过宿主子进程执行，提供租约、超时和重试机制。
+- **Queue**：`dispatch()` 写入 Redis Stream（事务提交后入队）；`loom_jobs` 仅归档。独立 `queue:work` 消费，每进程唯一 consumer，子进程执行与 PEL 回收、死信与延迟迁移见 [framework.md](framework.md)。应用事件可 `queued: true` 异步监听。
 - **Schedule**：独立 `schedule:work` 计算到期计划，在数据库事务中生成任务并推进下次执行时间，实际任务交给队列处理。
 
 队列是至少一次交付，业务处理必须考虑幂等。启动 HTTP 不会自动启动队列和调度进程。
