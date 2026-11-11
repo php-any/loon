@@ -24,6 +24,9 @@ final class MonitoringEventBuckets
         if (str_starts_with($name, 'filesystem.')) {
             return 'filesystem';
         }
+        if (str_starts_with($name, 'cache.')) {
+            return 'cache';
+        }
         return null;
     }
 }

@@ -212,5 +212,4 @@ final class ConfigurableMonitoring implements Monitoring
             $this->diary->event('monitoring.session', $fields);
         }
     }
-
 }

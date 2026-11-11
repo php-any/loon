@@ -20,6 +20,7 @@ return [
         'filesystem' => ['enabled' => true],
         'tcp' => ['enabled' => true],
         'grpc' => ['enabled' => true],
+        'cache' => ['enabled' => true],
     ],
     'dashboard' => [
         'enabled' => env_bool('LOOM_MONITORING_DASHBOARD', false),
