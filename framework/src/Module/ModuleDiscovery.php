@@ -48,6 +48,8 @@ final class ModuleDiscovery
     private array $jobs = [];
     private array $timers = [];
     private array $commands = [];
+    /** @var array<string, list<array{0: string, 1: string}>> */
+    private array $eventListeners = [];
     private bool $frozen = false;
     private ?Router $routeTable = null;
 
@@ -236,6 +238,19 @@ final class ModuleDiscovery
             }
             $this->commands[] = $class;
         }
+        foreach ($reflection->getAttributes(\Loom\Attributes\Listens::class) as $attribute) {
+            $listens = $attribute->newInstance();
+            $this->handler($reflection, $listens->method);
+            if (!isset($this->eventListeners[$listens->event])) {
+                $this->eventListeners[$listens->event] = [];
+            }
+            foreach ($this->eventListeners[$listens->event] as $existing) {
+                if ($existing[0] === $class) {
+                    throw new \LogicException('Duplicate event listener: ' . $class . ' for ' . $listens->event);
+                }
+            }
+            $this->eventListeners[$listens->event][] = [$class, $listens->method];
+        }
         $this->classes[$class] = true;
     }
 
@@ -402,5 +417,13 @@ final class ModuleDiscovery
     public function commands(): array
     {
         return $this->commands;
+    }
+
+    /**
+     * @return array<string, list<array{0: string, 1: string}>>
+     */
+    public function eventListeners(): array
+    {
+        return $this->eventListeners;
     }
 }

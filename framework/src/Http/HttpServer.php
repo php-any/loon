@@ -16,6 +16,7 @@ namespace Loom;
 final class HttpServer
 {
     private StaticFiles $assets;
+    private \Loom\Filesystem\FilesystemPublicServer $publicFiles;
 
     public function __construct(
         private readonly ServiceProvider $services,
@@ -23,8 +24,10 @@ final class HttpServer
         private readonly Network $network,
         private readonly HttpServerOptions $options,
         Config $config,
+        \Loom\Filesystem\Filesystem $filesystem,
     ) {
         $this->assets = new StaticFiles($config->path('public'));
+        $this->publicFiles = new \Loom\Filesystem\FilesystemPublicServer($filesystem->servedDisks());
     }
 
     /**
@@ -84,14 +87,17 @@ final class HttpServer
                 throw new HttpError(400, 'Cannot read request body');
             }
             $request = RequestFactory::fromNative($native, $_SERVER, $body, $this->network->limits('http')['maxBodyBytes']);
+            $request = $request->withAttribute('loom.filesystem', $scope->get(\Loom\Filesystem\Filesystem::class));
             $monitoring?->recordHttpInput([
                 'method' => $request->method(),
                 'path' => $request->path(),
                 'body_bytes' => strlen($body),
             ]);
-            $response = str_starts_with($request->path(), '/assets/')
-                ? $this->assets->handle($request)
-                : $this->kernel->handle($request, $scope);
+            $public = $this->publicFiles->handle($request);
+            $response = $public
+                ?? (str_starts_with($request->path(), '/assets/')
+                    ? $this->assets->handle($request)
+                    : $this->kernel->handle($request, $scope));
             $status = $response->toArray()['status'];
             $monitoring?->recordHttpOutput([
                 'status' => $status,
