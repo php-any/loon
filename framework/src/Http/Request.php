@@ -205,6 +205,67 @@ final class Request
         }
         return new Input($values);
     }
+    /**
+     * 解析 application/x-www-form-urlencoded 或 multipart/form-data 字段表。媒体类型不支持时抛出 HTTP 415；multipart 非法时抛出 HTTP 400。
+     */
+    public function form(): Input
+    {
+        $parsed = $this->parsedForm();
+        $values = [];
+        foreach ($parsed['fields'] as $name => $list) {
+            $values[$name] = count($list) === 1 ? $list[0] : $list;
+        }
+        return new Input($values);
+    }
+    /**
+     * 返回 multipart 中某名字的第一个上传文件；不存在时返回 null。
+     */
+    public function file(string $name): ?UploadedFile
+    {
+        $parsed = $this->parsedForm();
+        if (!isset($parsed['files'][$name][0])) {
+            return null;
+        }
+        return $this->attachFilesystem($parsed['files'][$name][0]);
+    }
+    /**
+     * @return list<UploadedFile>
+     */
+    public function files(string $name): array
+    {
+        $parsed = $this->parsedForm();
+        if (!isset($parsed['files'][$name])) {
+            return [];
+        }
+        $out = [];
+        foreach ($parsed['files'][$name] as $file) {
+            $out[] = $this->attachFilesystem($file);
+        }
+        return $out;
+    }
+
+    /**
+     * @return array{fields: array<string, list<string>>, files: array<string, list<UploadedFile>>}
+     */
+    private function parsedForm(): array
+    {
+        $cached = $this->attribute('loom.parsed_form');
+        if (is_array($cached)) {
+            return $cached;
+        }
+        $parsed = Multipart::parse($this->header('content-type'), $this->body());
+        $this->attributes['loom.parsed_form'] = $parsed;
+        return $parsed;
+    }
+
+    private function attachFilesystem(UploadedFile $file): UploadedFile
+    {
+        $filesystem = $this->attribute('loom.filesystem');
+        if ($filesystem instanceof \Loom\Filesystem\Filesystem) {
+            return $file->withFilesystem($filesystem);
+        }
+        return $file;
+    }
 }
 
 // 显式输入契约区分字段缺失、null 和类型差异。

@@ -124,7 +124,7 @@ final class ConfigurableMonitoring implements Monitoring
         if (!$this->active) {
             return;
         }
-        $bucket = self::eventBucket($name);
+        $bucket = MonitoringEventBuckets::bucket($name);
         if ($bucket !== null && !$this->options->watcherEnabled($bucket)) {
             return;
         }
@@ -213,20 +213,4 @@ final class ConfigurableMonitoring implements Monitoring
         }
     }
 
-    private static function eventBucket(string $name): ?string
-    {
-        if (str_starts_with($name, 'queue.') || str_starts_with($name, 'job.')) {
-            return 'queue';
-        }
-        if (str_starts_with($name, 'schedule.')) {
-            return 'schedule';
-        }
-        if (str_starts_with($name, 'tcp.')) {
-            return 'tcp';
-        }
-        if (str_starts_with($name, 'grpc.')) {
-            return 'grpc';
-        }
-        return null;
-    }
 }

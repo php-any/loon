@@ -81,7 +81,9 @@ $builder->services->addScoped(\Loom\Monitoring\Monitoring::class, \App\Monitorin
 - **SQL**：`Database::query` / `execute` → `recordSql`（绑定值仅类型与长度；`watchers.sql.slow` 过滤）。
 - **HTTP**：方法与正文字节、状态与耗时（可忽略 method/status 列表）。
 - **命令**：命令名与退出码。
-- **队列 / 调度 / 事件 / tcp / grpc**：按 watcher 开关与事件名前缀归类。
+- **队列 / 调度 / tcp / grpc**：按事件名前缀与对应 watcher 归类。
+- **应用事件**：`app.event` → `watchers.events`（仅事件类名与监听器数量，无负载）。
+- **文件系统**：`filesystem.*` → `watchers.filesystem`（磁盘、键或字段名、大小；无文件正文）。
 
 HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
@@ -97,7 +99,7 @@ HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
 ## 仪表盘
 
-`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/事件列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
+`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/Events/Filesystem 列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
 
 迁移：`framework/resources/migrations/0006_monitoring.*`（`migrate:up`）。
 

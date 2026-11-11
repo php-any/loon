@@ -133,7 +133,7 @@ $data = $stored->toArray();
 
 `loom.php` 用 `$app->use(RequestLog::class)` 登记 `Loom\Http\Middleware\RequestLog` 全局中间件。它经根容器上的 `Loom\Logging\Diary` 写出 `http.request` 访问行（默认 JSON 到 stderr，含 `correlation_id` 字段）。作用域级 SQL/HTTP 摘要由 `Loom\Monitoring\LoggingMonitoring` 在收尾时写出 `monitoring.session`，同样走 Diary 并携带同一 `correlation_id`，详见 [统一监控](monitoring.md)。`config/diary.php` 可选；缺失时与样板文件相同（`stderr` + `json`）。存在时可切换写入器（`file`、`null`）与格式化器（`text`）。404、405、HttpError 和未捕获异常（500）都会记录；不记录请求头、查询参数或请求正文。由运行时直接处理的 `/assets/` 静态文件不经过应用中间件。测试仍可向 `RequestLog` 或 `LoggingMonitoring` 传入 callable 覆盖输出。
 
-输入通过 `Request::json()` 与 `Input` 显式校验。视图使用隔离输出缓冲和 `$data` 参数，使用 `Loom\escape()` 转义。`public/` 内的文件通过 `/assets/` 提供，规范化路径必须仍在 public 内；不公开脚本、配置或数据库。
+输入通过 `Request::json()` 与 `Input` 显式校验；`Request::form()`、`file()` 与 `files()` 解析 urlencoded 与 multipart 上传，见 [文件存储](filesystems.md)。应用内同步事件总线见 [应用事件](events.md)。视图使用隔离输出缓冲和 `$data` 参数，使用 `Loom\escape()` 转义。`public/` 内的文件通过 `/assets/` 提供，规范化路径必须仍在 public 内；`config/filesystems.php` 中 `serve => true` 的磁盘按各自 `url` 前缀对外提供文件（默认 `public` 磁盘为 `/files`）。不执行 `.php` 或公开配置、数据库。
 
 脚本设置 10 秒协作执行限制、4 MiB 响应正文上限；通过 std 配置默认 1 MiB 请求体硬限制、网络超时、连接数及并发准入。请求体上限在脚本读取前执行并覆盖分块编码；WebSocket 也有消息上限和取消关闭。详细配置及边界见 [协议与网络限额](protocols.md)。
 

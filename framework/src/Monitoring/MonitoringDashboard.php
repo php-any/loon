@@ -29,6 +29,7 @@ final class MonitoringDashboard
         $router->route('GET', $prefix . '/tcp', [self::class, 'tcpList']);
         $router->route('GET', $prefix . '/grpc', [self::class, 'grpcList']);
         $router->route('GET', $prefix . '/events', [self::class, 'eventList']);
+        $router->route('GET', $prefix . '/filesystem', [self::class, 'filesystemList']);
         $router->route('GET', $prefix . '/sessions/{id}', [self::class, 'sessionDetail']);
         $router->route('GET', $prefix . '/correlation/{correlationId}', [self::class, 'correlation']);
     }
@@ -92,7 +93,12 @@ final class MonitoringDashboard
 
     public function eventList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, '', 'Events');
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'app.event', 'Events');
+    }
+
+    public function filesystemList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    {
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'filesystem.', 'Filesystem');
     }
 
     public function sessionDetail(

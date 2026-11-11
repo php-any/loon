@@ -18,6 +18,9 @@ final class ApplicationBuilder
     public readonly ServiceCollection $services;
     public readonly Config $configuration;
     public readonly \Loom\MonitoringBuilder $monitoring;
+    public readonly \Loom\Filesystem\FilesystemBuilder $filesystems;
+    public readonly \Loom\Events\EventsBuilder $events;
+    private \Loom\Events\EventsRegistration $eventsRegistration;
     private bool $built = false;
     private ?\Closure $onStop = null;
 
@@ -80,6 +83,26 @@ final class ApplicationBuilder
         $monitoringRegistration = new \Loom\Monitoring\MonitoringRegistration();
         $services->addInstance(\Loom\Monitoring\MonitoringRegistration::class, $monitoringRegistration);
         $this->monitoring = new \Loom\MonitoringBuilder($services, $monitoringRegistration);
+        $filesystemRegistration = new \Loom\Filesystem\FilesystemRegistration();
+        $services->addInstance(\Loom\Filesystem\FilesystemRegistration::class, $filesystemRegistration);
+        $this->filesystems = new \Loom\Filesystem\FilesystemBuilder($filesystemRegistration);
+        $this->eventsRegistration = new \Loom\Events\EventsRegistration();
+        $services->addInstance(\Loom\Events\EventsRegistration::class, $this->eventsRegistration);
+        $this->events = new \Loom\Events\EventsBuilder($this->eventsRegistration);
+        $services->tryAddSingleton(\Loom\Filesystem\FilesystemOptions::class, static function (ServiceResolver $resolver): \Loom\Filesystem\FilesystemOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\Filesystem\FilesystemOptions::class, 'filesystems');
+            if (!($bound instanceof \Loom\Filesystem\FilesystemOptions)) {
+                throw new \LogicException('FilesystemOptions binding must return FilesystemOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\Filesystem\Filesystem::class, static function (ServiceResolver $resolver): \Loom\Filesystem\Filesystem {
+            return new \Loom\Filesystem\Filesystem(
+                $resolver->get(Config::class),
+                $resolver->get(\Loom\Filesystem\FilesystemOptions::class),
+                $resolver->get(\Loom\Filesystem\FilesystemRegistration::class),
+            );
+        });
         $services->tryAddSingleton(\Loom\Monitoring\MonitoringOptions::class, static function (ServiceResolver $resolver): \Loom\Monitoring\MonitoringOptions {
             $bound = $resolver->get(Options::class)->bindOptional(\Loom\Monitoring\MonitoringOptions::class, 'monitoring');
             if (!($bound instanceof \Loom\Monitoring\MonitoringOptions)) {
@@ -129,6 +152,15 @@ final class ApplicationBuilder
             });
         }
         $discovery = ModuleDiscovery::configured($this->configuration);
+        foreach ($discovery->eventListeners() as $event => $listeners) {
+            foreach ($listeners as [$class, $method]) {
+                $this->eventsRegistration->discover($event, $class, $method);
+            }
+        }
+        $listenerMap = $this->eventsRegistration->listeners();
+        $services->tryAddScoped(\Loom\Events\EventDispatcher::class, static function (ServiceResolver $resolver) use ($listenerMap): \Loom\Events\EventDispatcher {
+            return new \Loom\Events\EventDispatcher($listenerMap, $resolver);
+        });
         foreach ($discovery->services() as $id => $class) {
             $services->tryAdd(new ServiceDescriptor($id, ServiceLifetime::from($discovery->serviceLifetime($id)), $class));
         }
