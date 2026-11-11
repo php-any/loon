@@ -123,8 +123,27 @@ $app->services->withMonitoredScope(
         $scope->get(Loom\Events\EventDispatcher::class)->dispatch(new QueueEventsTestEvent(11));
         queueEventsCheck(QueueEventsSyncListener::$sync === 11, 'sync listener ran in dispatch');
         queueEventsCheck(QueueEventsQueuedListener::$queued === 0, 'queued listener not run inline');
-        queueEventsCheck($scope->get(Loom\Queue::class)->tick(), 'queued listener job consumed by worker');
-        queueEventsCheck(QueueEventsQueuedListener::$queued === 11, 'queued listener ran in worker');
+        $claimed = $scope->get(Loom\Queue::class)->claim();
+        queueEventsCheck($claimed !== null, 'queued listener job claimable after dispatch');
+        queueEventsCheck(($claimed['kind'] ?? '') === 'loom.event.listen', 'job kind');
+        $payload = $claimed['payload'];
+        queueEventsCheck(($payload['event'] ?? '') === QueueEventsTestEvent::class, 'event class in job payload');
+        queueEventsCheck(($payload['listener'] ?? '') === QueueEventsQueuedListener::class, 'listener class in payload');
+        queueEventsCheck(($payload['method'] ?? '') === 'handle', 'listener method in payload');
+        queueEventsCheck(($claimed['owner'] ?? -1) === 7, 'queueOwner on envelope');
+        queueEventsCheck(($payload['data'] ?? null) === ['orderId' => 11], 'toQueue data in payload');
+        $jobBody = json_encode($claimed, JSON_THROW_ON_ERROR);
+        $request = new Loom\Request([
+            'method' => 'POST',
+            'path' => '/',
+            'headers' => ['content-type' => ['application/json']],
+            'query' => [],
+            'body' => $jobBody,
+        ]);
+        $response = $scope->get(Loom\JobDispatcher::class)->dispatch('loom.event.listen', $request, $scope);
+        queueEventsCheck($response->toArray()['status'] < 300, 'EventListenJob handle succeeded');
+        queueEventsCheck(QueueEventsQueuedListener::$queued === 11, 'queued listener ran via in-process job handler');
+        $scope->get(Loom\Queue::class)->finish($claimed, '{"ok":true}', null);
     },
 );
 queueEventsCheck(count($lines) >= 1, 'monitoring session written');
