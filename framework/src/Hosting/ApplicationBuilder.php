@@ -8,10 +8,10 @@ namespace Loom;
  * 应用的组合根，对应 ASP.NET Core 的 WebApplicationBuilder。构造时读取环境文件和 config/，并登记框架默认服务；
  * 应用在 build() 之前通过 $services 追加或覆盖登记。
  *
- * build() 时扫描 config/modules.php 里的模块：带 Service 注解的类按注解的生命周期补登记（应用已登记的标识不覆盖），
+ * build() 时扫描 addModule() 登记的模块：带 Service 注解的类按注解的生命周期补登记（应用已登记的标识不覆盖），
  * 控制器路由进入路由表，ConsoleCommand 类进入命令表，Timer 类交给 TimerRunner。
  *
- * @example $builder = Application::createBuilder(__DIR__); $builder->services->addSingleton(Clock::class); $app = $builder->build();
+ * @example $builder = Application::createBuilder(__DIR__); $builder->addModule(\App\AppModule::class); $builder->services->addSingleton(Clock::class); $app = $builder->build();
  */
 final class ApplicationBuilder
 {
@@ -24,6 +24,8 @@ final class ApplicationBuilder
     private \Loom\Events\EventsRegistration $eventsRegistration;
     private bool $built = false;
     private ?\Closure $onStop = null;
+    /** @var list<string> */
+    private array $modules = [];
 
     /**
      * @param string $root 项目根目录。
@@ -145,6 +147,25 @@ final class ApplicationBuilder
     }
 
     /**
+     * 登记一个带 Module 注解的启动模块类。重复登记同一类会去重。必须在 build() 之前调用。
+     *
+     * @example $builder->addModule(\App\AppModule::class);
+     */
+    public function addModule(string $class): self
+    {
+        if ($this->built) {
+            throw new \LogicException('Modules cannot be added after the application has been built');
+        }
+        foreach ($this->modules as $entry) {
+            if ($entry === $class) {
+                return $this;
+            }
+        }
+        $this->modules[] = $class;
+        return $this;
+    }
+
+    /**
      * 扫描模块、补齐模块服务，生成根容器和 Application。只能调用一次。
      */
     public function build(): Application
@@ -168,7 +189,7 @@ final class ApplicationBuilder
                 return $configured;
             });
         }
-        $discovery = ModuleDiscovery::configured($this->configuration);
+        $discovery = ModuleDiscovery::configured($this->configuration, $this->modules);
         foreach ($discovery->eventListeners() as $event => $listeners) {
             foreach ($listeners as [$class, $method]) {
                 $this->eventsRegistration->discover($event, $class, $method);

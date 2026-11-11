@@ -97,13 +97,14 @@ Generated\Grpc\  → <项目>/generated/grpc
 [Config::load()](../framework/src/Config/Config.php) 扫描 `config/` 直属的 `*.php`，排序后逐个执行 `require`，以文件名作为配置键保存返回值。
 
 ```php
-// config/modules.php
-return [\App\AppModule::class];
+// loom.php（节选）
+$builder->addModule(\App\AppModule::class);
+$app = $builder->build();
 ```
 
-结果可通过 `$config->get('modules')` 获取。
+启动模块在组合根里显式登记，不再通过 `config/` 下的 PHP 文件返回模块类名数组。
 
-PHP 配置缓存在 `Config` 实例中，重复 `load()` 不会重新执行这些文件。所有配置（包括 HTTP、数据库和协议配置）都走同一条 PHP 加载路径；环境变量在各配置文件中读取，一并缓存。`get()` 返回全部文件命名空间，`get('http.address')` 按点号读取。`Config` 不保存或执行容器注册回调；服务登记写在 `loom.php` 里。配置文件应只返回配置，不要依赖加载过程中读取其他配置。
+PHP 配置缓存在 `Config` 实例中，重复 `load()` 不会重新执行这些文件。所有配置（包括 HTTP、数据库和协议配置）都走同一条 PHP 加载路径；环境变量在各配置文件中读取，一并缓存。`get()` 返回全部文件命名空间，`get('http.address')` 按点号读取。`Config` 不保存或执行容器注册回调；服务与模块登记写在 `loom.php` 里。配置文件应只返回配置，不要依赖加载过程中读取其他配置。
 
 ### 3.6 模块扫描会主动触发业务类加载
 
@@ -117,7 +118,7 @@ final class AppModule {}
 其执行链是：
 
 ```text
-config/modules.php 返回模块类名
+loom.php 中 addModule() 登记模块类名
   → ModuleDiscovery 对模块做 ReflectionClass
   → 读取 Module 注解中的扫描范围
   → ClassDiscovery 递归枚举 PHP 路径，推导完整类名
@@ -134,7 +135,7 @@ config/modules.php 返回模块类名
 
 ### 3.7 应用在启动时装配一次
 
-`ApplicationBuilder::build()` 调用一次 `ModuleDiscovery::configured()`：扫描并校验声明、预构建注解路由表，然后冻结。`#[Service]` 类用 `tryAdd` 补登记，`ConsoleCommand` 类进入命令表，`Timer` 类交给 `TimerRunner`，`Job` 交给 `JobDispatcher`。`ModuleDiscovery`、`Router`、`HttpKernel`、`Console` 和 `Grpc\Dispatcher` 作为实例登记在根容器上。
+`ApplicationBuilder::build()` 把 `addModule()` 收集的名单交给 `ModuleDiscovery::configured($config, $modules)`：扫描并校验声明、预构建注解路由表，然后冻结。`#[Service]` 类用 `tryAdd` 补登记，`ConsoleCommand` 类进入命令表，`Timer` 类交给 `TimerRunner`，`Job` 交给 `JobDispatcher`。`ModuleDiscovery`、`Router`、`HttpKernel`、`Console` 和 `Grpc\Dispatcher` 作为实例登记在根容器上。
 
 `build()` 返回后，`loom.php` 再用 `use()`、`mapGet()` 等、`mapCommand()`、`mapGrpc()` 往同一张路由表、命令表和 gRPC 方法表里追加。路由表属于应用，不按请求重新装配，也不加载 `routes/*.php`。每个请求、消息、调用或命令由宿主开一个作用域，控制器、中间件、`RequestContext` 和 `Database` 从这个作用域解析。修改模块声明或 `loom.php` 后需要重启应用。
 

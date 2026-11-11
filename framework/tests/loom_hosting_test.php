@@ -141,7 +141,6 @@ try {
     file_put_contents($root . '/config/tree.php', '<?php return ["nested"=>["label"=>"child"]];');
     file_put_contents($root . '/config/http.php', '<?php return ["address"=>"127.0.0.1:9"];');
     file_put_contents($root . '/config/scalar.php', '<?php return 5;');
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     $config = new Loom\Config($root);
     $options = new Loom\Options($config);
 
@@ -248,7 +247,6 @@ try {
     hostCheck($app->run(['help', 'serve']) === 0, 'Built-in commands are registered');
     $stopRoot = sys_get_temp_dir() . '/loom-hosting-onstop-' . bin2hex(random_bytes(6));
     mkdir($stopRoot . '/config', 0777, true);
-    file_put_contents($stopRoot . '/config/modules.php', '<?php return [];');
     $onStopFlag = false;
     $stopBuilder = Loom\Application::createBuilder($stopRoot);
     $stopBuilder->onStop(static function () use (&$onStopFlag): void {
@@ -264,7 +262,6 @@ try {
     rmdir($stopRoot);
     $lateRoot = sys_get_temp_dir() . '/loom-hosting-onstop-late-' . bin2hex(random_bytes(6));
     mkdir($lateRoot . '/config', 0777, true);
-    file_put_contents($lateRoot . '/config/modules.php', '<?php return [];');
     $afterFlag = false;
     $lateApp = Loom\Application::createBuilder($lateRoot)->build();
     $lateApp->onStop(static function () use (&$afterFlag): void {

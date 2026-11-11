@@ -95,13 +95,11 @@ if ($httpRecord['event'] !== 'http.request' || $httpRecord['status'] !== 204 || 
 $bareRoot = sys_get_temp_dir() . '/loom-diary-bare-' . bin2hex(random_bytes(6));
 mkdir($bareRoot . '/config', 0700, true);
 try {
-    file_put_contents($bareRoot . '/config/modules.php', '<?php return [];');
     $bare = (new Loom\Options(new Loom\Config($bareRoot)))->bindOptional(Loom\Logging\DiaryOptions::class, 'diary');
     if (!($bare instanceof Loom\Logging\DiaryOptions) || $bare->writer !== 'stderr' || $bare->formatter !== 'json' || $bare->file !== '') {
         throw new RuntimeException('Missing diary config must keep DiaryOptions defaults');
     }
 } finally {
-    unlink($bareRoot . '/config/modules.php');
     rmdir($bareRoot . '/config');
     rmdir($bareRoot);
 }

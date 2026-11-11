@@ -185,7 +185,7 @@ composer format:check
 
 ## 统一模块与注解
 
-`config/modules.php` 声明启动模块，`app/AppModule.php` 用 `#[Module(['App' => 'app'])]` 指定扫描范围。模型、控制器、路由、服务、队列、定时器和命令共用 `ModuleDiscovery` 的一次扫描，由 `ApplicationBuilder::build()` 装配，无需各自维护扫描代码。
+[loom.php](loom.php) 在 `build()` 之前用 `$builder->addModule(\App\AppModule::class)` 声明启动模块；`app/AppModule.php` 用 `#[Module(['App' => 'app'])]` 指定扫描范围。模型、控制器、路由、服务、队列、定时器和命令共用 `ModuleDiscovery` 的一次扫描，由 `ApplicationBuilder::build()` 装配，无需各自维护扫描代码。
 
 - `#[Controller]` 配合类或方法上的 `#[Route('GET', '/demo')]` 自动注册 HTTP 路由；发布验收页面使用该入口。控制器支持前缀和中间件，Route 支持命名和额外中间件，WebSocket 也走同一注册链路。
 - `#[Service]` 登记服务，第二个参数选择生命周期（默认 `scoped`）；`#[Service('service.id')]` 以该标识登记；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('service.id')]` 注入。`InjectConfig` 继续用于配置注入。
@@ -199,7 +199,7 @@ composer format:check
 
 ## PHP 配置
 
-运行配置按功能拆分为 `http.php`、`database.php`、`tcp.php`、`grpc.php`、`migrations.php`、`network.php`、`modules.php` 和 `checkout.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`。数据库配置与 Laravel 相同：`get('database.default')` 是默认连接名，`get('database.connections')` 是命名连接。更新配置后重启常驻服务。
+运行配置按功能拆分为 `http.php`、`database.php`、`tcp.php`、`grpc.php`、`migrations.php`、`network.php` 和 `checkout.php`。旧 `config/loom.json` 已移除；旧调用 `get('loom.address')` 改为 `get('http.address')`。数据库配置与 Laravel 相同：`get('database.default')` 是默认连接名，`get('database.connections')` 是命名连接。更新配置后重启常驻服务。
 
 应用初始化时自动加载 `config/` 直属目录下的 `*.php`，以文件名（不含扩展名）作为配置名称。例如 `config/payment.php`：
 

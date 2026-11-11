@@ -109,7 +109,6 @@ $dsn = (string)getenv('LOOM_DATABASE');
 $otherName = null;
 $app = null;
 try {
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     file_put_contents($root . '/config/probe.php', '<?php return ["label" => "scoped"];');
     file_put_contents($root . '/config/database.php', '<?php return ["dsn" => getenv("LOOM_DATABASE") ?: "mysql:host=127.0.0.1;dbname=loom_test"];');
     $builder = Loom\Application::createBuilder($root);

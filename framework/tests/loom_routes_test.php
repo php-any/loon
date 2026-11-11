@@ -17,7 +17,7 @@ function check_route($ok)
     }
 }
 /**
- * 在给定项目根上构建应用；没有 config/modules.php 时临时写入一个空模块表。
+ * 在给定项目根上构建应用；临时目录只创建 config/，不登记启动模块。
  *
  * @param ?string $root 项目根目录；null 表示使用一次性的临时目录。
  * @param ?callable $configure 构建前收到 ServiceCollection 的回调。
@@ -32,7 +32,6 @@ function routes_app(?string $root = null, ?callable $configure = null): Loom\App
     if ($temporary) {
         $root = sys_get_temp_dir() . '/loom-routes-' . bin2hex(random_bytes(6));
         mkdir($root . '/config', 0700, true);
-        file_put_contents($root . '/config/modules.php', '<?php return [];');
     }
     try {
         $builder = Loom\Application::createBuilder($root);
@@ -42,7 +41,6 @@ function routes_app(?string $root = null, ?callable $configure = null): Loom\App
         return $builder->build();
     } finally {
         if ($temporary) {
-            unlink($root . '/config/modules.php');
             rmdir($root . '/config');
             rmdir($root);
         }
@@ -274,7 +272,6 @@ mkdir($root . '/generated/grpc', 0700, true);
 foreach (['web', 'websocket', 'grpc', 'console'] as $name) {
     file_put_contents($root . '/routes/' . $name . '.php', '<?php throw new RuntimeException("Implicit route file loaded");');
 }
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 // 生成的 RPC 方法仍然可用；应用显式声明的映射具有更高优先级。
 file_put_contents($root . '/generated/grpc/routes.json', json_encode(['files' => [['routes' => [
     '/fixture/generated' => [RouteFixtureRpc::class, 'echoValue'],
@@ -305,7 +302,6 @@ try {
         unlink($root . '/routes/' . $name . '.php');
     }
     unlink($root . '/generated/grpc/routes.json');
-    unlink($root . '/config/modules.php');
     rmdir($root . '/generated/grpc');
     rmdir($root . '/generated');
     rmdir($root . '/routes');

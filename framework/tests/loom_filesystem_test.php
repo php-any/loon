@@ -13,7 +13,6 @@ function filesystemCheck(bool $condition, string $message): void
 
 $root = sys_get_temp_dir() . '/loom-fs-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 
 $lines = [];
 

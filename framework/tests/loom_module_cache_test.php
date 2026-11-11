@@ -16,13 +16,12 @@ $root = sys_get_temp_dir() . '/loom-metadata-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
 mkdir($root . '/components', 0700, true);
 mkdir($root . '/empty', 0700, true);
-file_put_contents($root . '/config/modules.php', '<?php return [MetadataFixtureModule::class];');
 file_put_contents($root . '/components/Endpoint.php', '<?php namespace MetadataFixture; #[\Loom\Attributes\Controller] final class Endpoint { #[\Loom\Attributes\Route("GET", "/cached")] public function index(): \Loom\Response { return new \Loom\Response("cached"); } }');
 require $root . '/components/Endpoint.php';
 $app = null;
 $isolated = null;
 try {
-    $app = Loom\Application::createBuilder($root)->build();
+    $app = Loom\Application::createBuilder($root)->addModule(MetadataFixtureModule::class)->build();
     $discovery = $app->services->get(Loom\ModuleDiscovery::class);
     // Any rescan would try to reflect a missing class and fail.
     file_put_contents($root . '/components/MustNotBeScanned.php', '<?php throw new RuntimeException("unexpected rescan");');
@@ -68,7 +67,6 @@ try {
         unlink($root . '/components/MustNotBeScanned.php');
     }
     unlink($root . '/components/Endpoint.php');
-    unlink($root . '/config/modules.php');
     rmdir($root . '/components');
     rmdir($root . '/config');
     rmdir($root . '/empty');

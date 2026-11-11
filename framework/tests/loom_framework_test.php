@@ -123,11 +123,9 @@ class LoomTestHead implements Loom\Action
 }
 $root = sys_get_temp_dir() . '/loom-framework-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 try {
     $app = Loom\Application::createBuilder($root)->build();
 } finally {
-    unlink($root . '/config/modules.php');
     rmdir($root . '/config');
     rmdir($root);
 }

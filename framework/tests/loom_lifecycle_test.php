@@ -218,7 +218,6 @@ $root = sys_get_temp_dir() . '/loom-lifecycle-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0777, true);
 $apps = [];
 try {
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     file_put_contents($root . '/config/http.php', '<?php return ["address" => "127.0.0.1:1"];');
     // 同一份登记构建出的两个应用各有自己的根容器和路由表。
     foreach (['first', 'second'] as $name) {

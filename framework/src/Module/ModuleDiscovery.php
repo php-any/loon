@@ -16,7 +16,7 @@ use Database\Annotation\Table;
  * 扫描带注解的模块，校验服务、模型、控制器、任务、定时器和命令，只把元数据留在本对象里。
  *
  * 构造参数：
- * - $config（Config）：解析扫描目录；configured 时还用来读取 modules。
+ * - $config（Config）：解析扫描目录。
  *
  * 返回值：使用 new 构造时得到尚未扫描的 ModuleDiscovery。
  *
@@ -29,7 +29,7 @@ final class ModuleDiscovery
     /**
      * 保存配置。构造结束时还没有扫描任何模块。
      *
-     * @param Config $config 解析模块目录，以及读取 modules 配置时使用的配置对象。
+     * @param Config $config 解析模块目录时使用的配置对象。
      * @return void 无直接返回值。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
@@ -54,19 +54,20 @@ final class ModuleDiscovery
     private ?Router $routeTable = null;
 
     /**
-     * 按 modules 配置逐个 add，生成路由表，再冻结。ApplicationBuilder::build() 调用它一次，结果作为单例登记。
+     * 按给定模块类名逐个 add，生成路由表，再冻结。ApplicationBuilder::build() 调用它一次，结果作为单例登记。
      * 冻结后 add 和 register 抛出 LogicException。add 或生成路由表失败时异常原样抛出。
      *
      * @param Config $config 项目配置。
-     * @return self 已装载配置模块并冻结的发现器。
+     * @param list<string> $modules 启动模块完整类名；空列表表示不发现应用模块。
+     * @return self 已装载模块并冻结的发现器。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $discovery = ModuleDiscovery::configured($config);
+     * @example $discovery = ModuleDiscovery::configured($config, [\App\AppModule::class]);
      */
-    public static function configured(Config $config): self
+    public static function configured(Config $config, array $modules = []): self
     {
         $discovery = new self($config);
-        foreach ($config->get('modules', []) as $module) {
+        foreach ($modules as $module) {
             $discovery->add($module);
         }
         $discovery->routeTable = $discovery->router();

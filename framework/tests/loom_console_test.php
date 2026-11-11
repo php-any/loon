@@ -217,7 +217,6 @@ mkdir($root . '/routes', 0700, true);
 mkdir($root . '/config', 0700, true);
 // 旧版路由文件不得被隐式执行。
 file_put_contents($root . '/routes/console.php', '<?php throw new \RuntimeException("Implicit routes loading");');
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 $app = null;
 try {
     $builder = Loom\Application::createBuilder($root);
@@ -294,7 +293,6 @@ try {
         $app->dispose();
     }
     unlink($root . '/routes/console.php');
-    unlink($root . '/config/modules.php');
     rmdir($root . '/routes');
     rmdir($root . '/config');
     rmdir($root);
