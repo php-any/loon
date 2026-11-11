@@ -52,15 +52,9 @@ final class FilesystemPublicServer
             throw new HttpError(404, 'Not Found');
         }
         $local = $disk->path($key);
-        $root = $disk->path();
-        $resolved = realpath($local);
-        $rootResolved = realpath($root);
-        if ($resolved === false || $rootResolved === false || !is_file($resolved)) {
-            throw new HttpError(404, 'Not Found');
-        }
-        $rootNormalized = str_replace('\\', '/', $rootResolved) . '/';
-        $fileNormalized = str_replace('\\', '/', $resolved);
-        if (!str_starts_with($fileNormalized, $rootNormalized)) {
+        try {
+            $resolved = FilesystemRootGuard::resolveExistingFile($disk->path(), $local);
+        } catch (\LogicException | \RuntimeException) {
             throw new HttpError(404, 'Not Found');
         }
         $size = filesize($resolved);

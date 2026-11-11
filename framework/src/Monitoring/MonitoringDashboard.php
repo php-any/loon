@@ -93,7 +93,7 @@ final class MonitoringDashboard
 
     public function eventList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, '', 'Events');
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'app.event', 'Events');
     }
 
     public function filesystemList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response

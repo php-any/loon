@@ -156,6 +156,7 @@ foreach ([
     'Filesystem/FilesystemRegistration.php',
     'Filesystem/FilesystemBuilder.php',
     'Filesystem/FilesystemPath.php',
+    'Filesystem/FilesystemRootGuard.php',
     'Filesystem/FilesystemMonitor.php',
     'Filesystem/FilesystemMime.php',
     'Filesystem/FilesystemDisk.php',

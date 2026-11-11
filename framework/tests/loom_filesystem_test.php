@@ -208,6 +208,52 @@ try {
 
         $large = $disk->response('nested/hello.txt');
         filesystemCheck($large->toArray()['status'] === 200, 'disk response');
+
+        $outside = $root . '/outside';
+        mkdir($outside, 0700, true);
+        file_put_contents($outside . '/leak.txt', 'LEAKED');
+        $linkKey = 'escape-link.txt';
+        $linkAbsolute = $public->path($linkKey);
+        if (is_link($linkAbsolute) || is_file($linkAbsolute)) {
+            unlink($linkAbsolute);
+        }
+        filesystemCheck(symlink($outside . '/leak.txt', $linkAbsolute), 'plant symlink under disk root');
+        $readBlocked = false;
+        try {
+            $public->get($linkKey);
+        } catch (RuntimeException) {
+            $readBlocked = true;
+        }
+        filesystemCheck($readBlocked, 'get does not follow symlink outside root');
+        filesystemCheck(!$public->exists($linkKey), 'exists is false for escape symlink');
+        $serveBlocked = false;
+        try {
+            $server->handle(new Loom\Request([
+                'method' => 'GET',
+                'path' => '/files/' . $linkKey,
+                'headers' => [],
+                'query' => [],
+                'body' => '',
+            ]));
+        } catch (Loom\HttpError $error) {
+            $serveBlocked = $error->status === 404;
+        }
+        filesystemCheck($serveBlocked, 'public serve blocks escape symlink');
+        $responseBlocked = false;
+        try {
+            $public->response($linkKey);
+        } catch (Loom\HttpError $error) {
+            $responseBlocked = $error->status === 404;
+        }
+        filesystemCheck($responseBlocked, 'disk response blocks escape symlink');
+        $putBlocked = false;
+        try {
+            $public->put($linkKey, 'overwrite');
+        } catch (RuntimeException) {
+            $putBlocked = true;
+        }
+        filesystemCheck($putBlocked, 'put blocked on escape symlink');
+        filesystemCheck(file_get_contents($outside . '/leak.txt') === 'LEAKED', 'outside file unchanged after blocked put');
     });
     $app->dispose();
 } finally {

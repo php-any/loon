@@ -47,6 +47,11 @@ final class LocalFilesystemDisk implements FilesystemDisk
     {
         $key = FilesystemPath::assertKey($key);
         $path = $this->absolutePath($key);
+        try {
+            FilesystemRootGuard::assertMutationPath($this->absoluteRoot, $path);
+        } catch (\LogicException $error) {
+            throw new \RuntimeException('Cannot write file: ' . $key, 0, $error);
+        }
         $parent = dirname($path);
         if (!is_dir($parent)) {
             if (!mkdir($parent, 0777, true) && !is_dir($parent)) {
@@ -63,11 +68,14 @@ final class LocalFilesystemDisk implements FilesystemDisk
     {
         $key = FilesystemPath::assertKey($key);
         $path = $this->absolutePath($key);
-        if (!is_file($path)) {
-            throw new \RuntimeException('File does not exist: ' . $key);
+        try {
+            $resolved = FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $path);
+        } catch (\LogicException) {
+            throw new \RuntimeException('Cannot read file: ' . $key);
+        } catch (\RuntimeException $error) {
+            throw new \RuntimeException('File does not exist: ' . $key, 0, $error);
         }
-        $this->assertResolvedUnderRoot($path);
-        $contents = file_get_contents($path);
+        $contents = file_get_contents($resolved);
         if ($contents === false) {
             throw new \RuntimeException('Cannot read file: ' . $key);
         }
@@ -79,20 +87,27 @@ final class LocalFilesystemDisk implements FilesystemDisk
     {
         try {
             $key = FilesystemPath::assertKey($key);
-        } catch (\LogicException) {
+            $path = $this->absolutePath($key);
+            FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $path);
+            return true;
+        } catch (\LogicException | \RuntimeException) {
             return false;
         }
-        return is_file($this->absolutePath($key));
     }
 
     public function delete(string $key): void
     {
         $key = FilesystemPath::assertKey($key);
         $path = $this->absolutePath($key);
-        if (is_file($path)) {
-            unlink($path);
-            FilesystemMonitor::delete($this->name, $key);
+        try {
+            $resolved = FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $path);
+        } catch (\LogicException) {
+            return;
+        } catch (\RuntimeException) {
+            return;
         }
+        unlink($resolved);
+        FilesystemMonitor::delete($this->name, $key);
     }
 
     public function copy(string $from, string $to): void
@@ -106,16 +121,21 @@ final class LocalFilesystemDisk implements FilesystemDisk
         $toKey = FilesystemPath::assertKey($to);
         $fromPath = $this->absolutePath($fromKey);
         $toPath = $this->absolutePath($toKey);
+        try {
+            $resolvedFrom = FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $fromPath);
+            FilesystemRootGuard::assertMutationPath($this->absoluteRoot, $toPath);
+        } catch (\LogicException $error) {
+            throw new \RuntimeException('Cannot move file: ' . $from, 0, $error);
+        } catch (\RuntimeException $error) {
+            throw new \RuntimeException('File does not exist: ' . $from, 0, $error);
+        }
         $parent = dirname($toPath);
         if (!is_dir($parent)) {
             if (!mkdir($parent, 0777, true) && !is_dir($parent)) {
                 throw new \RuntimeException('Cannot create directory: ' . $parent);
             }
         }
-        if (!is_file($fromPath)) {
-            throw new \RuntimeException('File does not exist: ' . $from);
-        }
-        if (!rename($fromPath, $toPath)) {
+        if (!rename($resolvedFrom, $toPath)) {
             throw new \RuntimeException('Cannot move file: ' . $from);
         }
         $size = filesize($toPath);
@@ -132,6 +152,11 @@ final class LocalFilesystemDisk implements FilesystemDisk
         if (!is_dir($dir)) {
             return [];
         }
+        try {
+            $dir = FilesystemRootGuard::resolveExistingDirectory($this->absoluteRoot, $dir);
+        } catch (\LogicException) {
+            return [];
+        }
         $out = [];
         $prefix = $directory === '' ? '' : $directory . '/';
         foreach (scandir($dir) ?: [] as $entry) {
@@ -139,9 +164,15 @@ final class LocalFilesystemDisk implements FilesystemDisk
                 continue;
             }
             $full = $dir . DIRECTORY_SEPARATOR . $entry;
-            if (is_file($full)) {
-                $out[] = $prefix . str_replace('\\', '/', $entry);
+            if (!is_file($full) && !is_link($full)) {
+                continue;
             }
+            try {
+                FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $full);
+            } catch (\LogicException | \RuntimeException) {
+                continue;
+            }
+            $out[] = $prefix . str_replace('\\', '/', $entry);
         }
         sort($out);
         return $out;
@@ -151,6 +182,11 @@ final class LocalFilesystemDisk implements FilesystemDisk
     {
         $directory = FilesystemPath::assertKey($directory);
         $path = $this->absolutePath($directory);
+        try {
+            FilesystemRootGuard::assertMutationPath($this->absoluteRoot, $path);
+        } catch (\LogicException $error) {
+            throw new \RuntimeException('Cannot create directory: ' . $directory, 0, $error);
+        }
         if (is_dir($path)) {
             return;
         }
@@ -180,40 +216,27 @@ final class LocalFilesystemDisk implements FilesystemDisk
     {
         $key = FilesystemPath::assertKey($key);
         $path = $this->absolutePath($key);
-        if (!is_file($path)) {
+        try {
+            $resolved = FilesystemRootGuard::resolveExistingFile($this->absoluteRoot, $path);
+        } catch (\LogicException) {
+            throw new HttpError(404, 'Not Found');
+        } catch (\RuntimeException) {
             throw new HttpError(404, 'Not Found');
         }
-        $size = filesize($path);
-        if ($size > 4194304) {
+        $size = filesize($resolved);
+        if (is_int($size) && $size > 4194304) {
             throw new HttpError(413, 'File too large');
         }
-        $contents = file_get_contents($path);
+        $contents = file_get_contents($resolved);
         if ($contents === false) {
             throw new HttpError(500, 'Cannot read file');
         }
         FilesystemMonitor::serve($this->name, $key, is_int($size) ? $size : 0);
-        return new Response($contents, 200, ['Content-Type' => FilesystemMime::fromPath($path)]);
+        return new Response($contents, 200, ['Content-Type' => FilesystemMime::fromPath($resolved)]);
     }
 
     private function absolutePath(string $key): string
     {
         return $this->absoluteRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $key);
-    }
-
-    private function assertResolvedUnderRoot(string $path): void
-    {
-        if (!is_file($path) && !is_dir($path)) {
-            return;
-        }
-        $root = realpath($this->absoluteRoot);
-        $resolved = realpath($path);
-        if ($root === false || $resolved === false) {
-            return;
-        }
-        $rootPrefix = str_replace('\\', '/', $root) . '/';
-        $resolvedPath = str_replace('\\', '/', $resolved);
-        if (!str_starts_with($resolvedPath, $rootPrefix)) {
-            throw new \LogicException('Path escapes filesystem root');
-        }
     }
 }
