@@ -80,6 +80,14 @@ try {
     }
     mrCheck($runtimeServices->get(\Loom\Database::class)->query("SELECT id FROM loom_jobs WHERE kind='rollback.probe'") === [], 'Rolled back job archive removed');
     mrCheck((int)Redis::command(['XLEN', $queueKeys[0]]) === 0 && (int)Redis::command(['ZCARD', $queueKeys[1]]) === 0, 'Rolled back dispatch never reaches Redis');
+    $commitProbe = 0;
+    $runtimeServices->get(\Loom\Database::class)->transaction(function () use ($owner, $runtimeServices, $queueKeys, &$commitProbe): void {
+        $commitProbe = $runtimeServices->get(\Loom\Queue::class)->dispatch('commit.probe', [], $owner);
+        mrCheck((int)Redis::command(['XLEN', $queueKeys[0]]) === 0 && (int)Redis::command(['ZCARD', $queueKeys[1]]) === 0, 'Committed job not in Redis before transaction ends');
+    });
+    $committed = $runtimeServices->get(\Loom\Queue::class)->claim();
+    mrCheck($committed !== null && $committed['kind'] === 'commit.probe' && $committed['id'] === $commitProbe, 'Dispatch visible in Stream only after commit');
+    $runtimeServices->get(\Loom\Queue::class)->finish($committed, '{}', null);
     $runtimeServices->get(\Loom\Database::class)->execute('INSERT INTO studio_tasks(user_id,title) VALUES(?,?)', [$owner, 'MySQL task']);
     $before = time();
     $delayed = $runtimeServices->get(\Loom\Queue::class)->dispatch('studio.digest', [], $owner, 10);
@@ -109,12 +117,13 @@ try {
     mrCheck((int)Redis::command(['XPENDING', $queueKeys[0], 'loom'])[0] === 0, 'Acknowledgement removes pending delivery');
 
     $abandoned = $runtimeServices->get(\Loom\Queue::class)->dispatch('studio.digest', [], $owner);
-    $envelope = json_encode(['id' => $abandoned, 'kind' => 'studio.digest', 'payload' => [], 'owner' => $owner, 'attempt' => 1], JSON_THROW_ON_ERROR);
-    $message = Redis::eval(file_get_contents(dirname(__DIR__, 2) . '/framework/resources/queue/enqueue.lua'), $queueKeys, [$envelope, (string)time(), (string)time()]);
-    Redis::command(['XREADGROUP', 'GROUP', 'loom', 'crashed-worker', 'COUNT', '1', 'STREAMS', $queueKeys[0], '>']);
-    Redis::command(['XCLAIM', $queueKeys[0], 'loom', 'crashed-worker', '0', $message, 'IDLE', '61000']);
+    $staleConsumer = 'crashed-worker-' . bin2hex(random_bytes(4));
+    $staleRead = Redis::command(['XREADGROUP', 'GROUP', 'loom', $staleConsumer, 'COUNT', '1', 'STREAMS', $queueKeys[0], '>']);
+    $staleMessageId = $staleRead[0][1][0][0];
+    mrCheck($staleMessageId !== '' && $staleMessageId !== null, 'Stale consumer claimed the only stream message');
+    Redis::command(['XCLAIM', $queueKeys[0], 'loom', $staleConsumer, '0', $staleMessageId, 'IDLE', '61000']);
     $resumed = $runtimeServices->get(\Loom\Queue::class)->claim();
-    mrCheck($resumed !== null && $resumed['id'] === $abandoned, 'XAUTOCLAIM recovers abandoned delivery');
+    mrCheck($resumed !== null && $resumed['id'] === $abandoned && $resumed['message_id'] === $staleMessageId, 'XAUTOCLAIM recovers the abandoned message id');
     $runtimeServices->get(\Loom\Queue::class)->finish($resumed, '{}', null);
 
     $job = $runtimeServices->get(\Loom\Queue::class)->dispatch('studio.digest', [], $owner);

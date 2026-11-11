@@ -46,6 +46,7 @@ final class EventListenJob
                 $monitoring = null;
             }
         }
+        $instance->$method($event);
         if ($monitoring !== null && $monitoring->isActive()) {
             $monitoring->recordEvent('app.event.listener', [
                 'name' => $eventClass,
@@ -53,7 +54,6 @@ final class EventListenJob
                 'job_id' => (int)($job['id'] ?? 0),
             ]);
         }
-        $instance->$method($event);
         return Response::json(['ok' => true]);
     }
 }

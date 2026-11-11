@@ -582,6 +582,7 @@ final class Database
             $afterCommit = $this->afterCommit;
             $this->afterCommit = [];
             $this->afterRollback = [];
+            $this->tx = null;
             foreach ($afterCommit as $callback) {
                 $callback();
             }
@@ -594,6 +595,7 @@ final class Database
             }
             $this->afterCommit = [];
             $this->afterRollback = [];
+            $this->tx = null;
             foreach ($afterRollback as $callback) {
                 try {
                     $callback();

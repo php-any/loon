@@ -123,15 +123,19 @@ $app->services->withMonitoredScope(
         $scope->get(Loom\Events\EventDispatcher::class)->dispatch(new QueueEventsTestEvent(11));
         queueEventsCheck(QueueEventsSyncListener::$sync === 11, 'sync listener ran in dispatch');
         queueEventsCheck(QueueEventsQueuedListener::$queued === 0, 'queued listener not run inline');
-        $claimed = $scope->get(Loom\Queue::class)->claim();
-        queueEventsCheck($claimed !== null && $claimed['kind'] === 'loom.event.listen', 'queued listener job claimable');
-        $payload = $claimed['payload'];
-        queueEventsCheck(($payload['event'] ?? '') === QueueEventsTestEvent::class, 'event class in job payload');
-        queueEventsCheck(($payload['listener'] ?? '') === QueueEventsQueuedListener::class, 'listener class in payload');
-        $scope->get(Loom\Queue::class)->finish($claimed, '{"ok":true}', null);
+        queueEventsCheck($scope->get(Loom\Queue::class)->tick(), 'queued listener job consumed by worker');
         queueEventsCheck(QueueEventsQueuedListener::$queued === 11, 'queued listener ran in worker');
     },
 );
+queueEventsCheck(count($lines) >= 1, 'monitoring session written');
+$session = json_decode($lines[count($lines) - 1], true, 64, JSON_THROW_ON_ERROR);
+$entries = $session['entries'] ?? [];
+$appEvent = array_values(array_filter($entries, static fn (array $e): bool => ($e['event'] ?? '') === 'app.event'));
+$appQueued = array_values(array_filter($entries, static fn (array $e): bool => ($e['event'] ?? '') === 'app.event.queued'));
+$appListener = array_values(array_filter($entries, static fn (array $e): bool => ($e['event'] ?? '') === 'app.event.listener'));
+queueEventsCheck($appEvent !== [] && ($appEvent[0]['name'] ?? '') === QueueEventsTestEvent::class && ($appEvent[0]['listeners'] ?? 0) === 2, 'app.event recorded');
+queueEventsCheck($appQueued !== [] && ($appQueued[0]['listener'] ?? '') === QueueEventsQueuedListener::class && ($appQueued[0]['name'] ?? '') === QueueEventsTestEvent::class, 'app.event.queued recorded');
+queueEventsCheck($appListener !== [] && ($appListener[0]['listener'] ?? '') === QueueEventsQueuedListener::class, 'app.event.listener recorded after handle');
 
 $failBuilder = Loom\Application::createBuilder($root);
 $failBuilder->services->addScoped(QueueEventsFailingListener::class);
