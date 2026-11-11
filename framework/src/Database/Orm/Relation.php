@@ -212,12 +212,17 @@ abstract class Relation
         return $table->name;
     }
 
-    protected function applyConstraint(ModelQuery $query, ?callable $constraint): ModelQuery
+    public static function constrainQuery(ModelQuery $query, ?callable $constraint): ModelQuery
     {
         if ($constraint === null) {
             return $query;
         }
-        $constraint($query);
-        return $query;
+        $result = $constraint($query);
+        return $result instanceof ModelQuery ? $result : $query;
+    }
+
+    protected function applyConstraint(ModelQuery $query, ?callable $constraint): ModelQuery
+    {
+        return self::constrainQuery($query, $constraint);
     }
 }

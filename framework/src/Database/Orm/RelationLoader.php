@@ -145,10 +145,7 @@ final class RelationLoader
             }
         }
         $ids = array_values(array_unique($ids));
-        $query = $relation->getQuery()->relationFreshQuery();
-        if ($constraint !== null) {
-            $constraint($query);
-        }
+        $query = Relation::constrainQuery($relation->getQuery()->relationFreshQuery(), $constraint);
         $related = $ids === [] ? [] : $query->whereIn($ownerKey, $ids)->get();
         $map = [];
         foreach ($related as $row) {
@@ -172,10 +169,7 @@ final class RelationLoader
         $foreignKey = $relation->foreignKey();
         $localKey = $relation->localKey();
         $parentIds = self::parentKeys($models, $localKey);
-        $query = $relation->getQuery()->relationFreshQuery();
-        if ($constraint !== null) {
-            $constraint($query);
-        }
+        $query = Relation::constrainQuery($relation->getQuery()->relationFreshQuery(), $constraint);
         $related = $parentIds === [] ? [] : $query->whereIn($foreignKey, $parentIds)->get();
         $map = [];
         foreach ($related as $row) {
@@ -199,10 +193,7 @@ final class RelationLoader
         $foreignKey = $relation->foreignKey();
         $localKey = $relation->localKey();
         $parentIds = self::parentKeys($models, $localKey);
-        $query = $relation->getQuery()->relationFreshQuery();
-        if ($constraint !== null) {
-            $constraint($query);
-        }
+        $query = Relation::constrainQuery($relation->getQuery()->relationFreshQuery(), $constraint);
         $related = $parentIds === [] ? [] : $query->whereIn($foreignKey, $parentIds)->get();
         $map = [];
         foreach ($related as $row) {
@@ -240,10 +231,7 @@ final class RelationLoader
         $allRelated = array_values(array_unique($allRelated));
         $relatedClass = $relation->relatedClass();
         $pk = $relatedClass::primaryField();
-        $query = $relatedClass::using($relation->getQuery()->relationDatabase());
-        if ($constraint !== null) {
-            $constraint($query);
-        }
+        $query = Relation::constrainQuery($relatedClass::using($relation->getQuery()->relationDatabase()), $constraint);
         $relatedModels = $allRelated === [] ? [] : $query->whereIn($pk, $allRelated)->get();
         $relatedMap = [];
         foreach ($relatedModels as $row) {

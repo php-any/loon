@@ -118,7 +118,7 @@ final class Account extends \Loom\Model
 }
 
 #[\Database\Annotation\Table('rel_orders')]
-final class ParentOrder extends \Loom\Model
+final class Order extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -168,7 +168,7 @@ try {
     $post->setRelationDatabase($database);
     $post->tags()->attach($tag->id);
 
-    $order = ParentOrder::create([]);
+    $order = Order::create([]);
     $line = OrderLine::create(['order_id' => $order->id, 'sku' => 'SKU-1']);
     relCheck($order->lines()->first()?->id === $line->id, 'default hasMany key inference uses order_id');
 
@@ -203,15 +203,22 @@ try {
     relCheck($nested[1]->author()->first()->name === 'Grace', 'nested with loads belongsTo');
     relCheck(count($nested[1]->author()->first()->posts()->get()) >= 1, 'nested with loads hasMany on related model');
 
+    $sibling = Post::create(['author_id' => $author->id, 'title' => 'Sibling']);
+    Comment::create(['post_id' => $sibling->id, 'body' => 'Unrelated']);
+
     $has = Post::has('comments')->pluck('id');
-    relCheck(in_array($post->id, $has, true), 'has relation filter');
-    $whereHas = Post::whereHas('comments', static fn (\Loom\ModelQuery $q) => $q->where('body', 'Nice'))->first();
-    relCheck($whereHas?->id === $post->id, 'whereHas with constraint');
+    relCheck(in_array($post->id, $has, true) && in_array($sibling->id, $has, true), 'has relation filter');
+    $matching = Post::whereHas('comments', static fn (\Loom\ModelQuery $q) => $q->where('body', 'Nice'))->pluck('id');
+    relCheck(in_array($post->id, $matching, true) && !in_array($sibling->id, $matching, true), 'whereHas applies constraint inside EXISTS');
     $missing = Post::whereDoesntHave('comments')->pluck('id');
-    relCheck(!in_array($post->id, $missing, true), 'whereDoesntHave excludes parents with children');
+    relCheck(!in_array($post->id, $missing, true) && !in_array($sibling->id, $missing, true), 'whereDoesntHave excludes parents with children');
 
     $empty = Post::whereHas('tags', static fn (\Loom\ModelQuery $q) => $q->whereIn('id', []))->count();
     relCheck($empty === 0, 'empty whereIn lists match no rows');
+
+    $constrainedEager = Post::with(['comments' => static fn (\Loom\ModelQuery $q) => $q->where('body', 'Nice')])->whereId($post->id)->get();
+    relCheck(count($constrainedEager) === 1 && count($constrainedEager[0]->comments()->get()) === 1
+        && $constrainedEager[0]->comments()->get()[0]->body === 'Nice', 'with constraint eager-loads filtered comments');
 
     $compositeRejected = false;
     try {
