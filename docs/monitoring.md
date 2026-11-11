@@ -84,6 +84,7 @@ $builder->services->addScoped(\Loom\Monitoring\Monitoring::class, \App\Monitorin
 - **队列 / 调度 / tcp / grpc**：按事件名前缀与对应 watcher 归类。
 - **应用事件**：`app.event` → `watchers.events`（仅事件类名与监听器数量，无负载）。
 - **文件系统**：`filesystem.*` → `watchers.filesystem`（磁盘、键或字段名、大小；无文件正文）。
+- **缓存**：`cache.*` → `watchers.cache`；`Loom\Cache` 记录 `cache.hit`、`cache.miss`、`cache.write` 等（不含缓存值），详见 [cache.md](cache.md)。
 
 HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
@@ -99,7 +100,7 @@ HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
 ## 仪表盘
 
-`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/Events/Filesystem 列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
+`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/Events/Filesystem/Cache 列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
 
 迁移：`framework/resources/migrations/0006_monitoring.*`（`migrate:up`）。
 

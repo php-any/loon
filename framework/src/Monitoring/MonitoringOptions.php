@@ -33,6 +33,7 @@ final class MonitoringOptions
         'filesystem' => ['enabled' => true],
         'tcp' => ['enabled' => true],
         'grpc' => ['enabled' => true],
+        'cache' => ['enabled' => true],
     ];
 
     public MonitoringDashboardOptions $dashboard;

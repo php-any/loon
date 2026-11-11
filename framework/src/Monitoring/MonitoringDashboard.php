@@ -25,6 +25,7 @@ final class MonitoringDashboard
         $router->route('GET', $prefix . '/console', [self::class, 'consoleList']);
         $router->route('GET', $prefix . '/sql', [self::class, 'sqlList']);
         $router->route('GET', $prefix . '/queue', [self::class, 'queueList']);
+        $router->route('GET', $prefix . '/cache', [self::class, 'cacheList']);
         $router->route('GET', $prefix . '/schedule', [self::class, 'scheduleList']);
         $router->route('GET', $prefix . '/tcp', [self::class, 'tcpList']);
         $router->route('GET', $prefix . '/grpc', [self::class, 'grpcList']);
@@ -74,6 +75,11 @@ final class MonitoringDashboard
     public function queueList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
         return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'queue.', 'Queue / Job');
+    }
+
+    public function cacheList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    {
+        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'cache.', 'Cache');
     }
 
     public function scheduleList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response

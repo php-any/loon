@@ -40,7 +40,7 @@ HTTP 请求、TCP 消息、gRPC 调用、命令和队列、调度、定时器节
 
 ```php
 $builder = \Loom\Application::createBuilder($root, $envFile);
-$builder->services->addSingleton(CacheInterface::class, MemoryCache::class);
+// 框架默认登记单例 Loom\Cache；见 docs/cache.md
 $builder->services->addScoped(RepositoryInterface::class, SqlRepository::class);
 $builder->services->addTransient(HandlerInterface::class, Handler::class);
 $app = $builder->build();
@@ -56,7 +56,7 @@ $app->mapCommand('ping', static fn (\Loom\Console\Output $output) => $output->li
 
 `Database` 和 `RequestContext` 由 `ApplicationBuilder` 登记为 scoped：`RequestContext` 保存当前请求，`Database` 保存这次工作的事务、命名连接和 `connect()` 改过的 DSN。连接池是宿主进程里的 `*sql.DB`，作用域不拥有连接。
 
-同一标识可以登记多次，`get()` 取最后一条，所以应用的登记覆盖框架默认值。接口和实现类是两个标识，分别登记会得到两个独立服务；需要两个标识指向同一对象时，先 `addSingleton(MemoryCache::class)`，再用工厂转发：`addSingleton(CacheInterface::class, static fn (ServiceResolver $s) => $s->get(MemoryCache::class))`。目标没有登记时按 scoped 构造，单例工厂取它会报错。返回对象必须满足已知接口/类的类型要求。测试在 `require` `loom.php` 的闭包里先定义 `$configureServices = static function (ServiceCollection $services): void { ... }`，在构建前替换服务。
+同一标识可以登记多次，`get()` 取最后一条，所以应用的登记覆盖框架默认值。接口和实现类是两个标识，分别登记会得到两个独立服务；需要两个标识指向同一对象时，可先 `addSingleton(\Loom\Cache::class)`（构建器已 tryAdd），再用工厂转发：`addSingleton(CacheInterface::class, static fn (ServiceResolver $s) => $s->get(\Loom\Cache::class))`。目标没有登记时按 scoped 构造，单例工厂取它会报错。返回对象必须满足已知接口/类的类型要求。测试在 `require` `loom.php` 的闭包里先定义 `$configureServices = static function (ServiceCollection $services): void { ... }`，在构建前替换服务。
 
 scoped 服务不能在根上解析，singleton 构造时也不能依赖 scoped 服务，否则抛出 `LogicException`。Go 侧锁保护单例构造，失败不缓存，后续解析可重试；单例自身的方法和可变业务状态仍需自行保证并发安全。实现 `Loom\Disposable` 的实例由创建它的作用域或根容器按相反顺序释放。
 
@@ -151,6 +151,10 @@ $data = $stored->toArray();
 `framework/src/Database/Migrations.php` 负责校验和、版本前缀及批次；框架迁移位于 `framework/resources/migrations/`，应用迁移的命名空间和目录来自 `config/migrations.php`。`Migrations::migrate()` 先执行框架迁移再执行应用迁移，`serve`、`queue:work` 和 `schedule:work` 启动时各调用一次。迁移目录直接包含 MySQL SQL，以数据库命名锁串行执行；MySQL DDL 隐式提交，不能整体事务回滚。不能修改已发布迁移，`migrate:down` 逆序撤销最后一个应用批次。
 
 迁移的重复执行、漂移检测、批次回退及失败后不登记版本的行为由框架测试验证；业务演示不提供执行迁移的 HTTP 入口。
+
+## 缓存
+
+业务侧同步缓存使用单例 `Loom\Cache`（`ApplicationBuilder` 经 `bindOptional` 绑定 `config/cache.php`）。JSON 信封存储、Redis 键前缀、监控钩子，以及与会话/队列继续使用 `Loom\Redis` 的边界，见 [缓存](cache.md)。
 
 ## 认证与会话
 

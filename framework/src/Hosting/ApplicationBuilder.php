@@ -20,6 +20,7 @@ final class ApplicationBuilder
     public readonly \Loom\MonitoringBuilder $monitoring;
     public readonly \Loom\Filesystem\FilesystemBuilder $filesystems;
     public readonly \Loom\Events\EventsBuilder $events;
+    public readonly \Loom\CacheBuilder $cache;
     private \Loom\Events\EventsRegistration $eventsRegistration;
     private bool $built = false;
     private ?\Closure $onStop = null;
@@ -101,6 +102,22 @@ final class ApplicationBuilder
                 $resolver->get(Config::class),
                 $resolver->get(\Loom\Filesystem\FilesystemOptions::class),
                 $resolver->get(\Loom\Filesystem\FilesystemRegistration::class),
+            );
+        });
+        $cacheRegistration = new \Loom\CacheRegistration();
+        $services->addInstance(\Loom\CacheRegistration::class, $cacheRegistration);
+        $this->cache = new \Loom\CacheBuilder($services, $cacheRegistration);
+        $services->tryAddSingleton(\Loom\CacheOptions::class, static function (ServiceResolver $resolver): \Loom\CacheOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\CacheOptions::class, 'cache');
+            if (!($bound instanceof \Loom\CacheOptions)) {
+                throw new \LogicException('CacheOptions binding must return CacheOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\Cache::class, static function (ServiceResolver $resolver): \Loom\Cache {
+            return new \Loom\Cache(
+                $resolver->get(\Loom\CacheOptions::class),
+                $resolver->get(\Loom\CacheRegistration::class),
             );
         });
         $services->tryAddSingleton(\Loom\Monitoring\MonitoringOptions::class, static function (ServiceResolver $resolver): \Loom\Monitoring\MonitoringOptions {
