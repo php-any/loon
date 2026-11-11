@@ -24,7 +24,6 @@ try {
     file_put_contents($root . '/config/http.php', '<?php return ["address" => "127.0.0.1:12345"];');
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>30,"nested"=>["enabled"=>false],"nullable"=>null,"zero"=>0];');
     file_put_contents($root . '/config/factory.php', '<?php return static function (): string { return "registered"; };');
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     $config = Loom\Application::createBuilder($root)->configuration;
     // 构建器创建后修改源配置，以证明配置已提前加载并缓存。
     file_put_contents($root . '/config/payment.php', '<?php return ["timeout"=>60];');

@@ -18,7 +18,7 @@ HTTP 按职责组合：`ApplicationBuilder` 组合服务，`Application` 暴露 
 
 依赖注入照 ASP.NET Core：`ServiceCollection` 登记，`build()` 得到持有单例的根 `ServiceProvider`，每个工作单元一个 `ServiceScope`。singleton 所有作用域共用，scoped 每个作用域一份，transient 每次创建；构造参数和配置注入由 `ConfigInjector` 完成。规则见 [依赖注入与作用域](core-services.md)。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。`ServiceScope::run()` 把作用域的 Database 绑定到执行帧，`ModelContext` 从这里取，模型静态查询因此使用当前作用域的 Database。ModelQuery 保存创建时的 Database，条件和绑定参数留在查询对象上。普通读写使用进程池；在事务回调里创建的查询使用该事务。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
 
-框架默认服务在 `ApplicationBuilder` 里登记，应用登记写在 [loom.php](../loom.php)，后登记的覆盖先登记的。`config/modules.php` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用类/方法注解注册，`loom.php` 里的显式登记优先于 `#[Service]`，闭包路由和命令也写在 `loom.php` 里。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
+框架默认服务在 `ApplicationBuilder` 里登记，应用登记写在 [loom.php](../loom.php)，后登记的覆盖先登记的。`loom.php` 在 `build()` 之前用 `addModule()` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用类/方法注解注册，`loom.php` 里的显式登记优先于 `#[Service]`，闭包路由和命令也写在 `loom.php` 里。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
 
 ## 后台管理边界
 

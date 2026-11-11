@@ -7,7 +7,6 @@ $root = sys_get_temp_dir() . '/loom-autoload-' . bin2hex(random_bytes(6));
 mkdir($root . '/vendor', 0700, true);
 mkdir($root . '/config', 0700, true);
 file_put_contents($root . '/vendor/autoload.php', '<?php throw new RuntimeException("Framework loaded application dependencies implicitly");');
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 $app = null;
 try {
     $app = Loom\Application::createBuilder($root)->build();
@@ -19,7 +18,6 @@ try {
         $app->dispose();
     }
     unlink($root . '/vendor/autoload.php');
-    unlink($root . '/config/modules.php');
     rmdir($root . '/vendor');
     rmdir($root . '/config');
     rmdir($root);

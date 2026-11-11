@@ -66,7 +66,7 @@ scoped 服务不能在根上解析，singleton 构造时也不能依赖 scoped �
 
 `ModuleDiscovery` 负责扫描和声明校验，`ApplicationBuilder::build()` 消费这些定义，装配服务、路由、命令和定时器；任务交给 `JobDispatcher`。发现过程不会创建业务服务；定时器触发及实际请求执行时才解析实例。
 
-`config/modules.php` 返回模块类列表，例如 `[\App\AppModule::class]`。模块用 `Loom\Attributes\Module` 声明命名空间与目录映射，可通过第二个参数导入其他模块：
+在 `loom.php` 的 `build()` 之前用 `ApplicationBuilder::addModule()` 登记启动模块，例如 `$builder->addModule(\App\AppModule::class)`。多次调用可登记多个模块，同一类重复登记会去重；一次都不登记等价于以前 `config/modules.php` 返回空数组。模块用 `Loom\Attributes\Module` 声明命名空间与目录映射，可通过第二个参数导入其他模块：
 
 ```php
 use Loom\Attributes\Module;
@@ -75,7 +75,7 @@ use Loom\Attributes\Module;
 final class AppModule {}
 ```
 
-`ApplicationBuilder::build()` 调用一次 `ModuleDiscovery::configured($config)`：按导入顺序加载模块、递归扫描 PHP 类、读取反射元数据并预校验声明路由，然后冻结，不可再添加组件。结果作为实例登记在根容器上，请求不再扫描目录。不同应用各自扫描，修改模块声明后重启应用。注解中间件须使用服务类名，在请求作用域内解析；需要闭包的路由在 `loom.php` 里用 `mapGet()` 等登记。重复导入/重叠扫描去重，循环导入、重复服务标识、重复任务类型和无效处理方法会报错。类与文件路径必须遵循对应命名空间的自动加载规则，扫描跳过符号链接；未声明组件注解的类不自动注册。模块类只声明元数据，不在构造器中执行启动副作用。
+`ApplicationBuilder::build()` 把 `addModule()` 登记的名单交给 `ModuleDiscovery::configured($config, $modules)`：按导入顺序加载模块、递归扫描 PHP 类、读取反射元数据并预校验声明路由，然后冻结，不可再添加组件。结果作为实例登记在根容器上，请求不再扫描目录。不同应用各自扫描，修改模块声明后重启应用。`build()` 之后不能再调用 `addModule()`。注解中间件须使用服务类名，在请求作用域内解析；需要闭包的路由在 `loom.php` 里用 `mapGet()` 等登记。重复导入/重叠扫描去重，循环导入、重复服务标识、重复任务类型和无效处理方法会报错。类与文件路径必须遵循对应命名空间的自动加载规则，扫描跳过符号链接；未声明组件注解的类不自动注册。模块类只声明元数据，不在构造器中执行启动副作用。
 
 业务扩展注解位于 `Loom\Attributes`；数据库映射直接使用 std 的 `Database\Annotation` 注解，现有 `Loom\Timer`、`Loom\InjectConfig` 保持原接口：
 

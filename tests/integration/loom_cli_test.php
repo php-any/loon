@@ -64,7 +64,6 @@ try {
     $migrationRoot = sys_get_temp_dir() . '/loom-cli-migration-' . bin2hex(random_bytes(6));
     mkdir($migrationRoot . '/config', 0700, true);
     mkdir($migrationRoot . '/migrations', 0700, true);
-    file_put_contents($migrationRoot . '/config/modules.php', '<?php return [];');
     file_put_contents($migrationRoot . '/config/database.php', '<?php return require ' . var_export(dirname($entry) . '/config/database.php', true) . ';');
     file_put_contents($migrationRoot . '/config/migrations.php', '<?php return ["namespace" => "console_probe", "path" => "migrations"];');
     file_put_contents($migrationRoot . '/migrations/001_probe.up.sql', 'CREATE TABLE console_migration_probe(id BIGINT PRIMARY KEY);');
@@ -78,7 +77,7 @@ try {
         checkCli(count($rows) === 0, 'Migration reapplied after rollback');
     } finally {
         $migrationApp->dispose();
-        foreach (['config/modules.php', 'config/database.php', 'config/migrations.php', 'migrations/001_probe.up.sql', 'migrations/001_probe.down.sql'] as $file) {
+        foreach (['config/database.php', 'config/migrations.php', 'migrations/001_probe.up.sql', 'migrations/001_probe.down.sql'] as $file) {
             unlink($migrationRoot . '/' . $file);
         }
         rmdir($migrationRoot . '/config');

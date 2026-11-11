@@ -86,7 +86,6 @@ try {
     checkInjection($scope->get(MissingConfigProbe::class)->value === 'recovered', 'retry after failed injection');
     checkInjection($scope->get(ConfigMissingConstructorProbe::class)->value === 'recovered', 'retry after missing constructor configuration');
     $scope->dispose();
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     $app = Loom\Application::createBuilder($root)->build();
     $app->mapGet('/configured', ConfigControllerProbe::class);
     $response = $app->handle(new Loom\Request(['method' => 'GET', 'path' => '/configured']));

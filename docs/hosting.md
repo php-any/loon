@@ -16,6 +16,7 @@ if (isset($configureServices)) {
     $configureServices($builder->services);
 }
 
+$builder->addModule(\App\AppModule::class);
 $app = $builder->build();
 $app->use(RequestLog::class);
 $app->mapGrpc('/loom.examples.ReleasePolicy/Evaluate', [ReleasePolicyService::class, 'evaluate']);
@@ -52,7 +53,7 @@ $app = (static function () {
 - 后台服务：`TimerHostedService`。
 - scoped：`Database`、`RequestContext`、`Loom\Monitoring\CorrelationId`。
 
-`build()` 扫描 `config/modules.php` 里的模块：
+在 `build()` 之前用 `addModule(\Some\Module::class)` 登记启动模块；`build()` 扫描这些模块：
 
 - 带 `#[Service]` 的类按注解的生命周期 `tryAdd`，应用已登记的标识不覆盖。
 - 控制器上的 `#[Route]` 进入路由表。

@@ -82,7 +82,7 @@ try {
     $rejected = true;
 }
 checkModule($rejected, 'Module cycles must fail');
-$configured = Loom\ModuleDiscovery::configured($config);
+$configured = Loom\ModuleDiscovery::configured($config, []);
 $rejected = false;
 try {
     $configured->register(ModuleFixtures\Value::class);
@@ -90,6 +90,20 @@ try {
     $rejected = str_contains($error->getMessage(), 'immutable');
 }
 checkModule($rejected, 'Configured metadata is frozen');
+$moduleBuilder = Loom\Application::createBuilder($root);
+$moduleBuilder->addModule(\App\AppModule::class);
+$moduleBuilder->addModule(\App\AppModule::class);
+$builtApp = $moduleBuilder->build();
+$builtApp->dispose();
+$lateBuilder = Loom\Application::createBuilder($root);
+$lateBuilder->build();
+$rejected = false;
+try {
+    $lateBuilder->addModule(\App\AppModule::class);
+} catch (LogicException $error) {
+    $rejected = str_contains($error->getMessage(), 'built');
+}
+checkModule($rejected, 'addModule after build must fail');
 $table = Loom\ModuleDiscovery::attribute(new ReflectionClass(App\Models\Projects\Task::class), Database\Annotation\Table::class);
 checkModule($table->name === 'studio_tasks', 'Model uses native std Table annotation metadata');
 $logs = new ModuleRequestLogs();

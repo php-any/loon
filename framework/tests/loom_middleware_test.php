@@ -29,7 +29,6 @@ function middleware_app(?callable $configure = null): Loom\Application
 {
     $root = sys_get_temp_dir() . '/loom-middleware-' . bin2hex(random_bytes(6));
     mkdir($root . '/config', 0700, true);
-    file_put_contents($root . '/config/modules.php', '<?php return [];');
     try {
         $builder = Loom\Application::createBuilder($root);
         if ($configure !== null) {
@@ -37,7 +36,6 @@ function middleware_app(?callable $configure = null): Loom\Application
         }
         return $builder->build();
     } finally {
-        unlink($root . '/config/modules.php');
         rmdir($root . '/config');
         rmdir($root);
     }

@@ -20,7 +20,6 @@ try {
 bootstrapCheck($unconfigured, 'Framework must not infer an application root');
 $root = sys_get_temp_dir() . '/loom-bootstrap-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 $app = null;
 try {
     $config->setRoot($root);
@@ -38,7 +37,6 @@ try {
     if ($app !== null) {
         $app->dispose();
     }
-    unlink($root . '/config/modules.php');
     rmdir($root . '/config');
     rmdir($root);
 }

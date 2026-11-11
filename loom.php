@@ -36,6 +36,7 @@ if (isset($configureServices)) {
     $configureServices($builder->services);
 }
 
+$builder->addModule(\App\AppModule::class);
 $app = $builder->build();
 
 // 全局中间件，按请求作用域解析。

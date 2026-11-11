@@ -151,7 +151,6 @@ monitoringConfigCheck(in_array('billing.tick', $events, true), 'custom watcher w
 $dashRoot = sys_get_temp_dir() . '/loom-monitoring-dash-' . bin2hex(random_bytes(4));
 @mkdir($dashRoot . '/config', 0777, true);
 file_put_contents($dashRoot . '/config/monitoring.php', "<?php\nreturn ['enabled' => true, 'driver' => 'database', 'dashboard' => ['enabled' => true, 'path' => 'monitoring'], 'storage' => ['retain_hours' => 24], 'watchers' => []];\n");
-file_put_contents($dashRoot . '/config/modules.php', "<?php\nreturn [];\n");
 $dashApp = Loom\Application::createBuilder($dashRoot)->build();
 $response = $dashApp->handle(new Loom\Request(['method' => 'GET', 'path' => '/monitoring', 'headers' => [], 'query' => [], 'body' => '']));
 monitoringConfigCheck($response->toArray()['status'] === 403, 'dashboard forbidden without authorize');
@@ -182,7 +181,6 @@ if ($previousEnabled === false) {
 // ApplicationBuilder：Monitoring + Database 同作用域无循环依赖
 $cycleRoot = sys_get_temp_dir() . '/loom-monitoring-cycle-' . bin2hex(random_bytes(4));
 @mkdir($cycleRoot . '/config', 0777, true);
-file_put_contents($cycleRoot . '/config/modules.php', "<?php\nreturn [];\n");
 $cycleApp = Loom\Application::createBuilder($cycleRoot)->build();
 $cycled = false;
 try {
@@ -220,7 +218,6 @@ monitoringConfigCheck(
 $logDashRoot = sys_get_temp_dir() . '/loom-monitoring-logdash-' . bin2hex(random_bytes(4));
 @mkdir($logDashRoot . '/config', 0777, true);
 file_put_contents($logDashRoot . '/config/monitoring.php', "<?php\nreturn ['enabled' => true, 'driver' => 'log', 'dashboard' => ['enabled' => true, 'path' => 'monitoring'], 'storage' => ['retain_hours' => 24], 'watchers' => []];\n");
-file_put_contents($logDashRoot . '/config/modules.php', "<?php\nreturn [];\n");
 $logDashApp = Loom\Application::createBuilder($logDashRoot)->build();
 $logDashBody = $logDashApp->handle(new Loom\Request(['method' => 'GET', 'path' => '/monitoring', 'headers' => [], 'query' => [], 'body' => '']));
 $logDashArr = $logDashBody->toArray();

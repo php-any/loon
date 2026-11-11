@@ -110,7 +110,6 @@ try {
     putenv('LOOM_BOOT_PROBE=process');
     file_put_contents($bootRoot . '/.env', "LOOM_BOOT_PROBE=file\n");
     file_put_contents($bootRoot . '/config/probe.php', '<?php return ["value" => getenv("LOOM_BOOT_PROBE")];');
-    file_put_contents($bootRoot . '/config/modules.php', '<?php return [];');
     $builder = Loom\Application::createBuilder($bootRoot, $bootRoot . '/.env');
     // 构建前的登记对每个作用域生效，但作用域之间不共享实例。
     $builder->services->addScoped(ScopeRegistrationProbe::class, static fn (): ScopeRegistrationProbe => new ScopeRegistrationProbe('from builder'));
@@ -137,7 +136,6 @@ try {
         putenv($bootPrevious === false ? 'LOOM_BOOT_PROBE' : 'LOOM_BOOT_PROBE=' . $bootPrevious);
         unlink($bootRoot . '/.env');
         unlink($bootRoot . '/config/probe.php');
-        unlink($bootRoot . '/config/modules.php');
         rmdir($bootRoot . '/config');
         rmdir($bootRoot);
     }

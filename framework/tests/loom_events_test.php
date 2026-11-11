@@ -69,7 +69,6 @@ final class EventsTestReentrant
 
 $root = sys_get_temp_dir() . '/loom-events-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
-file_put_contents($root . '/config/modules.php', '<?php return [];');
 
 $lines = [];
 $builder = Loom\Application::createBuilder($root);
@@ -198,7 +197,6 @@ try {
     if (is_file($root . '/config/monitoring.php')) {
         unlink($root . '/config/monitoring.php');
     }
-    unlink($root . '/config/modules.php');
     rmdir($root . '/config');
     rmdir($root);
 }
