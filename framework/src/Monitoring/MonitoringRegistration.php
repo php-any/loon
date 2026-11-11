@@ -15,7 +15,7 @@ final class MonitoringRegistration
     /** @var ?callable(MonitoringSession): array<string, scalar|null> */
     private mixed $tagger = null;
 
-    /** @var ?callable(): bool */
+    /** @var ?callable(\Loom\ServiceResolver): bool|callable(): bool */
     private mixed $authorize = null;
 
     /** @var list<MonitoringWatcher> */
@@ -35,7 +35,7 @@ final class MonitoringRegistration
         $this->tagger = $tagger(...);
     }
 
-    /** @param callable(): bool $authorize */
+    /** @param callable(\Loom\ServiceResolver): bool|callable(): bool $authorize */
     public function setAuthorize(callable $authorize): void
     {
         $this->authorize = $authorize(...);
@@ -82,13 +82,21 @@ final class MonitoringRegistration
         }
     }
 
-    public function dashboardAuthorized(): bool
+    public function dashboardAuthorized(?\Loom\ServiceResolver $resolver = null): bool
     {
         if ($this->authorize === null) {
             return false;
         }
         try {
-            return (bool)($this->authorize)();
+            $callback = $this->authorize;
+            $required = (new \ReflectionFunction($callback))->getNumberOfRequiredParameters();
+            if ($required > 0) {
+                if ($resolver === null) {
+                    return false;
+                }
+                return (bool)$callback($resolver);
+            }
+            return (bool)$callback();
         } catch (\Throwable) {
             return false;
         }

@@ -9,6 +9,7 @@ use Loom\Database;
 use Loom\Request;
 use Loom\Response;
 use Loom\Router;
+use Loom\ServiceResolver;
 use Loom\View;
 
 /** 在 ApplicationBuilder::build() 中登记监控仪表盘路由。 */
@@ -33,89 +34,103 @@ final class MonitoringDashboard
         $router->route('GET', $prefix . '/filesystem', [self::class, 'filesystemList']);
         $router->route('GET', $prefix . '/sessions/{id}', [self::class, 'sessionDetail']);
         $router->route('GET', $prefix . '/correlation/{correlationId}', [self::class, 'correlation']);
+        $router->route('GET', $prefix . '/api/overview', [self::class, 'apiOverview']);
+        $router->route('GET', $prefix . '/api/entries', [self::class, 'apiEntries']);
+        $router->route('GET', $prefix . '/api/sessions/{id}', [self::class, 'apiSession']);
+        $router->route('GET', $prefix . '/api/correlation/{correlationId}', [self::class, 'apiCorrelation']);
     }
 
     public function overview(
         Request $request,
+        ServiceResolver $resolver,
         MonitoringRegistration $registration,
         MonitoringRepository $repository,
         Database $database,
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        $gate = $this->gate($request, $registration, $config, $options);
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, false);
         if ($gate !== null) {
             return $gate;
         }
         $filters = $this->activeFilters($request);
-        $sessions = $repository->recentSessions($database, 40, $filters);
+        $page = $this->page($request);
+        $perPage = 40;
+        $sessions = $repository->recentSessions($database, $page, $perPage, $filters);
+        $total = $repository->countSessions($database, $filters);
+        $counts = $repository->entryTypeCounts($database);
         $html = View::render($config->path('framework/resources/views/monitoring/overview.php'), [
             'sessions' => $sessions,
             'base' => $this->basePath($options),
-            'filters' => $filters,
+            'filters' => $this->filters($request),
+            'counts' => $counts,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
         ]);
         return Response::html($this->layout($config, $options, '概览', $html));
     }
 
-    public function httpList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function httpList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'http.', 'HTTP');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'http.', 'HTTP', $this->basePath($options) . '/http');
     }
 
-    public function consoleList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function consoleList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'console.result', 'Console');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'console.result', 'Console', $this->basePath($options) . '/console');
     }
 
-    public function sqlList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function sqlList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'database.sql', 'SQL');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'database.sql', 'SQL', $this->basePath($options) . '/sql');
     }
 
-    public function queueList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function queueList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'queue.', 'Queue / Job');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'queue.', 'Queue / Job', $this->basePath($options) . '/queue');
     }
 
-    public function cacheList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function cacheList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'cache.', 'Cache');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'cache.', 'Cache', $this->basePath($options) . '/cache');
     }
 
-    public function scheduleList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function scheduleList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'schedule.', 'Schedule / Timer');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'schedule.', 'Schedule / Timer', $this->basePath($options) . '/schedule');
     }
 
-    public function tcpList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function tcpList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'tcp.', 'TCP');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'tcp.', 'TCP', $this->basePath($options) . '/tcp');
     }
 
-    public function grpcList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function grpcList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'grpc.', 'gRPC');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'grpc.', 'gRPC', $this->basePath($options) . '/grpc');
     }
 
-    public function eventList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function eventList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'app.event', 'Events');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'app.event', 'Events', $this->basePath($options) . '/events');
     }
 
-    public function filesystemList(Request $request, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
+    public function filesystemList(Request $request, ServiceResolver $resolver, MonitoringRegistration $registration, MonitoringRepository $repository, Database $database, Config $config, MonitoringOptions $options): Response
     {
-        return $this->entryPage($request, $registration, $repository, $database, $config, $options, 'filesystem.', 'Filesystem');
+        return $this->entryPage($request, $resolver, $registration, $repository, $database, $config, $options, 'filesystem.', 'Filesystem', $this->basePath($options) . '/filesystem');
     }
 
     public function sessionDetail(
         Request $request,
+        ServiceResolver $resolver,
         MonitoringRegistration $registration,
         MonitoringRepository $repository,
         Database $database,
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        $gate = $this->gate($request, $registration, $config, $options);
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, false);
         if ($gate !== null) {
             return $gate;
         }
@@ -133,13 +148,14 @@ final class MonitoringDashboard
 
     public function correlation(
         Request $request,
+        ServiceResolver $resolver,
         MonitoringRegistration $registration,
         MonitoringRepository $repository,
         Database $database,
         Config $config,
         MonitoringOptions $options,
     ): Response {
-        $gate = $this->gate($request, $registration, $config, $options);
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, false);
         if ($gate !== null) {
             return $gate;
         }
@@ -153,8 +169,107 @@ final class MonitoringDashboard
         return Response::html($this->layout($config, $options, '关联 ' . $correlationId, $html));
     }
 
+    public function apiOverview(
+        Request $request,
+        ServiceResolver $resolver,
+        MonitoringRegistration $registration,
+        MonitoringRepository $repository,
+        Database $database,
+        Config $config,
+        MonitoringOptions $options,
+    ): Response {
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, true);
+        if ($gate !== null) {
+            return $gate;
+        }
+        $filters = $this->activeFilters($request);
+        $page = $this->page($request);
+        $perPage = $this->perPage($request, 40);
+        return Response::json([
+            'sessions' => $repository->recentSessions($database, $page, $perPage, $filters),
+            'counts' => $repository->entryTypeCounts($database),
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $repository->countSessions($database, $filters),
+            'filters' => $filters,
+        ])->withHeader('Cache-Control', 'no-store');
+    }
+
+    public function apiEntries(
+        Request $request,
+        ServiceResolver $resolver,
+        MonitoringRegistration $registration,
+        MonitoringRepository $repository,
+        Database $database,
+        Config $config,
+        MonitoringOptions $options,
+    ): Response {
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, true);
+        if ($gate !== null) {
+            return $gate;
+        }
+        $type = strtolower(substr($request->query('type')[0] ?? 'http', 0, 32));
+        $prefix = MonitoringRepository::ENTRY_PREFIXES[$type] ?? null;
+        if ($prefix === null) {
+            return Response::json(['error' => '未知类型'], 422);
+        }
+        $filters = $this->activeFilters($request);
+        $page = $this->page($request);
+        $perPage = $this->perPage($request, 40);
+        return Response::json([
+            'type' => $type,
+            'items' => $repository->listEntries($database, $prefix, $page, $perPage, $filters),
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $repository->countEntries($database, $prefix, $filters),
+            'filters' => $filters,
+        ])->withHeader('Cache-Control', 'no-store');
+    }
+
+    public function apiSession(
+        Request $request,
+        ServiceResolver $resolver,
+        MonitoringRegistration $registration,
+        MonitoringRepository $repository,
+        Database $database,
+        Config $config,
+        MonitoringOptions $options,
+    ): Response {
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, true);
+        if ($gate !== null) {
+            return $gate;
+        }
+        $id = (int)$request->parameter('id');
+        $session = $repository->session($database, $id);
+        if ($session === null) {
+            return Response::json(['error' => 'Not found'], 404);
+        }
+        return Response::json($session)->withHeader('Cache-Control', 'no-store');
+    }
+
+    public function apiCorrelation(
+        Request $request,
+        ServiceResolver $resolver,
+        MonitoringRegistration $registration,
+        MonitoringRepository $repository,
+        Database $database,
+        Config $config,
+        MonitoringOptions $options,
+    ): Response {
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, true);
+        if ($gate !== null) {
+            return $gate;
+        }
+        $correlationId = (string)$request->parameter('correlationId');
+        return Response::json([
+            'correlation_id' => $correlationId,
+            'sessions' => $repository->sessionsByCorrelation($database, $correlationId),
+        ])->withHeader('Cache-Control', 'no-store');
+    }
+
     private function entryPage(
         Request $request,
+        ServiceResolver $resolver,
         MonitoringRegistration $registration,
         MonitoringRepository $repository,
         Database $database,
@@ -162,33 +277,50 @@ final class MonitoringDashboard
         MonitoringOptions $options,
         string $prefix,
         string $title,
+        string $listPath,
     ): Response {
-        $gate = $this->gate($request, $registration, $config, $options);
+        $gate = $this->gate($request, $resolver, $registration, $config, $options, false);
         if ($gate !== null) {
             return $gate;
         }
         $filters = $this->activeFilters($request);
-        $rows = $repository->listEntries($database, $prefix, 120, $filters);
+        $page = $this->page($request);
+        $perPage = 40;
+        $rows = $repository->listEntries($database, $prefix, $page, $perPage, $filters);
+        $total = $repository->countEntries($database, $prefix, $filters);
         $html = View::render($config->path('framework/resources/views/monitoring/entries.php'), [
             'title' => $title,
             'rows' => $rows,
             'base' => $this->basePath($options),
-            'filters' => $filters,
+            'filters' => $this->filters($request),
+            'list_path' => $listPath,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
         ]);
         return Response::html($this->layout($config, $options, $title, $html));
     }
 
-    private function gate(Request $request, MonitoringRegistration $registration, Config $config, MonitoringOptions $options): ?Response
-    {
+    private function gate(
+        Request $request,
+        ServiceResolver $resolver,
+        MonitoringRegistration $registration,
+        Config $config,
+        MonitoringOptions $options,
+        bool $json,
+    ): ?Response {
         if (!$options->dashboard->enabled) {
-            return Response::html('Not found', 404);
+            return $json ? Response::json(['error' => 'Not found'], 404) : Response::html('Not found', 404);
         }
         if (!$options->writesDatabase()) {
+            if ($json) {
+                return Response::json(['error' => '需要 monitoring driver=database'], 503);
+            }
             $html = View::render($config->path('framework/resources/views/monitoring/needs_database.php'), []);
             return Response::html($this->layout($config, $options, '需要 database 驱动', $html), 503);
         }
-        if (!$registration->dashboardAuthorized()) {
-            return Response::html('Forbidden', 403);
+        if (!$registration->dashboardAuthorized($resolver)) {
+            return $json ? Response::json(['error' => 'Forbidden'], 403) : Response::html('Forbidden', 403);
         }
         return null;
     }
@@ -196,6 +328,18 @@ final class MonitoringDashboard
     private function basePath(MonitoringOptions $options): string
     {
         return '/' . trim($options->dashboard->path !== '' ? $options->dashboard->path : 'monitoring', '/');
+    }
+
+    private function page(Request $request): int
+    {
+        $raw = $request->query('page')[0] ?? '1';
+        return max(1, (int)$raw);
+    }
+
+    private function perPage(Request $request, int $default): int
+    {
+        $raw = $request->query('per_page')[0] ?? (string)$default;
+        return max(1, min(100, (int)$raw));
     }
 
     /** @return array<string, string> */

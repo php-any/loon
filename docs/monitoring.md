@@ -22,7 +22,17 @@ Loom 把一次 **ServiceScope** 内的 HTTP 输入输出、SQL、命令结果与
 - `dashboard`：HTTP 查询 UI 路径（默认 `monitoring`）；**必须**在 builder 上登记 `authorize` 否则一律 403。
 - `storage.retain_hours`：`monitoring:prune` 清理窗口。
 
-环境变量见 `config/monitoring.php`；布尔项使用 `env_bool()`，支持 `LOOM_MONITORING_DASHBOARD=1` / `0`（以及 `true`/`false`）。`bindOptional` 后 `MonitoringOptions::finalize()` 会为仪表盘 URL 自动追加 `ignore_paths`。
+环境变量（亦见 `.env.example`）：
+
+| 变量 | 含义 |
+|------|------|
+| `LOOM_MONITORING_ENABLED` | 是否采集（默认 `true`） |
+| `LOOM_MONITORING_DRIVER` | `log` / `database` / `null`（默认 `log`） |
+| `LOOM_MONITORING_DASHBOARD` | 是否注册 SSR 与 JSON API（默认 `false`） |
+
+启用可查询仪表盘需 **`LOOM_MONITORING_DRIVER=database`**、执行 **`migrate:up`**、**`LOOM_MONITORING_DASHBOARD=1`**，并在 `loom.php` 的 `build()` 前登记 `$builder->monitoring->authorize(...)`（示例应用使用 `monitor.view`）。默认关闭仪表盘，避免未鉴权环境暴露会话细节。
+
+布尔项使用 `env_bool()`，支持 `1` / `0`（以及 `true`/`false`）。`bindOptional` 后 `MonitoringOptions::finalize()` 会为仪表盘 URL（含 `/monitoring/api/*`）自动追加 `ignore_paths`。
 
 ## ApplicationBuilder API
 
@@ -38,8 +48,15 @@ $builder->monitoring
         return ['env' => 'prod'];
     })
     ->addWatcher(new \App\Monitoring\BillingWatcher())
-    ->authorize(static function (): bool {
-        return true; // 生产环境应做真实鉴权
+    ->authorize(static function (\Loom\ServiceResolver $resolver): bool {
+        $auth = $resolver->get(\Loom\Auth::class);
+        $admin = $resolver->get(\App\Services\Access\Admin::class);
+        try {
+            $user = $auth->user();
+            return \App\Services\Access\Admin::allows($admin->grants($user['id']), 'monitor.view');
+        } catch (\Throwable) {
+            return false;
+        }
     });
 $app = $builder->build();
 ```
@@ -100,7 +117,16 @@ HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 
 ## 仪表盘
 
-`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供服务端渲染页面：概览、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/Events/Filesystem/Cache 列表、会话时间线、按 `correlation_id` 串联会话；顶栏筛选 `tag`、`correlation_id`、`path`、`status` 会作用于查询。须登记 `authorize`（否则 403）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页，而非 403。
+`driver=database` 且 `dashboard.enabled=true` 时，在配置路径（如 `/monitoring`）提供：
+
+- **SSR 页面**：概览（各类型条目计数 + 最近会话分页）、HTTP/SQL/Console/Queue/Schedule/TCP/gRPC/Events/Filesystem/Cache 列表（筛选 + 分页）、会话时间线、按 `correlation_id` 串联会话。
+- **JSON API**（同一路径前缀，供管理端观测台调用；须 `authorize`，`driver≠database` 时 **503**）：
+  - `GET /monitoring/api/overview` — 最近会话、`counts` 各类型数量、分页元数据
+  - `GET /monitoring/api/entries?type=http|console|sql|…` — 按类型列表（`per_page` ≤ 100）
+  - `GET /monitoring/api/sessions/{id}` — 会话时间线
+  - `GET /monitoring/api/correlation/{id}` — 关联会话链
+
+筛选参数：`tag`、`correlation_id`、`path`、`status`（与 SSR 一致）。须登记 `authorize`（否则 **403**）。仅开仪表盘而 `driver` 不是 `database` 时返回 **503** 说明页或 JSON，而非 403。
 
 迁移：`framework/resources/migrations/0006_monitoring.*`（`migrate:up`）。
 

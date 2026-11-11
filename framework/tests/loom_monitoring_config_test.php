@@ -213,6 +213,10 @@ monitoringConfigCheck(
     Loom\Monitoring\MonitoringCollector::shouldCollect($dashOpts, Loom\Monitoring\MonitoringContext::http('GET', '/monitoring/http')) === false,
     'dashboard subpath auto-ignored',
 );
+monitoringConfigCheck(
+    Loom\Monitoring\MonitoringCollector::shouldCollect($dashOpts, Loom\Monitoring\MonitoringContext::http('GET', '/monitoring/api/overview')) === false,
+    'dashboard api path auto-ignored',
+);
 
 // dashboard 开启但 driver≠database → 503 说明页（非 authorize 403）
 $logDashRoot = sys_get_temp_dir() . '/loom-monitoring-logdash-' . bin2hex(random_bytes(4));
@@ -223,5 +227,16 @@ $logDashBody = $logDashApp->handle(new Loom\Request(['method' => 'GET', 'path' =
 $logDashArr = $logDashBody->toArray();
 monitoringConfigCheck($logDashArr['status'] === 503, 'dashboard without database driver returns 503');
 monitoringConfigCheck(str_contains((string)$logDashArr['body'], 'database'), '503 page mentions database driver');
+
+$api403 = $dashApp->handle(new Loom\Request(['method' => 'GET', 'path' => '/monitoring/api/overview', 'headers' => [], 'query' => [], 'body' => '']));
+monitoringConfigCheck($api403->toArray()['status'] === 403, 'api forbidden without authorize');
+
+$api503 = $logDashApp->handle(new Loom\Request(['method' => 'GET', 'path' => '/monitoring/api/entries', 'headers' => [], 'query' => ['type' => ['http']], 'body' => '']));
+monitoringConfigCheck($api503->toArray()['status'] === 503, 'api returns 503 when driver is not database');
+
+$openDashApp = Loom\Application::createBuilder($dashRoot)->monitoring->authorize(static fn (): bool => true)->build();
+$openApi = $openDashApp->handle(new Loom\Request(['method' => 'GET', 'path' => '/monitoring/api/overview', 'headers' => [], 'query' => ['page' => ['1'], 'per_page' => ['10']], 'body' => '']));
+$openStatus = $openApi->toArray()['status'];
+monitoringConfigCheck($openStatus !== 403, 'api passes authorize callback');
 
 echo "loom_monitoring_config_test: OK\n";

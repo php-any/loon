@@ -37,6 +37,18 @@ if (isset($configureServices)) {
 }
 
 $builder->addModule(\App\AppModule::class);
+
+$builder->monitoring->authorize(static function (\Loom\ServiceResolver $resolver): bool {
+    try {
+        $auth = $resolver->get(\Loom\Auth::class);
+        $admin = $resolver->get(\App\Services\Access\Admin::class);
+        $user = $auth->user();
+        return \App\Services\Access\Admin::allows($admin->grants($user['id']), 'monitor.view');
+    } catch (\Throwable) {
+        return false;
+    }
+});
+
 $app = $builder->build();
 
 // 全局中间件，按请求作用域解析。
