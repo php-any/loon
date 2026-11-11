@@ -2,19 +2,39 @@
 /** @var list<array<string, mixed>> $sessions */
 /** @var string $base */
 /** @var array<string, string> $filters */
-$tag = htmlspecialchars($filters['tag'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-$correlation = htmlspecialchars($filters['correlation_id'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-$path = htmlspecialchars($filters['path'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-$status = htmlspecialchars($filters['status'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+/** @var array<string, int> $counts */
+/** @var int $page */
+/** @var int $per_page */
+/** @var int $total */
 $baseEsc = htmlspecialchars($base, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+$typeLabels = [
+    'http' => 'HTTP',
+    'console' => 'Console',
+    'sql' => 'SQL',
+    'queue' => 'Queue',
+    'cache' => 'Cache',
+    'schedule' => 'Schedule',
+    'tcp' => 'TCP',
+    'grpc' => 'gRPC',
+    'events' => 'Events',
+    'filesystem' => 'Filesystem',
+];
+$list_path = $base;
+require __DIR__ . '/filters.php';
 ?>
-<form method="get" action="<?= $baseEsc ?>" style="margin-bottom:1rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;">
-    <label>tag <input name="tag" value="<?= $tag ?>" size="12" /></label>
-    <label>correlation_id <input name="correlation_id" value="<?= $correlation ?>" size="24" /></label>
-    <label>path <input name="path" value="<?= $path ?>" size="16" /></label>
-    <label>status <input name="status" value="<?= $status ?>" size="6" /></label>
-    <button type="submit">筛选</button>
-</form>
+<h2>各类型条目数量</h2>
+<table style="margin-bottom:1.5rem;">
+    <thead><tr><th>类型</th><th>条目数</th><th>列表</th></tr></thead>
+    <tbody>
+    <?php foreach ($typeLabels as $key => $label): ?>
+        <tr>
+            <td><?= htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?></td>
+            <td><?= (int)($counts[$key] ?? 0) ?></td>
+            <td><a href="<?= $baseEsc ?>/<?= htmlspecialchars($key, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">查看</a></td>
+        </tr>
+    <?php endforeach; ?>
+    </tbody>
+</table>
 <p class="muted">最近会话（database 驱动）。点击 ID 查看时间线，或按 correlation 串联。</p>
 <table>
     <thead>
@@ -48,3 +68,6 @@ $baseEsc = htmlspecialchars($base, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     <?php endif; ?>
     </tbody>
 </table>
+<?php
+$list_path = $base;
+require __DIR__ . '/pagination.php';

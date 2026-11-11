@@ -31,6 +31,10 @@ export default defineConfig(async ({ command }) => {
             target: process.env.LOOM_API_TARGET || 'http://127.0.0.1:18087',
             ws: true,
           },
+          '/monitoring': {
+            changeOrigin: false,
+            target: process.env.LOOM_API_TARGET || 'http://127.0.0.1:18087',
+          },
         },
       },
     },

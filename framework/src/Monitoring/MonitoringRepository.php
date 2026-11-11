@@ -9,6 +9,20 @@ use Loom\Database;
 /** 仪表盘查询；driver=database 时使用。 */
 final class MonitoringRepository
 {
+    /** @var array<string, string> */
+    public const ENTRY_PREFIXES = [
+        'http' => 'http.',
+        'console' => 'console.result',
+        'sql' => 'database.sql',
+        'queue' => 'queue.',
+        'cache' => 'cache.',
+        'schedule' => 'schedule.',
+        'tcp' => 'tcp.',
+        'grpc' => 'grpc.',
+        'events' => 'app.event',
+        'filesystem' => 'filesystem.',
+    ];
+
     public function __construct(private readonly MonitoringOptions $options)
     {
     }
@@ -23,20 +37,47 @@ final class MonitoringRepository
      * @param array{tag?: string, correlation_id?: string, path?: string, status?: string} $filters
      * @return list<array<string, mixed>>
      */
-    public function recentSessions(Database $database, int $limit = 50, array $filters = []): array
+    public function recentSessions(Database $database, int $page = 1, int $perPage = 40, array $filters = []): array
     {
         $db = $this->connection($database);
-        $limit = max(1, min(200, $limit));
+        $perPage = max(1, min(100, $perPage));
+        $page = max(1, $page);
+        $offset = ($page - 1) * $perPage;
         $params = [];
         $where = $this->sessionFilterSql($filters, $params, 's');
         $rows = $db->query(
             'SELECT s.id, s.correlation_id, s.channel, s.tags, s.duration_ms, s.created_at
             FROM loom_monitoring_sessions s
             WHERE 1=1' . $where . '
-            ORDER BY s.id DESC LIMIT ' . $limit,
+            ORDER BY s.id DESC LIMIT ' . $perPage . ' OFFSET ' . $offset,
             $params,
         );
         return $this->decodeSessions($rows);
+    }
+
+    /**
+     * @param array{tag?: string, correlation_id?: string, path?: string, status?: string} $filters
+     */
+    public function countSessions(Database $database, array $filters = []): int
+    {
+        $db = $this->connection($database);
+        $params = [];
+        $where = $this->sessionFilterSql($filters, $params, 's');
+        $rows = $db->query('SELECT COUNT(*) AS c FROM loom_monitoring_sessions s WHERE 1=1' . $where, $params);
+        return (int)($rows[0]['c'] ?? 0);
+    }
+
+    /** @return array<string, int> */
+    public function entryTypeCounts(Database $database): array
+    {
+        $db = $this->connection($database);
+        $counts = [];
+        foreach (self::ENTRY_PREFIXES as $type => $prefix) {
+            $like = $prefix === '' ? '%' : $prefix . '%';
+            $rows = $db->query('SELECT COUNT(*) AS c FROM loom_monitoring_entries WHERE event LIKE ?', [$like]);
+            $counts[$type] = (int)($rows[0]['c'] ?? 0);
+        }
+        return $counts;
     }
 
     /** @return array<string, mixed>|null */
@@ -78,10 +119,12 @@ final class MonitoringRepository
      * @param array{tag?: string, correlation_id?: string, path?: string, status?: string} $filters
      * @return list<array<string, mixed>>
      */
-    public function listEntries(Database $database, string $eventPrefix, int $limit = 100, array $filters = []): array
+    public function listEntries(Database $database, string $eventPrefix, int $page = 1, int $perPage = 40, array $filters = []): array
     {
         $db = $this->connection($database);
-        $limit = max(1, min(500, $limit));
+        $perPage = max(1, min(100, $perPage));
+        $page = max(1, $page);
+        $offset = ($page - 1) * $perPage;
         $like = $eventPrefix === '' ? '%' : $eventPrefix . '%';
         $params = [$like];
         $sessionWhere = $this->sessionFilterSql($filters, $params, 's');
@@ -90,7 +133,7 @@ final class MonitoringRepository
             FROM loom_monitoring_entries e
             INNER JOIN loom_monitoring_sessions s ON s.id = e.session_id
             WHERE e.event LIKE ?' . $sessionWhere . $entryStatus . '
-            ORDER BY e.id DESC LIMIT ' . $limit;
+            ORDER BY e.id DESC LIMIT ' . $perPage . ' OFFSET ' . $offset;
         $rows = $db->query($sql, $params);
         foreach ($rows as &$row) {
             $payload = $row['payload'] ?? '';
@@ -101,6 +144,26 @@ final class MonitoringRepository
         }
         unset($row);
         return $rows;
+    }
+
+    /**
+     * @param array{tag?: string, correlation_id?: string, path?: string, status?: string} $filters
+     */
+    public function countEntries(Database $database, string $eventPrefix, array $filters = []): int
+    {
+        $db = $this->connection($database);
+        $like = $eventPrefix === '' ? '%' : $eventPrefix . '%';
+        $params = [$like];
+        $sessionWhere = $this->sessionFilterSql($filters, $params, 's');
+        $entryStatus = $this->entryStatusFilterSql($filters, $params, 'e');
+        $rows = $db->query(
+            'SELECT COUNT(*) AS c
+            FROM loom_monitoring_entries e
+            INNER JOIN loom_monitoring_sessions s ON s.id = e.session_id
+            WHERE e.event LIKE ?' . $sessionWhere . $entryStatus,
+            $params,
+        );
+        return (int)($rows[0]['c'] ?? 0);
     }
 
     /**

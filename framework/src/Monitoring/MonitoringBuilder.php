@@ -39,7 +39,7 @@ final class MonitoringBuilder
         return $this;
     }
 
-    /** @param callable(): bool $authorize */
+    /** @param callable(\Loom\ServiceResolver): bool|callable(): bool $authorize */
     public function authorize(callable $authorize): self
     {
         $this->registration->setAuthorize($authorize);

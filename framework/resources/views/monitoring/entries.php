@@ -2,6 +2,13 @@
 /** @var string $title */
 /** @var list<array<string, mixed>> $rows */
 /** @var string $base */
+/** @var array<string, string> $filters */
+/** @var string $list_path */
+/** @var int $page */
+/** @var int $per_page */
+/** @var int $total */
+$list_path = $list_path ?? $base;
+require __DIR__ . '/filters.php';
 ?>
 <table>
     <thead>
@@ -31,3 +38,4 @@
     <?php endif; ?>
     </tbody>
 </table>
+<?php require __DIR__ . '/pagination.php'; ?>
