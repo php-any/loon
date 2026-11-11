@@ -21,6 +21,8 @@ final class ModelQuery
     private ?int $rowLimit = null;
     private ?int $rowOffset = null;
     private ?\Database\Sql\Tx $tx = null;
+    /** @var array<int, string|array<string, mixed>> */
+    private array $eagerWith = [];
     /**
      * 保存模型类、原生查询器、连接名和可选的 Database。传入 Database 时只记下它此刻的事务，没有事务则为 null。
      *
@@ -60,7 +62,82 @@ final class ModelQuery
         $copy->grouping = null;
         $copy->rowLimit = null;
         $copy->rowOffset = null;
+        $copy->eagerWith = [];
         $copy->native = \Database\DB::model($this->model, $this->connection);
+        return $copy;
+    }
+
+    /**
+     * 创建不含条件与预加载的同模型查询，用于关系批量加载。
+     */
+    public function relationFreshQuery(): self
+    {
+        return $this->fresh();
+    }
+
+    public function relationDatabase(): Database
+    {
+        if ($this->database === null) {
+            return ModelContext::database();
+        }
+        return $this->database;
+    }
+
+    /**
+     * @return array{0: string, 1: array<int, mixed>}
+     */
+    public function exportWhere(): array
+    {
+        if ($this->conditions === []) {
+            return ['', []];
+        }
+        return [implode(' AND ', $this->conditions), $this->arguments];
+    }
+
+    /**
+     * @param mixed ...$relations
+     */
+    public function with(mixed ...$relations): self
+    {
+        $copy = clone $this;
+        $copy->eagerWith = array_merge($copy->eagerWith, $relations);
+        return $copy;
+    }
+
+    public function has(string $relation): self
+    {
+        return $this->whereHas($relation);
+    }
+
+    public function whereHas(string $relation, ?callable $constraint = null): self
+    {
+        return $this->whereRelationExists($relation, true, $constraint);
+    }
+
+    public function whereDoesntHave(string $relation, ?callable $constraint = null): self
+    {
+        return $this->whereRelationExists($relation, false, $constraint);
+    }
+
+    private function whereRelationExists(string $relation, bool $exists, ?callable $constraint): self
+    {
+        $class = $this->model;
+        $database = $this->relationDatabase();
+        $stub = $class::make([]);
+        if ($stub instanceof Model) {
+            $stub->setRelationDatabase($database);
+        }
+        $instance = RelationLoader::relationInstance($stub, $relation, $database);
+        $table = ModuleDiscovery::attribute(new \ReflectionClass($class), \Database\Annotation\Table::class);
+        if ($table === null) {
+            throw new \LogicException('Relation filter requires a Table annotation');
+        }
+        [$subsql, $args] = $instance->existenceSql($table->name, $constraint);
+        $copy = clone $this;
+        $copy->conditions[] = ($exists ? 'EXISTS (' : 'NOT EXISTS (') . $subsql . ')';
+        foreach ($args as $arg) {
+            $copy->arguments[] = $arg;
+        }
         return $copy;
     }
 
@@ -297,13 +374,36 @@ final class ModelQuery
             foreach ($this->builder()->get() as $record) {
                 $records[] = $this->typed($record);
             }
+            $this->eagerLoadRelations($records);
             return $records;
         }
         $records = [];
         foreach ($this->querySql($this->selectSql(), $this->arguments) as $row) {
-            $records[] = $this->hydrate($row);
+            $record = $this->hydrate($row);
+            if ($record instanceof Model && $this->database !== null) {
+                $record->setRelationDatabase($this->database);
+            }
+            $records[] = $record;
         }
+        $this->eagerLoadRelations($records);
         return $records;
+    }
+
+    /**
+     * @param array<int, object> $records
+     */
+    private function eagerLoadRelations(array $records): void
+    {
+        if ($this->eagerWith === [] || $records === []) {
+            return;
+        }
+        $database = $this->relationDatabase();
+        foreach ($records as $record) {
+            if ($record instanceof Model) {
+                $record->setRelationDatabase($database);
+            }
+        }
+        RelationLoader::eagerLoad($records, RelationLoader::parse($this->eagerWith), $database);
     }
     /**
      * 执行当前查询并读取首条模型记录。
@@ -840,6 +940,7 @@ final class ModelQuery
         }
         return $this->typed($record);
     }
+
     /**
      * 在当前查询绑定的连接或事务上执行读取，并把每一行转成关联数组。
      *

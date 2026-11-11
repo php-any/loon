@@ -33,4 +33,14 @@ final class Order extends \Loom\Model
     #[\Database\Annotation\GeneratedValue]
     #[\Database\Annotation\Column('created', false)]
     public int $created;
+
+    public function user(): \Loom\BelongsTo
+    {
+        return $this->belongsTo(\Loom\Models\User::class);
+    }
+
+    public function items(): \Loom\HasMany
+    {
+        return $this->hasMany(OrderItem::class);
+    }
 }

@@ -34,4 +34,9 @@ final class Role extends \Loom\Model
 
     #[\Database\Annotation\Column('builtin', false)]
     public int $builtin = 0;
+
+    public function users(): \Loom\BelongsToMany
+    {
+        return $this->belongsToMany(\Loom\Models\User::class, 'admin_user_roles');
+    }
 }

@@ -23,4 +23,9 @@ final class OrderItem extends \Loom\Model
 
     #[\Database\Annotation\Column('unit_price', false)]
     public int $unit_price;
+
+    public function order(): \Loom\BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
 }
