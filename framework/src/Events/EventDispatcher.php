@@ -5,22 +5,24 @@ declare(strict_types=1);
 namespace Loom\Events;
 
 use Loom\Monitoring\Monitoring;
+use Loom\Queue;
 use Loom\ServiceResolver;
 
 /**
- * 进程内同步应用事件总线。负载宜为标量或 id，不要放 Model 实例。
+ * 同步监听器当场执行；queued 监听器写入 Redis Stream。
  */
 final class EventDispatcher
 {
-    /** @var list<string> */
+  /** @var list<string> */
     private array $dispatchStack = [];
 
-    /**
-     * @param array<string, list<array{type: string, listener: string|callable, method?: string}>> $listeners
-     */
+  /**
+   * @param array<string, list<array{type: string, listener: string|callable, method?: string, queued?: bool}>> $listeners
+   */
     public function __construct(
         private readonly array $listeners,
         private readonly ServiceResolver $services,
+        private readonly Queue $queue,
     ) {
     }
 
@@ -60,6 +62,27 @@ final class EventDispatcher
                 $method = $entry['method'] ?? 'handle';
                 if (!is_string($class)) {
                     throw new \LogicException('Invalid listener class');
+                }
+                if ($entry['queued'] ?? false) {
+                    if (!$event instanceof QueueableEvent) {
+                        throw new \LogicException('Queued listener requires QueueableEvent: ' . $name);
+                    }
+                    $owner = method_exists($event, 'queueOwner') ? (int)$event->queueOwner() : 0;
+                    $taskId = $this->queue->dispatch('loom.event.listen', [
+                        'event' => $name,
+                        'listener' => $class,
+                        'method' => $method,
+                        'data' => $event->toQueue(),
+                    ], $owner);
+                    if ($monitoring !== null && $monitoring->isActive()) {
+                        $monitoring->recordEvent('app.event.queued', [
+                            'name' => $name,
+                            'listener' => $class,
+                            'job_id' => $taskId,
+                            'owner' => $owner,
+                        ]);
+                    }
+                    continue;
                 }
                 $instance = $this->services->get($class);
                 if (!method_exists($instance, $method)) {

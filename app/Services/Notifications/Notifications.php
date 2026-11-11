@@ -28,14 +28,14 @@ final class Notifications
         $this->queue = $queue;
     }
 
-    // 事务由调用方管理，因此业务状态及其发件箱会一起提交。
+    // 事务由调用方管理；通知与队列任务在提交后才进入 Stream。
     public function emit(string $event, int $user, string $title, string $body): void
     {
         $created = Notification::insertOrIgnore(['event_key' => $event, 'user_id' => $user, 'title' => $title, 'body' => $body], ['event_key', 'user_id']);
         if ($created->rowsAffected !== 1) {
             return;
         }
-        // 持久化队列记录与通知及业务事务一起提交。
+        // 队列任务在事务提交后 XADD，与通知同行一起回滚。
         $this->queue->dispatch('notification.push', ['notification_id' => $created->insertId], $user);
         foreach (Channel::whereEnabled(1)->rows(['channel']) as $channel) {
             Delivery::create(['notification_id' => $created->insertId, 'channel' => $channel['channel']]);

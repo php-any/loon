@@ -110,7 +110,7 @@ $order->load('items');
 
 关联条件属于具体模型或仓储。例如 `Role::forUser($database, $userId)`、`UserRole::hasActiveAdministrator($database)` 使用 `using($database)->native()->select(...)->join(...)->where(...)->get()/first()`，由 Origami 生成 JOIN 并回填基表对象。查询只选择基表字段，避免关联表同名列覆盖；参数仍绑定，不把用户输入拼入 SQL 片段。
 
-原生 v1.0.8 没有条件 upsert、原子递增、RETURNING 或 FOR UPDATE SKIP LOCKED 的便捷接口。以下模型保留参数绑定的专用 SQL，而服务调用明确的模型方法：AuthLimit::recordAttempt 保持限流窗口原子重置/递增；User::revokeSessions 原子增加会话版本；Job::acceptRedisLease 保持 Redis Stream 消费与 MySQL 租约竞争语义；ScheduledJob::storeCron / storeInterval 保持同配置不推迟下次执行，due 在 MySQL 下锁定到期行。普通读取优先复用原生查询器；这些专用方法不是第二套通用 ORM。
+原生 v1.0.8 没有条件 upsert、原子递增、RETURNING 或 FOR UPDATE SKIP LOCKED 的便捷接口。以下模型保留参数绑定的专用 SQL，而服务调用明确的模型方法：AuthLimit::recordAttempt 保持限流窗口原子重置/递增；User::revokeSessions 原子增加会话版本；ScheduledJob::storeCron / storeInterval 保持同配置不推迟下次执行，due 在 MySQL 下锁定到期行。`loom_jobs` 由队列可选归档写入。普通读取优先复用原生查询器；这些专用方法不是第二套通用 ORM。
 
 账号令牌的锁定由 `AccountToken::lockOwner` 执行，发送冷却由 `AuthLimit::acquireCooldown` 执行，调用方事务覆盖随后删除令牌和账号变更。`Delivery::claim` 内部完成通知领取事务，`Mail::claim` 使用调用方事务；MySQL 通过锁行防止重复领取。网络投递在事务之外执行。
 

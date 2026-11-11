@@ -173,6 +173,8 @@ foreach ([
     'Filesystem/FilesystemPublicServer.php',
     'Events/EventsRegistration.php',
     'Events/EventsBuilder.php',
+    'Events/QueueableEvent.php',
+    'Events/EventListenJob.php',
     'Events/EventDispatcher.php',
     'Http/HttpServer.php',
     'Network/Network.php',

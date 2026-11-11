@@ -23,7 +23,7 @@ final class Schedule
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $schedule = new Schedule($database);
      */
-    public function __construct(\Loom\Database $database)
+    public function __construct(\Loom\Database $database, private readonly \Loom\Queue $queue)
     {
         $this->database = $database;
     }
@@ -157,8 +157,9 @@ final class Schedule
     private function dispatchSchedule(array $schedule, int $now): void
     {
         $next = $schedule['expression'] !== null ? (new Cron($schedule['expression'], $schedule['timezone']))->next($now) : $now + (int)$schedule['interval_seconds'];
-        $job = Models\Job::create(['kind' => $schedule['kind'], 'payload' => $schedule['payload'], 'owner' => (int)$schedule['owner'], 'available' => $now, 'created' => $now]);
-        Models\ScheduleRun::create(['schedule_name' => $schedule['name'], 'job_id' => $job->id, 'created' => $now]);
+        $payload = json_decode((string)$schedule['payload'], true, 64, JSON_THROW_ON_ERROR);
+        $jobId = $this->queue->dispatch($schedule['kind'], is_array($payload) ? $payload : [], (int)$schedule['owner']);
+        Models\ScheduleRun::create(['schedule_name' => $schedule['name'], 'job_id' => $jobId, 'created' => $now]);
         Models\ScheduledJob::whereName($schedule['name'])->update(['next_run' => $next]);
     }
 }

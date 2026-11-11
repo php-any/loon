@@ -85,9 +85,9 @@ npm run build
 
 ### 队列与 WebSocket 通知
 
-`Notifications::emit()` 在业务事务中同时写入站内通知和 `notification.push` 队列任务，回滚时两者一起撤销。事件键与收件人唯一约束保证重复支付不重复创建通知、推送任务。`queue:work` 执行 `PushNotification`，把收件人唤醒事件写入 Redis Stream，再由 HTTP 服务的 WebSocket 连接推送个人收件箱数据。
+`Notifications::emit()` 在业务事务中写入站内通知并登记 `notification.push`；事务提交后才进入队列 Stream，回滚时两者一起撤销。事件键与收件人唯一约束保证重复支付不重复创建通知、推送任务。`queue:work` 执行 `PushNotification`，把收件人唤醒事件写入 Redis Stream，再由 HTTP 服务的 WebSocket 连接推送个人收件箱数据。
 
-- 队列使用 MySQL 存档与事务待投递记录、Redis Stream 消费组。实时推送也使用 Redis Stream。
+- 业务队列以 Redis Stream 为投递源；`loom_jobs` 供运维查看。实时推送也使用 Redis Stream。
 - 推送地址：`/api/admin/notifications/socket`。使用管理员 HttpOnly Cookie，升级前验证登录、启用状态和同源 Origin；连接期间持续检查会话撤销。官网用户不能连接管理员通知通道。
 - Redis Stream 按数据库和管理员隔离，只保存通知编号，约保留最近 1000 条唤醒事件并设置 24 小时过期。通知正文与已读状态以数据库为准。
 - Redis 故障时任务保留并按现有队列规则重试，最多自动尝试三次，最终失败可在队列管理中重试。失败的推送任务不会再生成推送失败通知，避免故障时形成递归任务。
