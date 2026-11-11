@@ -425,8 +425,17 @@ abstract class Model
 
     private function guessRelationName(): string
     {
-        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
-        return $trace[1]['function'] ?? 'relation';
+        foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            $name = $frame['function'] ?? '';
+            if (in_array($name, ['belongsTo', 'hasOne', 'hasMany', 'belongsToMany', 'guessRelationName'], true)) {
+                continue;
+            }
+            $class = $frame['class'] ?? '';
+            if ($class !== '' && is_subclass_of($class, self::class)) {
+                return $name;
+            }
+        }
+        return 'relation';
     }
     /**
      * 遍历已初始化的公共实例属性，按映射列名输出数据。

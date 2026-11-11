@@ -58,6 +58,8 @@ final class HasOne extends Relation
     public function create(array $attributes): object
     {
         $attributes[$this->foreignKey] = $this->parentValue($this->localKey);
-        return $this->relatedQuery()->create($attributes);
+        $record = $this->relatedQuery()->create($attributes);
+        $this->clearCache();
+        return $record;
     }
 }

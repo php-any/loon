@@ -11,7 +11,7 @@ abstract class Relation
 {
     private string $name = 'relation';
     protected bool $constrained = false;
-    protected ModelQuery $query;
+    private ?ModelQuery $query = null;
 
     public function __construct(
         protected object $parent,
@@ -22,7 +22,6 @@ abstract class Relation
         if ($parentClass::resolveDatabase($database)->modelConnectionName() !== $related::resolveDatabase($database)->modelConnectionName()) {
             throw new \LogicException('Related model must use the same connection as the parent');
         }
-        $this->query = $this->newBaseQuery();
     }
 
     public function setName(string $name): void
@@ -42,10 +41,25 @@ abstract class Relation
 
     public function getQuery(): ModelQuery
     {
-        return $this->query;
+        return $this->baseQuery();
     }
 
     abstract protected function newBaseQuery(): ModelQuery;
+
+    protected function baseQuery(): ModelQuery
+    {
+        if ($this->query === null) {
+            $this->query = $this->newBaseQuery();
+        }
+        return $this->query;
+    }
+
+    protected function clearCache(): void
+    {
+        if ($this->parent instanceof Model) {
+            $this->parent->forgetRelationCache($this->name);
+        }
+    }
 
     /**
      * 生成与父表行相关的 EXISTS 子查询（不含外层 EXISTS 关键字）。
@@ -57,12 +71,15 @@ abstract class Relation
     public function get(): array
     {
         if ($this->constrained) {
+            if ($this->query === null) {
+                throw new \LogicException('Constrained relation has no query');
+            }
             return $this->query->get();
         }
         if ($this->parent instanceof Model && $this->parent->hasRelationCache($this->name)) {
             return $this->parent->relationCache($this->name);
         }
-        $records = $this->query->get();
+        $records = $this->baseQuery()->get();
         if ($this->parent instanceof Model) {
             $this->parent->storeRelationCache($this->name, $records);
         }
@@ -92,8 +109,8 @@ abstract class Relation
         $copy = $this->copyRelation();
         $copy->constrained = true;
         $copy->query = func_num_args() === 2
-            ? $this->query->where($field, $operator)
-            : $this->query->where($field, $operator, $value);
+            ? $this->baseQuery()->where($field, $operator)
+            : $this->baseQuery()->where($field, $operator, $value);
         return $copy;
     }
 
@@ -101,7 +118,7 @@ abstract class Relation
     {
         $copy = $this->copyRelation();
         $copy->constrained = true;
-        $copy->query = $this->query->orderBy($field, $direction);
+        $copy->query = $this->baseQuery()->orderBy($field, $direction);
         return $copy;
     }
 
@@ -109,7 +126,7 @@ abstract class Relation
     {
         $copy = $this->copyRelation();
         $copy->constrained = true;
-        $copy->query = $this->query->limit($limit);
+        $copy->query = $this->baseQuery()->limit($limit);
         return $copy;
     }
 
@@ -117,7 +134,7 @@ abstract class Relation
     {
         $copy = $this->copyRelation();
         $copy->constrained = true;
-        $copy->query = $this->query->offset($offset);
+        $copy->query = $this->baseQuery()->offset($offset);
         return $copy;
     }
 
@@ -125,7 +142,7 @@ abstract class Relation
     {
         $copy = $this->copyRelation();
         $copy->constrained = true;
-        $copy->query = $this->query->whereIn($field, $values);
+        $copy->query = $this->baseQuery()->whereIn($field, $values);
         return $copy;
     }
 

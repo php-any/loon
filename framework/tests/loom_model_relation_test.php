@@ -10,7 +10,7 @@ file_put_contents($configRoot . '/config/database.php', '<?php return ["dsn" => 
 $scope = new \Loom\ServiceScope(new \Loom\Config($configRoot));
 
 #[\Database\Annotation\Table('rel_authors')]
-final class RelAuthor extends \Loom\Model
+final class Author extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -18,12 +18,12 @@ final class RelAuthor extends \Loom\Model
 
     public function posts(): \Loom\HasMany
     {
-        return $this->hasMany(RelPost::class, 'author_id');
+        return $this->hasMany(Post::class);
     }
 }
 
 #[\Database\Annotation\Table('rel_posts')]
-final class RelPost extends \Loom\Model
+final class Post extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -32,27 +32,32 @@ final class RelPost extends \Loom\Model
 
     public function author(): \Loom\BelongsTo
     {
-        return $this->belongsTo(RelAuthor::class);
+        return $this->belongsTo(Author::class);
     }
 
     public function profile(): \Loom\HasOne
     {
-        return $this->hasOne(RelPostProfile::class);
+        return $this->hasOne(PostProfile::class);
     }
 
     public function comments(): \Loom\HasMany
     {
-        return $this->hasMany(RelComment::class);
+        return $this->hasMany(Comment::class);
+    }
+
+    public function notes(): \Loom\HasMany
+    {
+        return $this->hasMany(Note::class);
     }
 
     public function tags(): \Loom\BelongsToMany
     {
-        return $this->belongsToMany(RelTag::class, 'rel_post_tag');
+        return $this->belongsToMany(Tag::class, 'rel_post_tag');
     }
 }
 
 #[\Database\Annotation\Table('rel_post_profiles')]
-final class RelPostProfile extends \Loom\Model
+final class PostProfile extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -61,7 +66,7 @@ final class RelPostProfile extends \Loom\Model
 }
 
 #[\Database\Annotation\Table('rel_comments')]
-final class RelComment extends \Loom\Model
+final class Comment extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -69,8 +74,17 @@ final class RelComment extends \Loom\Model
     public string $body;
 }
 
+#[\Database\Annotation\Table('rel_notes')]
+final class Note extends \Loom\Model
+{
+    #[\Database\Annotation\Id]
+    public int $id;
+    public int $post_id;
+    public string $text;
+}
+
 #[\Database\Annotation\Table('rel_tags')]
-final class RelTag extends \Loom\Model
+final class Tag extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $id;
@@ -78,7 +92,7 @@ final class RelTag extends \Loom\Model
 }
 
 #[\Database\Annotation\Table('rel_post_tag')]
-final class RelCompositeMap extends \Loom\Model
+final class CompositeMap extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $post_id;
@@ -87,20 +101,41 @@ final class RelCompositeMap extends \Loom\Model
 
     public function comments(): \Loom\HasMany
     {
-        return $this->hasMany(RelComment::class, 'post_id');
+        return $this->hasMany(Comment::class, 'post_id');
     }
 }
 
 #[\Database\Annotation\Table('rel_accounts')]
-final class RelAccount extends \Loom\Model
+final class Account extends \Loom\Model
 {
     #[\Database\Annotation\Id]
     public int $user_id;
 
     public function user(): \Loom\BelongsTo
     {
-        return $this->belongsTo(RelAuthor::class, 'user_id');
+        return $this->belongsTo(Author::class, 'user_id');
     }
+}
+
+#[\Database\Annotation\Table('rel_orders')]
+final class ParentOrder extends \Loom\Model
+{
+    #[\Database\Annotation\Id]
+    public int $id;
+
+    public function lines(): \Loom\HasMany
+    {
+        return $this->hasMany(OrderLine::class);
+    }
+}
+
+#[\Database\Annotation\Table('rel_order_lines')]
+final class OrderLine extends \Loom\Model
+{
+    #[\Database\Annotation\Id]
+    public int $id;
+    public int $order_id;
+    public string $sku;
 }
 
 function relCheck(bool $ok, string $message): void
@@ -116,51 +151,71 @@ try {
     $database->execute('CREATE TEMPORARY TABLE rel_posts(id BIGINT PRIMARY KEY AUTO_INCREMENT, author_id BIGINT NOT NULL, title TEXT NOT NULL)');
     $database->execute('CREATE TEMPORARY TABLE rel_post_profiles(id BIGINT PRIMARY KEY AUTO_INCREMENT, post_id BIGINT NOT NULL, bio TEXT NOT NULL)');
     $database->execute('CREATE TEMPORARY TABLE rel_comments(id BIGINT PRIMARY KEY AUTO_INCREMENT, post_id BIGINT NOT NULL, body TEXT NOT NULL)');
+    $database->execute('CREATE TEMPORARY TABLE rel_notes(id BIGINT PRIMARY KEY AUTO_INCREMENT, post_id BIGINT NOT NULL, text TEXT NOT NULL)');
     $database->execute('CREATE TEMPORARY TABLE rel_tags(id BIGINT PRIMARY KEY AUTO_INCREMENT, label TEXT NOT NULL)');
     $database->execute('CREATE TEMPORARY TABLE rel_post_tag(post_id BIGINT NOT NULL, tag_id BIGINT NOT NULL, PRIMARY KEY(post_id, tag_id))');
     $database->execute('CREATE TEMPORARY TABLE rel_accounts(user_id BIGINT PRIMARY KEY)');
+    $database->execute('CREATE TEMPORARY TABLE rel_orders(id BIGINT PRIMARY KEY AUTO_INCREMENT)');
+    $database->execute('CREATE TEMPORARY TABLE rel_order_lines(id BIGINT PRIMARY KEY AUTO_INCREMENT, order_id BIGINT NOT NULL, sku TEXT NOT NULL)');
 
-    $author = RelAuthor::create(['name' => 'Ada']);
-    $post = RelPost::create(['author_id' => $author->id, 'title' => 'First']);
-    RelPostProfile::create(['post_id' => $post->id, 'bio' => 'About']);
-    RelComment::create(['post_id' => $post->id, 'body' => 'Nice']);
-    RelComment::create(['post_id' => $post->id, 'body' => 'More']);
-    $tag = RelTag::create(['label' => 'news']);
+    $author = Author::create(['name' => 'Ada']);
+    $post = Post::create(['author_id' => $author->id, 'title' => 'First']);
+    PostProfile::create(['post_id' => $post->id, 'bio' => 'About']);
+    Comment::create(['post_id' => $post->id, 'body' => 'Nice']);
+    Comment::create(['post_id' => $post->id, 'body' => 'More']);
+    Note::create(['post_id' => $post->id, 'text' => 'memo']);
+    $tag = Tag::create(['label' => 'news']);
     $post->setRelationDatabase($database);
     $post->tags()->attach($tag->id);
 
-    $loaded = RelPost::find($post->id);
+    $order = ParentOrder::create([]);
+    $line = OrderLine::create(['order_id' => $order->id, 'sku' => 'SKU-1']);
+    relCheck($order->lines()->first()?->id === $line->id, 'default hasMany key inference uses order_id');
+
+    $loaded = Post::find($post->id);
     $loaded->setRelationDatabase($database);
     $user = $loaded->author()->first();
-    relCheck($user instanceof RelAuthor && $user->name === 'Ada', 'belongsTo lazy first');
-    $firstGet = $loaded->comments()->get();
-    $secondGet = $loaded->comments()->get();
-    relCheck($firstGet === $secondGet, 'unconstrained get uses instance cache');
+    relCheck($user instanceof Author && $user->name === 'Ada', 'belongsTo lazy first');
+    $profile = $loaded->profile()->first();
+    relCheck($profile instanceof PostProfile && $profile->bio === 'About', 'hasOne lazy first');
+
+    $comments = $loaded->comments()->get();
+    relCheck(count($comments) === 2 && $comments[0] instanceof Comment, 'hasMany lazy get');
+    $tags = $loaded->tags()->get();
+    relCheck(count($tags) === 1 && $tags[0] instanceof Tag, 'belongsToMany lazy get');
+    relCheck($loaded->hasRelationCache('comments') && $loaded->hasRelationCache('tags'), 'distinct relation cache keys');
+    relCheck($comments !== $tags, 'different relations do not share cache storage');
+
+    $secondComments = $loaded->comments()->get();
+    relCheck($secondComments === $comments, 'unconstrained repeat get uses instance cache');
+
+    $notes = $loaded->notes()->get();
+    relCheck(count($notes) === 1 && $notes !== $comments, 'second hasMany keeps its own cache');
+
     relCheck(count($loaded->comments()->where('body', 'Nice')->get()) === 1, 'constrained relation issues a fresh query');
 
-    $eager = RelPost::with('author', 'comments')->get();
-    relCheck($eager[0]->author()->first()->name === 'Ada' && count($eager[0]->comments()->get()) === 2, 'eager load belongsTo and hasMany');
+    $eager = Post::with('author', 'comments')->get();
+    relCheck($eager[0]->author()->first() instanceof Author && count($eager[0]->comments()->get()) === 2, 'eager load belongsTo and hasMany');
 
-    $nestedAuthor = RelAuthor::create(['name' => 'Grace']);
-    $nestedPost = RelPost::create(['author_id' => $nestedAuthor->id, 'title' => 'Nested']);
-    RelPostProfile::create(['post_id' => $nestedPost->id, 'bio' => 'Nested bio']);
-    $nested = RelPost::with('author.posts')->get();
-    relCheck($nested[0]->author()->first()->name === 'Ada', 'nested with loads belongsTo');
-    relCheck(count($nested[0]->author()->first()->posts()->get()) >= 1, 'nested with loads hasMany on related model');
+    $nestedAuthor = Author::create(['name' => 'Grace']);
+    Post::create(['author_id' => $nestedAuthor->id, 'title' => 'Nested']);
+    $nested = Post::with('author.posts')->get();
+    relCheck($nested[1]->author()->first()->name === 'Grace', 'nested with loads belongsTo');
+    relCheck(count($nested[1]->author()->first()->posts()->get()) >= 1, 'nested with loads hasMany on related model');
 
-    $has = RelPost::has('comments')->pluck('id');
+    $has = Post::has('comments')->pluck('id');
     relCheck(in_array($post->id, $has, true), 'has relation filter');
-    $whereHas = RelPost::whereHas('comments', static fn (\Loom\ModelQuery $q) => $q->where('body', 'Nice'))->first();
+    $whereHas = Post::whereHas('comments', static fn (\Loom\ModelQuery $q) => $q->where('body', 'Nice'))->first();
     relCheck($whereHas?->id === $post->id, 'whereHas with constraint');
-    $missing = RelPost::whereDoesntHave('comments')->pluck('id');
+    $missing = Post::whereDoesntHave('comments')->pluck('id');
     relCheck(!in_array($post->id, $missing, true), 'whereDoesntHave excludes parents with children');
 
-    $empty = RelPost::whereHas('tags', static fn (\Loom\ModelQuery $q) => $q->whereIn('id', []))->count();
+    $empty = Post::whereHas('tags', static fn (\Loom\ModelQuery $q) => $q->whereIn('id', []))->count();
     relCheck($empty === 0, 'empty whereIn lists match no rows');
 
     $compositeRejected = false;
     try {
-        $map = new RelCompositeMap();
+        $map = new CompositeMap();
         $map->post_id = 1;
         $map->tag_id = 1;
         $map->setRelationDatabase($database);
@@ -170,31 +225,44 @@ try {
     }
     relCheck($compositeRejected, 'composite parent without explicit key is rejected');
 
-    RelAccount::create(['user_id' => $author->id]);
-    $account = RelAccount::find($author->id);
+    Account::create(['user_id' => $author->id]);
+    $account = Account::find($author->id);
     $account->setRelationDatabase($database);
     relCheck($account->user()->first()?->id === $author->id, 'belongsTo when foreign key is primary key');
 
-    $created = $post->comments()->create(['body' => 'Created via relation']);
-    relCheck($created->post_id === $post->id, 'hasMany create fills foreign key');
+    $countBeforeCreate = count($loaded->comments()->get());
+    $loaded->comments()->create(['body' => 'Created via relation']);
+    $afterCreate = $loaded->comments()->get();
+    relCheck(count($afterCreate) === $countBeforeCreate + 1, 'hasMany create clears stale relation cache');
+
+    $bare = Post::create(['author_id' => $author->id, 'title' => 'Bare']);
+    $bare->setRelationDatabase($database);
+    relCheck($bare->profile()->first() === null, 'hasOne empty before create');
+    $bare->profile()->create(['bio' => 'Fresh']);
+    relCheck($bare->profile()->first() instanceof PostProfile, 'hasOne create clears stale relation cache');
 
     $post->tags()->detach($tag->id);
     relCheck($post->tags()->get() === [], 'detach removes pivot rows');
     $post->tags()->sync([$tag->id]);
     relCheck(count($post->tags()->get()) === 1, 'sync attaches pivot rows');
 
+    $extra = Tag::create(['label' => 'extra']);
+    $tagsBeforeAttach = count($post->tags()->get());
+    $post->tags()->attach($extra->id);
+    relCheck(count($post->tags()->get()) === $tagsBeforeAttach + 1, 'attach clears stale relation cache');
+
     $beforeCount = count($post->tags()->get());
     try {
         $database->transaction(function () use ($post, $database): void {
             $post->setRelationDatabase($database);
-            $tagId = RelTag::create(['label' => 'rollback-me'])->id;
+            $tagId = Tag::create(['label' => 'rollback-me'])->id;
             $post->tags()->attach($tagId);
             throw new RuntimeException('rollback');
         });
     } catch (RuntimeException) {
     }
     $post->setRelationDatabase($database);
-    relCheck(count($post->tags()->get()) === $beforeCount && RelTag::whereLabel('rollback-me')->first() === null, 'pivot attach rolls back with transaction');
+    relCheck(count($post->tags()->get()) === $beforeCount && Tag::whereLabel('rollback-me')->first() === null, 'pivot attach rolls back with transaction');
 } finally {
     $scope->close();
 }

@@ -78,9 +78,9 @@ public function items(): \Loom\HasMany
     return $this->hasMany(OrderItem::class);
 }
 
-public function tags(): \Loom\BelongsToMany
+public function users(): \Loom\BelongsToMany
 {
-    return $this->belongsToMany(RelTag::class, 'rel_post_tag');
+    return $this->belongsToMany(\Loom\Models\User::class, 'admin_user_roles');
 }
 
 $order->user()->first();
@@ -88,9 +88,10 @@ $order->items()->where('quantity', '>=', 1)->get();
 Order::with('user', 'items')->get();
 Order::with('user.account')->get();
 $order->load('items');
+\App\Models\Access\Role::with('users')->get();
 ```
 
-在受保护方法 `belongsTo` / `hasOne` / `hasMany` / `belongsToMany` 上省略键名时：`belongsTo` 使用父表 `snake(关联类短名)_id` 作外键，关联表单字段主键作属主键；`hasOne` / `hasMany` 在子表使用 `snake(父类短名)_id`，父表单字段主键作本地键；`belongsToMany` **必须**提供真实中间表名，省略时中间表键默认为 `{父短名}_id` 与 `{关联短名}_id`。父模型为复合主键且未显式给出单字段本地/属主键、或父子连接名不一致、或关系方法不存在/未返回 `Relation` 时抛出 `LogicException`。
+在受保护方法 `belongsTo` / `hasOne` / `hasMany` / `belongsToMany` 上省略键名时：`belongsTo` 使用父表 `snake(关联类短名)_id` 作外键，关联表单字段主键作所有者键；`hasOne` / `hasMany` 在子表使用 `snake(父类短名)_id`，父表单字段主键作本地键；`belongsToMany` **必须**提供真实中间表名，省略时中间表键默认为 `{父短名}_id` 与 `{关联短名}_id`。父模型为复合主键且未显式给出单字段本地/所有者键、或父子连接名不一致、或关系方法不存在/未返回 `Relation` 时抛出 `LogicException`。
 
 **缓存：** 在父实例上，对**未再加条件**的同一关系，首次 `get()` / `first()` 的结果会缓存；之后同样不加分支的 `get()` / `first()` 不再查库。一旦链上带有 `where`、`orderBy`、`limit` 等，则发新查询且不用缓存。
 

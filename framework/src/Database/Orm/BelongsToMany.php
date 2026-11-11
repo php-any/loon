@@ -102,8 +102,9 @@ final class BelongsToMany extends Relation
     public function attach(int|array $ids): void
     {
         foreach ($this->normalizeIds($ids) as $id) {
-            $this->insertPivot((int)$id);
+            $this->insertPivot($id);
         }
+        $this->clearCache();
     }
 
     /**
@@ -139,7 +140,11 @@ final class BelongsToMany extends Relation
     {
         $parentId = $this->parentValue($this->localKey);
         $current = $this->pivotRelatedIds($parentId);
-        $ids = array_values(array_unique(array_map(intval(...), $ids)));
+        $normalized = [];
+        foreach ($ids as $id) {
+            $normalized[] = (int)$id;
+        }
+        $ids = array_values(array_unique($normalized));
         $detach = array_diff($current, $ids);
         $attach = array_diff($ids, $current);
         if ($detach !== []) {
@@ -149,13 +154,6 @@ final class BelongsToMany extends Relation
             $this->attach($attach);
         }
         $this->clearCache();
-    }
-
-    private function clearCache(): void
-    {
-        if ($this->parent instanceof Model) {
-            $this->parent->forgetRelationCache($this->name);
-        }
     }
 
     private function insertPivot(int $relatedId): void
@@ -174,6 +172,11 @@ final class BelongsToMany extends Relation
      */
     private function normalizeIds(int|array $ids): array
     {
-        return array_values(array_unique(array_map(intval(...), is_array($ids) ? $ids : [$ids])));
+        $list = is_array($ids) ? $ids : [$ids];
+        $normalized = [];
+        foreach ($list as $id) {
+            $normalized[] = (int)$id;
+        }
+        return array_values(array_unique($normalized));
     }
 }
