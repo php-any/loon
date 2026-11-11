@@ -27,6 +27,7 @@ final class ScopeMonitoring
                 $collect = MonitoringCollector::shouldCollect($scope->get(MonitoringOptions::class), $active);
             }
             $run = static function () use ($scope, $active, $operation, $collect): mixed {
+                $monitoring = null;
                 if ($collect && $scope->has(Monitoring::class)) {
                     $monitoring = $scope->get(Monitoring::class);
                     if ($monitoring instanceof ConfigurableMonitoring) {
@@ -34,7 +35,12 @@ final class ScopeMonitoring
                     }
                     $monitoring->begin($active);
                 }
-                return $operation($scope);
+                ActiveMonitoring::push($monitoring);
+                try {
+                    return $operation($scope);
+                } finally {
+                    ActiveMonitoring::pop();
+                }
             };
             if (\function_exists('Loom\\Native\\withCorrelation')) {
                 return \Loom\Native\withCorrelation($correlation, $run);

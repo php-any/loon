@@ -56,6 +56,7 @@ final class LocalFilesystemDisk implements FilesystemDisk
         if (file_put_contents($path, $contents) === false) {
             throw new \RuntimeException('Cannot write file: ' . $key);
         }
+        FilesystemMonitor::write($this->name, $key, strlen($contents));
     }
 
     public function get(string $key): string
@@ -70,6 +71,7 @@ final class LocalFilesystemDisk implements FilesystemDisk
         if ($contents === false) {
             throw new \RuntimeException('Cannot read file: ' . $key);
         }
+        FilesystemMonitor::read($this->name, $key, strlen($contents));
         return $contents;
     }
 
@@ -89,6 +91,7 @@ final class LocalFilesystemDisk implements FilesystemDisk
         $path = $this->absolutePath($key);
         if (is_file($path)) {
             unlink($path);
+            FilesystemMonitor::delete($this->name, $key);
         }
     }
 
@@ -115,6 +118,9 @@ final class LocalFilesystemDisk implements FilesystemDisk
         if (!rename($fromPath, $toPath)) {
             throw new \RuntimeException('Cannot move file: ' . $from);
         }
+        $size = filesize($toPath);
+        FilesystemMonitor::write($this->name, $toKey, is_int($size) ? $size : 0);
+        FilesystemMonitor::delete($this->name, $fromKey);
     }
 
     public function files(string $directory = ''): array
@@ -185,6 +191,7 @@ final class LocalFilesystemDisk implements FilesystemDisk
         if ($contents === false) {
             throw new HttpError(500, 'Cannot read file');
         }
+        FilesystemMonitor::serve($this->name, $key, is_int($size) ? $size : 0);
         return new Response($contents, 200, ['Content-Type' => FilesystemMime::fromPath($path)]);
     }
 

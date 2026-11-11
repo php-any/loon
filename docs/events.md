@@ -31,6 +31,6 @@ $events->dispatch(new OrderPaid($orderId));
 
 ## 监控
 
-活动监控会话且 `watchers.events` 开启时，会调用 `Monitoring::recordEvent('app.event', ['name' => 事件类名, 'listeners' => N])`，不记录负载。
+活动监控会话且 `watchers.events` 开启时，会调用 `Monitoring::recordEvent('app.event', ['name' => 事件类名, 'listeners' => N])`。**不记录**事件负载或监听器内的业务字段；条目归入通用 Events 观测桶（`/monitoring/events` 与 `watchers.events`），不要与 `queue.*`、`filesystem.*` 等前缀桶混淆。
 
 队列异步监听、模型生命周期与 dispatch-after-commit 不在 v1 范围内。

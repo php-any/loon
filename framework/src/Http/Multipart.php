@@ -91,7 +91,7 @@ final class Multipart
                 if (!isset($files[$name])) {
                     $files[$name] = [];
                 }
-                $files[$name][] = new UploadedFile($filename, $fileType, strlen($content), $content);
+                $files[$name][] = new UploadedFile($filename, $fileType, strlen($content), $content, $name);
                 continue;
             }
             if (!isset($fields[$name])) {

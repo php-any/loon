@@ -17,6 +17,7 @@ return [
         'queue' => ['enabled' => true],
         'schedule' => ['enabled' => true],
         'events' => ['enabled' => true],
+        'filesystem' => ['enabled' => true],
         'tcp' => ['enabled' => true],
         'grpc' => ['enabled' => true],
     ],

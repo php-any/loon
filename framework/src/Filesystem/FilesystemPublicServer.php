@@ -71,6 +71,7 @@ final class FilesystemPublicServer
         if ($contents === false) {
             throw new HttpError(500, 'Cannot read file');
         }
+        FilesystemMonitor::serve($disk->name(), $key, is_int($size) ? $size : 0);
         return new Response($contents, 200, ['Content-Type' => FilesystemMime::fromPath($resolved)]);
     }
 }

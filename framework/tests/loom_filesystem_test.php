@@ -15,7 +15,77 @@ $root = sys_get_temp_dir() . '/loom-fs-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
 file_put_contents($root . '/config/modules.php', '<?php return [];');
 
+$lines = [];
+
 try {
+    $builder = Loom\Application::createBuilder($root);
+    $builder->monitoring->replaceMonitoring(static function (Loom\ServiceResolver $resolver) use (&$lines): Loom\Monitoring\Monitoring {
+        $configured = new Loom\Monitoring\ConfigurableMonitoring(
+            $resolver->get(Loom\Monitoring\MonitoringOptions::class),
+            $resolver->get(Loom\Monitoring\MonitoringRegistration::class),
+            null,
+            null,
+            static function (string $line) use (&$lines): void {
+                $lines[] = $line;
+            },
+        );
+        $configured->bindScope($resolver->get(Loom\ServiceScope::class));
+        return $configured;
+    });
+    $app = $builder->build();
+    $app->services->withMonitoredScope(
+        Loom\Monitoring\MonitoringContext::console('fs-monitor'),
+        static function (Loom\ServiceScope $scope): void {
+            $disk = $scope->get(Loom\Filesystem\Filesystem::class)->disk('local');
+            $secret = 'secret-bytes-not-logged';
+            $disk->put('monitored/secret.txt', $secret);
+            $disk->get('monitored/secret.txt');
+            $disk->delete('monitored/secret.txt');
+            $files = $scope->get(Loom\Filesystem\Filesystem::class);
+            $upload = (new Loom\UploadedFile('f.txt', 'text/plain', 3, 'abc', 'doc'))
+                ->withFilesystem($files);
+            $upload->store('uploads', 'local');
+        },
+    );
+    filesystemCheck(count($lines) >= 1, 'filesystem monitoring session');
+    $session = json_decode($lines[count($lines) - 1], true, 64, JSON_THROW_ON_ERROR);
+    $events = array_column($session['entries'] ?? [], 'event');
+    filesystemCheck(in_array('filesystem.write', $events, true), 'filesystem.write recorded');
+    filesystemCheck(in_array('filesystem.read', $events, true), 'filesystem.read recorded');
+    filesystemCheck(in_array('filesystem.delete', $events, true), 'filesystem.delete recorded');
+    filesystemCheck(in_array('filesystem.upload', $events, true), 'filesystem.upload recorded');
+    $encoded = json_encode($session['entries'] ?? [], JSON_THROW_ON_ERROR);
+    filesystemCheck(!str_contains($encoded, 'secret-bytes-not-logged'), 'file contents not in monitoring entries');
+
+    file_put_contents($root . '/config/monitoring.php', "<?php\nreturn ['enabled' => true, 'driver' => 'log', 'watchers' => ['filesystem' => ['enabled' => false]]];\n");
+    $linesOff = [];
+    $offApp = Loom\Application::createBuilder($root)->monitoring->replaceMonitoring(
+        static function (Loom\ServiceResolver $resolver) use (&$linesOff): Loom\Monitoring\Monitoring {
+            $configured = new Loom\Monitoring\ConfigurableMonitoring(
+                $resolver->get(Loom\Monitoring\MonitoringOptions::class),
+                $resolver->get(Loom\Monitoring\MonitoringRegistration::class),
+                null,
+                null,
+                static function (string $line) use (&$linesOff): void {
+                    $linesOff[] = $line;
+                },
+            );
+            $configured->bindScope($resolver->get(Loom\ServiceScope::class));
+            return $configured;
+        },
+    )->build();
+    $offApp->services->withMonitoredScope(
+        Loom\Monitoring\MonitoringContext::console('fs-off'),
+        static function (Loom\ServiceScope $scope): void {
+            $scope->get(Loom\Filesystem\Filesystem::class)->disk('local')->put('off/line.txt', 'x');
+        },
+    );
+    $sessionOff = json_decode($linesOff[count($linesOff) - 1], true, 64, JSON_THROW_ON_ERROR);
+    $offEvents = array_column($sessionOff['entries'] ?? [], 'event');
+    filesystemCheck(!in_array('filesystem.write', $offEvents, true), 'filesystem watcher off');
+    $offApp->dispose();
+    unlink($root . '/config/monitoring.php');
+
     $builder = Loom\Application::createBuilder($root);
     $app = $builder->build();
     $app->services->withScope(static function (Loom\ServiceScope $scope) use ($root): void {

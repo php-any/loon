@@ -116,8 +116,41 @@ try {
                 static fn (array $entry): bool => ($entry['event'] ?? '') === 'app.event',
             ));
             eventsCheck($appEvents !== [] && ($appEvents[0]['name'] ?? '') === EventsTestPaid::class, 'app.event recorded');
+            eventsCheck(!array_key_exists('orderId', $appEvents[0]), 'app.event does not record payload');
+            eventsCheck(($appEvents[0]['listeners'] ?? 0) === 2, 'app.event listener count');
         },
     );
+
+    file_put_contents($root . '/config/monitoring.php', "<?php\nreturn ['enabled' => true, 'driver' => 'log', 'watchers' => ['events' => ['enabled' => false], 'filesystem' => ['enabled' => true]]];\n");
+    $linesOff = [];
+    $offBuilder = Loom\Application::createBuilder($root);
+    $offBuilder->events->listen(EventsTestPaid::class, EventsTestReceipt::class);
+    $offBuilder->monitoring->replaceMonitoring(static function (Loom\ServiceResolver $resolver) use (&$linesOff): Loom\Monitoring\Monitoring {
+        $configured = new Loom\Monitoring\ConfigurableMonitoring(
+            $resolver->get(Loom\Monitoring\MonitoringOptions::class),
+            $resolver->get(Loom\Monitoring\MonitoringRegistration::class),
+            null,
+            null,
+            static function (string $line) use (&$linesOff): void {
+                $linesOff[] = $line;
+            },
+        );
+        $configured->bindScope($resolver->get(Loom\ServiceScope::class));
+        return $configured;
+    });
+    $offApp = $offBuilder->build();
+    EventsTestReceipt::$count = 0;
+    $offApp->services->withMonitoredScope(
+        Loom\Monitoring\MonitoringContext::console('events-off'),
+        static function (Loom\ServiceScope $scope): void {
+            $scope->get(Loom\Events\EventDispatcher::class)->dispatch(new EventsTestPaid(1));
+        },
+    );
+    eventsCheck(EventsTestReceipt::$count === 1, 'dispatch works when events watcher off');
+    $sessionOff = json_decode($linesOff[count($linesOff) - 1], true, 64, JSON_THROW_ON_ERROR);
+    $offEvents = array_column($sessionOff['entries'] ?? [], 'event');
+    eventsCheck(!in_array('app.event', $offEvents, true), 'events watcher off skips app.event');
+    $offApp->dispose();
 
     $failBuilder = Loom\Application::createBuilder($root);
     $failBuilder->events
@@ -162,6 +195,9 @@ try {
     $reentrantApp->dispose();
     $app->dispose();
 } finally {
+    if (is_file($root . '/config/monitoring.php')) {
+        unlink($root . '/config/monitoring.php');
+    }
     unlink($root . '/config/modules.php');
     rmdir($root . '/config');
     rmdir($root);

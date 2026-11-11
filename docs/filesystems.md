@@ -32,3 +32,7 @@ Loom 提供可选的 `config/filesystems.php`，由 `Options::bindOptional` 绑�
 磁盘点 `serve => true` 且配置了 `url` 时，`HttpServer` 会在内核与中间件之前按前缀提供文件（与 `/assets/` 相同语义）：仅 GET/HEAD、4 MiB 上限、路径不能越出磁盘根目录、按扩展名设置 Content-Type，`.php` 与未知类型为 `application/octet-stream` 且不执行。
 
 `build()` 之前可通过 `$builder->filesystems->extend('s3', ...)` 注册自定义驱动工厂；v1 仅内置 `local` 驱动。
+
+## 监控
+
+在已 `begin()` 的 Monitoring 会话中，且 `config/monitoring.php` 的 `watchers.filesystem.enabled` 为真时，磁盘与上传会写入 `filesystem.*` 条目（例如 `filesystem.write`、`filesystem.read`、`filesystem.delete`、`filesystem.upload`、`filesystem.serve`）。字段包含磁盘名、对象键或表单字段名、以及已知时的 `size`。**从不**记录文件正文或上传字节。会话未激活或 watcher 关闭时不写入。仪表盘提供 `/monitoring/filesystem` 列表（`driver=database` 时），会话详情时间线中同样可见。

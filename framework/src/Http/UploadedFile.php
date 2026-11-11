@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 use Loom\Filesystem\Filesystem;
+use Loom\Filesystem\FilesystemMonitor;
 use Loom\Filesystem\FilesystemPath;
 
 /**
@@ -17,6 +18,7 @@ final class UploadedFile
         private readonly string $declaredContentType,
         private readonly int $size,
         private readonly string $contents,
+        private readonly string $fieldName = '',
         private readonly ?Filesystem $filesystem = null,
     ) {
     }
@@ -28,6 +30,7 @@ final class UploadedFile
             $this->declaredContentType,
             $this->size,
             $this->contents,
+            $this->fieldName,
             $filesystem,
         );
     }
@@ -72,7 +75,9 @@ final class UploadedFile
             $name .= '.' . $extension;
         }
         $key = $directory === '' ? $name : $directory . '/' . $name;
-        $this->filesystem->disk($disk)->put($key, $this->contents);
+        $target = $this->filesystem->disk($disk);
+        $target->put($key, $this->contents);
+        FilesystemMonitor::upload($target->name(), $this->fieldName, $key, $this->size);
         return $key;
     }
 
