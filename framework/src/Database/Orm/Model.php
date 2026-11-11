@@ -12,6 +12,11 @@ namespace Loom;
  */
 abstract class Model
 {
+    private ?Database $relationDatabase = null;
+
+    /** @var array<string, array<int, object>> */
+    private array $relationCache = [];
+
     /**
      * 这个模型使用的连接名。null 或空字符串表示 config/database.php 的 default。
      */
@@ -322,10 +327,106 @@ abstract class Model
      */
     public static function __callStatic(string $method, array $arguments): mixed
     {
-        if (in_array($method, ['get', 'first', 'firstOrFail', 'rows', 'firstRow', 'select', 'groupBy', 'orderBy', 'limit', 'offset', 'count', 'exists', 'sum', 'pluck', 'paginate', 'whereIn', 'update', 'delete', 'insertOrIgnore', 'upsert', 'aggregate'], true)) {
+        if (in_array($method, ['get', 'first', 'firstOrFail', 'rows', 'firstRow', 'select', 'groupBy', 'orderBy', 'limit', 'offset', 'count', 'exists', 'sum', 'pluck', 'paginate', 'whereIn', 'update', 'delete', 'insertOrIgnore', 'upsert', 'aggregate', 'with', 'has', 'whereHas', 'whereDoesntHave'], true)) {
             return static::query()->{$method}(...$arguments);
         }
         return static::where(static::dynamicField($method, $arguments), $arguments[0]);
+    }
+
+    /**
+     * 在唯一活动作用域上创建查询并登记预加载关系。
+     *
+     * @param mixed ...$relations 关系名或带约束的关联数组项。
+     */
+    public static function with(mixed ...$relations): ModelQuery
+    {
+        return static::query()->with(...$relations);
+    }
+
+    public function setRelationDatabase(?Database $database): void
+    {
+        $this->relationDatabase = $database;
+    }
+
+    public function relationDatabase(): Database
+    {
+        return $this->relationDatabase ?? ModelContext::database();
+    }
+
+    public function hasRelationCache(string $name): bool
+    {
+        return array_key_exists($name, $this->relationCache);
+    }
+
+    /**
+     * @return array<int, object>
+     */
+    public function relationCache(string $name): array
+    {
+        return $this->relationCache[$name] ?? [];
+    }
+
+    /**
+     * @param array<int, object> $records
+     */
+    public function storeRelationCache(string $name, array $records): void
+    {
+        $this->relationCache[$name] = $records;
+    }
+
+    public function forgetRelationCache(string $name): void
+    {
+        unset($this->relationCache[$name]);
+    }
+
+    /**
+     * 在当前实例上预加载关系。
+     *
+     * @param mixed ...$relations
+     */
+    public function load(mixed ...$relations): void
+    {
+        $database = $this->relationDatabase();
+        RelationLoader::eagerLoad([$this], RelationLoader::parse($relations), $database);
+    }
+
+    protected function belongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): BelongsTo
+    {
+        $relation = new BelongsTo($this, $related, $this->relationDatabase(), $foreignKey, $ownerKey);
+        $relation->setName($this->guessRelationName());
+        return $relation;
+    }
+
+    protected function hasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): HasOne
+    {
+        $relation = new HasOne($this, $related, $this->relationDatabase(), $foreignKey, $localKey);
+        $relation->setName($this->guessRelationName());
+        return $relation;
+    }
+
+    protected function hasMany(string $related, ?string $foreignKey = null, ?string $localKey = null): HasMany
+    {
+        $relation = new HasMany($this, $related, $this->relationDatabase(), $foreignKey, $localKey);
+        $relation->setName($this->guessRelationName());
+        return $relation;
+    }
+
+    protected function belongsToMany(
+        string $related,
+        string $pivotTable,
+        ?string $foreignPivotKey = null,
+        ?string $relatedPivotKey = null,
+        ?string $localKey = null,
+    ): BelongsToMany {
+        $relation = new BelongsToMany($this, $related, $this->relationDatabase(), $pivotTable, $foreignPivotKey, $relatedPivotKey, $localKey);
+        $relation->setName($this->guessRelationName());
+        return $relation;
+    }
+
+    private function guessRelationName(): string
+    {
+        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+        return $trace[1]['function'] ?? 'relation';
     }
     /**
      * 遍历已初始化的公共实例属性，按映射列名输出数据。

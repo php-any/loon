@@ -61,7 +61,47 @@ User::whereTeamId(7)->whereId($user->id)->delete();
 
 普通业务查询直接写 `Task::whereUserId($id)->delete()`。它使用当前作用域的数据库；查询创建在 `transaction()` 回调里时，使用该回调的事务。必须使用另一个 Database 实例时，才把它传给 `Model::using($database)`。`insertOrIgnore($attributes, $unique)` 与 `upsert($attributes, $unique, $update)` 使用查询创建时的数据库做冲突处理，保留通知去重等原子性，不以先查询再插入替代唯一约束。
 
-模型字段应声明在具体模型上；当前原生 ORM 不完整支持从业务父类继承字段。`all()` 没有隐式 1000 条上限，大表请显式 limit。此基类不提供关系预加载、自动迁移或实例 save 的脏字段追踪。
+模型字段应声明在具体模型上；当前原生 ORM 不完整支持从业务父类继承字段。`all()` 没有隐式 1000 条上限，大表请显式 limit。此基类不提供自动迁移或实例 `save()` 的脏字段追踪。
+
+## 关系
+
+关系通过**公共实例方法**定义，返回 `BelongsTo`、`HasOne`、`HasMany` 或 `BelongsToMany` 对象；不要在模型上声明关系属性，也不要用魔术访问。可在返回对象上继续 `where` / `orderBy` / `limit` 等，再 `first()` 或 `get()`（`belongsTo` / `hasOne` 的 `get()` 仍是数组，最多一条）。
+
+```php
+public function user(): \Loom\BelongsTo
+{
+    return $this->belongsTo(\Loom\Models\User::class);
+}
+
+public function items(): \Loom\HasMany
+{
+    return $this->hasMany(OrderItem::class);
+}
+
+public function tags(): \Loom\BelongsToMany
+{
+    return $this->belongsToMany(RelTag::class, 'rel_post_tag');
+}
+
+$order->user()->first();
+$order->items()->where('quantity', '>=', 1)->get();
+Order::with('user', 'items')->get();
+Order::with('user.account')->get();
+$order->load('items');
+```
+
+在受保护方法 `belongsTo` / `hasOne` / `hasMany` / `belongsToMany` 上省略键名时：`belongsTo` 使用父表 `snake(关联类短名)_id` 作外键，关联表单字段主键作属主键；`hasOne` / `hasMany` 在子表使用 `snake(父类短名)_id`，父表单字段主键作本地键；`belongsToMany` **必须**提供真实中间表名，省略时中间表键默认为 `{父短名}_id` 与 `{关联短名}_id`。父模型为复合主键且未显式给出单字段本地/属主键、或父子连接名不一致、或关系方法不存在/未返回 `Relation` 时抛出 `LogicException`。
+
+**缓存：** 在父实例上，对**未再加条件**的同一关系，首次 `get()` / `first()` 的结果会缓存；之后同样不加分支的 `get()` / `first()` 不再查库。一旦链上带有 `where`、`orderBy`、`limit` 等，则发新查询且不用缓存。
+
+**存在性过滤**（走参数化 `EXISTS` / `NOT EXISTS`，参与 `transaction()` 中的模型查询）：
+
+- `Model::has('items')` / `whereHas('items', $constraint)` / `whereDoesntHave('items', $constraint)`
+- 也可在 `ModelQuery` 上链式调用；空 `whereIn` 列表按无匹配行处理（不会生成非法 `IN ()`）。
+
+**关系写入（不含父行 `save()`）：** `hasOne` / `hasMany` 的 `create($attributes)` 会写入外键；`belongsToMany` 提供 `attach` / `detach` / `sync`（仅中间表两列键，无 `withPivot`）。未实现 `belongsTo` 的 `associate` / `dissociate`。
+
+**尚未支持：** 脏字段追踪、实例 `save()`、嵌套事务、morph*、`hasManyThrough`、关系属性访问、`withCount`、中间表额外列、级联删除。
 
 增加了宿主扩展，拉取源码后需运行 `./scripts/build.ps1` 重新构建运行时。
 
