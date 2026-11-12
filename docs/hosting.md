@@ -76,7 +76,7 @@ $app = (static function () {
 | `run(?array $args)` | `app.Run()`，这里执行一条命令 |
 | `services` / `configuration` | `app.Services` / `app.Configuration` |
 
-中间件可以是类名（每个请求从作用域解析）、`Middleware` 实例或 `(Request $request, callable $next): Response` 闭包，按登记顺序执行。路由处理器可以是 `[控制器, 方法]`、可调用类名或闭包。
+中间件可以是类名（每个请求从作用域解析）、`Middleware` 实例或 `(Request $request, callable $next): Response` 闭包，按登记顺序执行。路由处理器可以是 `[控制器, 方法]` 或非字符串闭包。
 
 映射方法只在启动阶段调用。`serve` 开始监听后，请求虚拟机里的修改不会留给其他请求。
 

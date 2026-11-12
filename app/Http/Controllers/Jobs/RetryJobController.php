@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Jobs;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 use Loom\Models\Job;
 use Loom\HttpError;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('POST', '/api/studio/jobs/{id}/retry', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
-final class RetryJobController implements Action
+final class RetryJobController
 {
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('POST', '/api/studio/jobs/{id}/retry', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    public function retry(Request $request): Response
     {
         $user = $request->attribute('user');
         $affected = Job::whereId($request->parameter('id'))->whereOwner($user['id'])->whereState('failed')

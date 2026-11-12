@@ -79,7 +79,7 @@ loom_check($provider->createScope()->get(LoomTestService::class) !== $container-
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(LoomTestGet::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-class LoomTestGet implements Loom\Action
+class LoomTestGet
 {
     /**
      * 读取已绑定的 id 路由参数并生成 JSON。
@@ -90,7 +90,7 @@ class LoomTestGet implements Loom\Action
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $handler($request->withParameters(['id' => '7']));
      */
-    public function __invoke(Loom\Request $request): Loom\Response
+    public function handle(Loom\Request $request): Loom\Response
     {
         return Loom\Response::json(['id' => $request->parameter('id')]);
     }
@@ -105,7 +105,7 @@ class LoomTestGet implements Loom\Action
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(LoomTestHead::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-class LoomTestHead implements Loom\Action
+class LoomTestHead
 {
     /**
      * 构建用于 HEAD 路由测试的空响应。
@@ -116,7 +116,7 @@ class LoomTestHead implements Loom\Action
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $handler($request);
      */
-    public function __invoke(Loom\Request $request): Loom\Response
+    public function handle(Loom\Request $request): Loom\Response
     {
         return new Loom\Response('', 202);
     }
@@ -129,8 +129,8 @@ try {
     rmdir($root . '/config');
     rmdir($root);
 }
-$app->map('GET', '/items/{id}', LoomTestGet::class);
-$app->map('HEAD', '/items/{id}', LoomTestHead::class);
+$app->map('GET', '/items/{id}', [LoomTestGet::class, 'handle']);
+$app->map('HEAD', '/items/{id}', [LoomTestHead::class, 'handle']);
 $request = new Loom\Request(['method' => 'GET', 'path' => '/items/abc', 'body' => '', 'query' => [], 'headers' => []]);
 loom_check($app->handle($request)->toArray()['body'] === '{"id":"abc"}', 'route parameter');
 $missing = false;

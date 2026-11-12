@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Projects;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 use App\Models\Projects\Task;
@@ -15,8 +14,7 @@ use Loom\Models\Job;
 use Loom\Models\ScheduledJob;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('GET', '/api/studio/state', 'studio.state', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
-final class StateController implements Action
+final class StateController
 {
     private \App\Repositories\Projects\ProjectRepository $projects;
 
@@ -25,7 +23,8 @@ final class StateController implements Action
         $this->projects = $projects;
     }
 
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('GET', '/api/studio/state', 'studio.state', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    public function state(Request $request): Response
     {
         $user = $request->attribute('user');
         $id = $user['id'];

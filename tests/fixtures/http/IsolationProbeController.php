@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 namespace Fixtures\Http;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 
-final class IsolationProbeController implements Action
+final class IsolationProbeController
 {
     private int $visits = 0;
     private \Loom\RequestContext $context;
@@ -18,7 +17,7 @@ final class IsolationProbeController implements Action
         $this->context = $context;
         $this->database = $database;
     }
-    public function __invoke(Request $request): Response
+    public function probe(Request $request): Response
     {
         $this->visits++;
         $token = $request->header('x-loom-probe');

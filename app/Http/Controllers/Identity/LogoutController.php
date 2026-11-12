@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Identity;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
-use Loom\Auth;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('POST', '/api/studio/logout')]
-final class LogoutController implements Action
+final class LogoutController
 {
     private \Loom\Auth $auth;
     private \App\Services\Access\Admin $admin;
@@ -22,7 +19,8 @@ final class LogoutController implements Action
         $this->admin = $admin;
     }
 
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('POST', '/api/studio/logout')]
+    public function logout(Request $request): Response
     {
         $user = $this->auth->guard();
         $session = $this->auth->logout();

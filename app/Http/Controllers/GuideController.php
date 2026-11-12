@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 use App\Presentation\SitePages;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('GET', '/guide', '', [])]
-final class GuideController implements Action
+final class GuideController
 {
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('GET', '/guide', '', [])]
+    public function page(Request $request): Response
     {
         return SitePages::page('guide', '从第一行，到一个完整响应');
     }

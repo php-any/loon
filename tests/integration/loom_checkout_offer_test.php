@@ -21,7 +21,7 @@ try {
     $app->services->withScope(static function (\Loom\ServiceScope $scope) use ($offer): void {
         checkoutOfferCheck($scope->get(\App\Services\Customers\CheckoutOffer::class) === $offer, 'Scopes share the singleton offer');
         $request = new \Loom\Request(['method' => 'GET', 'path' => '/', 'headers' => [], 'query' => [], 'body' => '']);
-        $home = $scope->get(\App\Http\Controllers\HomeController::class)($request)->toArray()['body'];
+        $home = $scope->get(\App\Http\Controllers\HomeController::class)->page($request)->toArray()['body'];
         $account = $scope->get(\App\Http\Controllers\CustomerController::class)->page($request)->toArray()['body'];
         checkoutOfferCheck(str_contains($home, 'Loom 体验套餐') && str_contains($home, '¥99.00'), 'Home page shows the configured offer');
         checkoutOfferCheck(str_contains($account, '确认模拟支付 ¥99.00'), 'Account page shows the configured price');

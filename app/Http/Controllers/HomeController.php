@@ -6,13 +6,11 @@ namespace App\Http\Controllers;
 
 use App\Presentation\SitePages;
 use App\Services\Customers\CheckoutOffer;
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('GET', '/', '', [])]
-final class HomeController implements Action
+final class HomeController
 {
     private CheckoutOffer $offer;
 
@@ -21,7 +19,8 @@ final class HomeController implements Action
         $this->offer = $offer;
     }
 
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('GET', '/', '', [])]
+    public function page(Request $request): Response
     {
         return SitePages::page('home', '从一次体验，开启更多可能', [
             'planName' => $this->offer->name(),

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Projects;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 use Loom\HttpError;
@@ -12,10 +11,10 @@ use App\Models\Projects\Task;
 use App\Models\Projects\Project;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('POST', '/api/studio/tasks', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
-final class CreateTaskController implements Action
+final class CreateTaskController
 {
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('POST', '/api/studio/tasks', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    public function create(Request $request): Response
     {
         $user = $request->attribute('user');
         $input = $request->attribute('input')->only(['title', 'project_id']);

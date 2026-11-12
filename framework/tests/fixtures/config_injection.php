@@ -357,7 +357,7 @@ class ConfigControllerProbe
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $controller($request);
      */
-    public function __invoke(\Loom\Request $request): \Loom\Response {
+    public function configured(\Loom\Request $request): \Loom\Response {
         return new \Loom\Response($this->name);
     }
 }
