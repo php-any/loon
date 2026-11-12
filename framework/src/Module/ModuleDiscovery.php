@@ -6,6 +6,7 @@ namespace Loom;
 
 use Loom\Attributes\Module;
 use Loom\Attributes\HttpRoute;
+use Loom\Attributes\WebSocket;
 use Loom\Attributes\Job;
 use Database\Annotation\Table;
 
@@ -306,6 +307,20 @@ final class ModuleDiscovery
                     $route = $attribute->newInstance();
                     $this->appendRoute($reflection, $prefix, $classMiddleware, $route->method, $route->path, $route->name, $route->middleware, $route->websocket, $method->getName());
                 }
+            }
+            $socketRoutes = $method->getAttributes(WebSocket::class);
+            if ($socketRoutes !== []) {
+                if ($mappingFound || $httpRoutes !== []) {
+                    throw new \LogicException('WebSocket conflicts with HTTP mapping on ' . $class . '::' . $method->getName());
+                }
+                if (count($socketRoutes) > 1) {
+                    throw new \LogicException('Duplicate WebSocket on ' . $class . '::' . $method->getName());
+                }
+                if (!$reflection->isInstantiable()) {
+                    throw new \LogicException('WebSocket handler must be concrete: ' . $class);
+                }
+                $socket = $socketRoutes[0]->newInstance();
+                $this->appendRoute($reflection, $prefix, $classMiddleware, 'GET', $socket->path, $socket->name, $socket->middleware, true, $method->getName());
             }
         }
         $job = self::attribute($reflection, \Loom\Attributes\Job::class);
