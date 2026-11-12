@@ -27,6 +27,12 @@ final class MonitoringEventBuckets
         if (str_starts_with($name, 'cache.')) {
             return 'cache';
         }
+        if (str_starts_with($name, 'websocket.')) {
+            return 'websocket';
+        }
+        if (str_starts_with($name, 'im.')) {
+            return 'im';
+        }
         return null;
     }
 }

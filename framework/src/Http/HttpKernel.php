@@ -105,7 +105,7 @@ final class HttpKernel
             return $pipeline->run($request->withParameters($match->parameters), $match->middleware, function (Request $request) use ($match, $services, $actions): Response {
                 $action = $actions->resolve($match->action);
                 if ($match->websocket) {
-                    return $services->get(\Loom\WebSocket::class)->dispatch($action, $request);
+                    return $services->get(\Loom\WebSocket::class)->dispatch($action, $request, $services);
                 }
                 $response = Invoker::call($action, $services, [$request]);
                 if (!($response instanceof Response)) {

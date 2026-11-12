@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/bootstrap.php';
+require __DIR__ . '/fixtures/websocket_framework_fixtures.php';
 
 namespace AnnotationDiscoveryFixtures;
 
@@ -143,6 +144,10 @@ namespace {
 
     $discovery->register(\AnnotationDiscoveryFixtures\SocketController::class);
     checkAnnotationDiscovery($discovery->routes()[2]['websocket'] === true, 'HttpRoute websocket');
+
+    $discovery->register(\WebSocketFrameworkFixtures\EchoSocketHandler::class);
+    $wsRoute = $discovery->routes()[3];
+    checkAnnotationDiscovery($wsRoute['path'] === '/fixture/socket' && $wsRoute['websocket'], 'WebSocket attribute');
 
     $reject(static fn (): mixed => $discovery->register(\AnnotationDiscoveryFixtures\MappingWithoutController::class), 'mapping without Controller');
     $reject(static fn (): mixed => $discovery->register(\AnnotationDiscoveryFixtures\ConflictController::class), 'mapping conflicts with HttpRoute');

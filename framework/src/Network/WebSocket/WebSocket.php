@@ -19,24 +19,15 @@ namespace Loom;
 final class WebSocket
 {
     private \Loom\Auth $auth;
+    private RequestContext $requestContext;
+    private \Loom\WebSocket\HandlerDispatcher $dispatcher;
 
-    /**
-     * 保存认证和请求上下文。构造时不读取当前请求，也不升级连接。
-     *
-     * @param \Loom\Auth $auth accept 时用来 checkOrigin 的认证服务。
-     * @param \Loom\RequestContext $requestContext accept 时用来取当前请求。
-     * @return void 无直接返回值。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $websocket = new WebSocket($auth, $requestContext);
-     */
-    public function __construct(\Loom\Auth $auth, \Loom\RequestContext $requestContext)
+    public function __construct(\Loom\Auth $auth, \Loom\RequestContext $requestContext, \Loom\WebSocket\HandlerDispatcher $dispatcher)
     {
         $this->auth = $auth;
         $this->requestContext = $requestContext;
+        $this->dispatcher = $dispatcher;
     }
-
-    private RequestContext $requestContext;
     /**
      * 先 accept。升级成功后把当前解释器的时间限制设为 0，再把请求和连接交给 action。
      * action 返回或抛错后都会关闭连接；抛错时异常在关闭之后继续抛出。accept 失败时不会调用 action，也不会改时间限制。
@@ -49,14 +40,14 @@ final class WebSocket
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $websocket->dispatch($action, $request);
      */
-    public function dispatch(callable $action, Request $request): Response
+    public function dispatch(callable $action, Request $request, ServiceResolver $services): Response
     {
         $connection = $this->accept();
         // 仅修改已升级请求的解释器执行预算，不影响其他 HTTP 请求。
         // 套接字限制、传输取消和应用认证仍然有效。
         set_time_limit(0);
         try {
-            $action($request, $connection);
+            $this->dispatcher->dispatch($action, $request, $connection, $services);
         } finally {
             $connection->close();
         }

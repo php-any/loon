@@ -121,6 +121,38 @@ final class ScaffoldCommands
             return 0;
         }, '生成带 #[Timer] 注解的定时器类，不覆盖已有文件');
 
+        $console->command('make:websocket {name : PascalCase 处理器类名}', static function (Input $input, Output $output, Config $config): int {
+            $name = $input->argument('name');
+            if (!preg_match('/^[A-Z][A-Za-z0-9]{0,79}$/D', $name)) {
+                throw new InputError('name 必须是单个 PascalCase 类名，不接受路径或命名空间');
+            }
+            if (in_array(strtolower($name), explode(' ', self::RESERVED), true)) {
+                throw new InputError('name 不能是 PHP 保留字');
+            }
+            $directory = $config->root() . '/app/WebSocket/Handlers';
+            if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
+                throw new \RuntimeException('无法创建 WebSocket 处理器目录');
+            }
+            $path = $directory . '/' . $name . '.php';
+            if (file_exists($path)) {
+                throw new InputError('处理器文件已存在，未覆盖：' . $path);
+            }
+            $source = "<?php\ndeclare(strict_types=1);\n\nnamespace App\\WebSocket\\Handlers;\n\n#[\\Container\\Annotation\\Scoped]\nfinal class " . $name . "\n{\n    #[\\Loom\\Attributes\\WebSocket('/api/example/socket', middleware: [])]\n    public function connect(): void {}\n\n    public function onOpen(\\Loom\\Request \$request, \\Net\\Websocket\\Conn \$connection): void {}\n\n    #[\\Loom\\Attributes\\WebSocketMessage('ping')]\n    public function ping(array \$message, \\Net\\Websocket\\Conn \$connection): void\n    {\n        \$connection->writeText(json_encode(['type' => 'pong'], JSON_THROW_ON_ERROR));\n    }\n}\n";
+            $handle = fopen($path, 'x');
+            if ($handle === false) {
+                throw new \RuntimeException('无法独占创建处理器文件');
+            }
+            try {
+                if (fwrite($handle, $source) !== strlen($source)) {
+                    throw new \RuntimeException('处理器文件写入不完整');
+                }
+            } finally {
+                fclose($handle);
+            }
+            $output->info('已创建：' . $path);
+            return 0;
+        }, '生成带 #[WebSocket] 注解的处理器骨架');
+
         $console->command('make:proto {name : PascalCase 名称，例如 User} {--package=app : Protobuf 包名}', static function (Input $input, ProtoTools $tools): int {
             $tools->create($input->argument('name'), $input->option('package'));
             return 0;

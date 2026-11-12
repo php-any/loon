@@ -151,6 +151,9 @@ final class ApplicationBuilder
         $services->addHostedService(TimerHostedService::class);
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
+        $services->tryAddSingleton(\Loom\WebSocket\Hub::class);
+        $services->tryAddScoped(\Loom\WebSocket\HandlerDispatcher::class);
+        $services->tryAddScoped(\Loom\WebSocket::class);
         $services->addScoped(\Loom\Monitoring\CorrelationId::class);
         $services->tryAddScoped(\Loom\Monitoring\Monitoring::class, \Loom\Monitoring\LoggingMonitoring::class);
         $monitoringRegistration = new \Loom\Monitoring\MonitoringRegistration();
