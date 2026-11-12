@@ -22,12 +22,15 @@ function lifecycleCheck(bool $condition, string $message): void
 
 // 匹配定义时绝不能解析控制器或中间件实例。
 $router = new Loom\Router();
-$router->get('/items/{id}', 'UnregisteredController', 'item', ['UnregisteredMiddleware']);
+$router->get('/items/{id}', static function (\Loom\Request $request): \Loom\Response {
+    return new \Loom\Response('unused');
+}, 'item', ['UnregisteredMiddleware']);
 $match = $router->match('HEAD', '/items/7');
 lifecycleCheck($match->status === 200 && $match->parameters['id'] === '7', 'HEAD matches GET without resolution');
 lifecycleCheck($router->match('POST', '/items/7')->allowed === ['GET', 'HEAD'], 'Method mismatch keeps Allow metadata');
 lifecycleCheck($router->match('GET', '/missing')->status === 404, 'Missing path is distinct from method mismatch');
-$router->websocket('/socket', 'UnregisteredSocket');
+$router->websocket('/socket', static function (\Loom\Request $request, \Net\Websocket\Conn $connection): void {
+});
 lifecycleCheck($router->match('GET', '/socket')->websocket, 'WebSocket registration is metadata only');
 
 /**

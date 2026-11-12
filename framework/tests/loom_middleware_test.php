@@ -148,11 +148,17 @@ $GLOBALS['trace'] = [];
 check_middleware($app->handle(new Loom\Request(['method' => 'GET', 'path' => '/root']))->toArray()['body'] === 'root');
 check_middleware($GLOBALS['trace'] === ['global:in', 'global:out']);
 $blocked = middleware_app();
-$blocked->mapGet('/private', 'MustNotResolveController', '', [function ($request, $next) {
+$mustNotResolve = static function (\Loom\Request $request): \Loom\Response {
+    throw new \LogicException('Must not resolve controller');
+};
+$mustNotResolveSocket = static function (\Loom\Request $request, \Net\Websocket\Conn $connection): void {
+    throw new \LogicException('Must not resolve controller');
+};
+$blocked->mapGet('/private', $mustNotResolve, '', [function ($request, $next) {
     return new Loom\Response('denied', 403);
 }, 'MustNotResolveMiddleware']);
 check_middleware($blocked->handle(new Loom\Request(['method' => 'GET', 'path' => '/private']))->toArray()['status'] === 403);
-$blocked->mapWebSocket('/socket', 'MustNotResolveController', '', [function ($request, $next) {
+$blocked->mapWebSocket('/socket', $mustNotResolveSocket, '', [function ($request, $next) {
     throw new Loom\HttpError(401, 'Login required');
 }]);
 check_middleware($blocked->handle(new Loom\Request(['method' => 'GET', 'path' => '/socket']))->toArray()['status'] === 401);
@@ -285,7 +291,8 @@ foreach (['get', 'post', 'put', 'patch', 'delete', 'head', 'options'] as $verb) 
 $fluent->mapGroup('', function ($request, $next) {
     return new Loom\Response('blocked', 403);
 })
-    ->websocket('/socket', 'NeverResolve');
+    ->websocket('/socket', static function (\Loom\Request $request, \Net\Websocket\Conn $connection): void {
+    });
 check_middleware($fluent->handle(new Loom\Request(['method' => 'GET', 'path' => '/socket']))->toArray()['status'] === 403);
 $thrown = false;
 try {
