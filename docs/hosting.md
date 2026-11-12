@@ -138,7 +138,7 @@ $app = $builder->build();
 // 或在 build() 之后：$app->onStop(static function (): void { ... });
 ```
 
-收到信号时的保证：`listen()` 已启用的进程中，先执行已登记的 `onStop` 回调（若有），再 `exit(0)`。不保证：框架不会等待进行中的请求或任务；`Host::stop()` 不会在信号路径上自动调用。`serve` 仍用 `Host::run()` 在正常返回时按相反顺序停止 HostedService；通过信号退出时进程直接结束。
+`ApplicationBuilder::onStop()` 与 `Application::onStop()` 可多次调用；回调按登记顺序累积，停止时依次执行（不会互相覆盖）。收到信号时的保证：`listen()` 已启用的进程中，先执行已登记的全部 `onStop` 回调（若有），再 `exit(0)`。不保证：框架不会等待进行中的请求或任务；`Host::stop()` 不会在信号路径上自动调用。`serve` 仍用 `Host::run()` 在正常返回时按相反顺序停止 HostedService；通过信号退出时进程直接结束。
 
 ## Host 与后台服务
 

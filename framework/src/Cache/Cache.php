@@ -115,7 +115,7 @@ final class Cache
         } else {
             $instance = match ($driver) {
                 'array' => new ArrayCacheStore($name),
-                'redis' => new RedisCacheStore($name),
+                'redis' => new RedisCacheStore($name, (string)($config['connection'] ?? '')),
                 default => throw new \LogicException('Unsupported cache driver: ' . $driver),
             };
         }

@@ -9,19 +9,29 @@ namespace Loom;
  */
 final class RedisCacheStore extends AbstractCacheStore
 {
+    public function __construct(string $name, private readonly string $redisConnection = '')
+    {
+        parent::__construct($name);
+    }
+
     protected function redisKey(string $logicalKey): string
     {
-        return Redis::key('cache:' . $this->name . ':' . $logicalKey);
+        return Redis::key('cache:' . $this->name . ':' . $logicalKey, $this->connectionArg());
     }
 
     protected function flushPattern(): string
     {
-        return Redis::key('cache:' . $this->name . ':*');
+        return Redis::key('cache:' . $this->name . ':*', $this->connectionArg());
+    }
+
+    private function connectionArg(): ?string
+    {
+        return $this->redisConnection !== '' ? $this->redisConnection : null;
     }
 
     protected function readRaw(string $key): ?string
     {
-        $value = Redis::command(['GET', $this->redisKey($key)]);
+        $value = Redis::command(['GET', $this->redisKey($key)], $this->connectionArg());
         if ($value === null) {
             return null;
         }
@@ -35,26 +45,26 @@ final class RedisCacheStore extends AbstractCacheStore
     {
         $redisKey = $this->redisKey($key);
         if ($ttlSeconds === null) {
-            Redis::command(['SET', $redisKey, $payload]);
+            Redis::command(['SET', $redisKey, $payload], $this->connectionArg());
             return;
         }
-        Redis::command(['SETEX', $redisKey, (string)$ttlSeconds, $payload]);
+        Redis::command(['SETEX', $redisKey, (string)$ttlSeconds, $payload], $this->connectionArg());
     }
 
     protected function deleteRaw(string $key): void
     {
-        Redis::command(['DEL', $this->redisKey($key)]);
+        Redis::command(['DEL', $this->redisKey($key)], $this->connectionArg());
     }
 
     protected function incrementRaw(string $key, int $step): int
     {
         $redisKey = $this->redisKey($key);
         if ($step === 1) {
-            $value = Redis::command(['INCR', $redisKey]);
+            $value = Redis::command(['INCR', $redisKey], $this->connectionArg());
         } elseif ($step === -1) {
-            $value = Redis::command(['DECR', $redisKey]);
+            $value = Redis::command(['DECR', $redisKey], $this->connectionArg());
         } else {
-            $value = Redis::command(['INCRBY', $redisKey, (string)$step]);
+            $value = Redis::command(['INCRBY', $redisKey, (string)$step], $this->connectionArg());
         }
         if ($value === null || !(is_int($value) || is_string($value))) {
             throw new \LogicException('Cache increment failed');
@@ -65,6 +75,7 @@ final class RedisCacheStore extends AbstractCacheStore
     protected function flushRaw(): void
     {
         $pattern = $this->flushPattern();
+        $connection = $this->connectionArg();
         Redis::using(static function (\Redis $client) use ($pattern): void {
             $cursor = '0';
             do {
@@ -92,6 +103,6 @@ final class RedisCacheStore extends AbstractCacheStore
                     Redis::execute($client, array_merge(['DEL'], $slice));
                 }
             } while ($cursor !== '0');
-        });
+        }, $connection);
     }
 }

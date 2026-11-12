@@ -36,6 +36,8 @@ MySQL 连接在驱动 DSN 里设置 `sql_mode` 和 `transaction_isolation`，物
 
 Redis 传输直接复用 Origami 可选原生模块 `std/php/redis`，宿主在初始化时显式注册，部署需要重新构建匹配的 `loom` 程序。Loom 不再维护自有 RESP 客户端。连接在显式作用域内使用并关闭，原生模块处理超时、请求取消、认证和 TLS；不自动重试可能已被 Redis 执行的写操作。不宣称兼容完整 phpredis 或 Laravel Redis，也不启用原生模块尚未支持的持久连接池、Cluster、Sentinel 或自动 backoff。
 
+命名连接见 `config/redis.php`：`default` 连接名与历史 `LOOM_REDIS_URL` / `LOOM_REDIS_PREFIX` 一致。缓存 `redis` 存储可在 `stores.*.connection` 中引用连接名；队列见 `config/queue.php` 的 `connection`（Redis 连接）与可选 `name`（Stream 键后缀）。`Application::build()` 会把 `RedisOptions` 绑定到 `Redis::bindOptions()`，脚本侧 `Redis::command()` / `using()` 的 `$connection` 参数可显式选择命名连接。
+
 ## 队列与会话语义
 
 - `Queue::dispatch()` 以 Redis Stream 为投递源；无事务时立即 `XADD`，事务内在提交后才入队，回滚不入队。可选写入 `loom_jobs` 归档，失败不阻塞 Stream。
@@ -44,7 +46,7 @@ Redis 传输直接复用 Origami 可选原生模块 `std/php/redis`，宿主在�
 - 登录会话仅保存在 Redis，键使用令牌 SHA-256 摘要，TTL 为 24 小时。密码重置和停用通过 MySQL `auth_version` 在同一事务中撤销会话，Redis 中残留的旧会话立即失效。会话丢失要求重新登录。
 - 通知及账户邮件保留各自事务 outbox 与投递审计，由 `admin:notify`、`admin:mail` 投递，不混入业务任务处理器。
 
-队列键：`{queue:<DSN SHA-256>}:stream`、`:delayed`、`:dead`，经 `LOOM_REDIS_PREFIX` 加前缀。升级时先停旧 worker 再启新版本，避免混用新旧语义。
+队列键：`{queue:<DSN SHA-256>[:name]}:stream`、`:delayed`、`:dead`，经所选 Redis 连接的前缀加前缀。`config/queue.php` 默认驱动仍为 Redis Stream；自定义驱动在 `build()` 前用 `$builder->queue->extend()` 登记。升级时先停旧 worker 再启新版本，避免混用新旧语义。
 
 ## 迁移与验证
 

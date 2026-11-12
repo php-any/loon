@@ -16,17 +16,24 @@ namespace Loom\Logging;
  */
 final class Diary
 {
-    private JournalWriter $writer;
-    private JournalFormatter $formatter;
+    private JournalSink $sink;
 
     /**
-     * @param JournalWriter $writer 日记写入目标。
-     * @param JournalFormatter $formatter 日记格式化器。
+     * @param JournalWriter|JournalSink $writerOrSink 单写入目标，或 stack 等多目标 sink。
+     * @param ?JournalFormatter $formatter writerOrSink 为 JournalWriter 时必填。
+     * @param string $minimumLevel 空表示不过滤；非空时低于该级别的条目被丢弃。
      */
-    public function __construct(JournalWriter $writer, JournalFormatter $formatter)
-    {
-        $this->writer = $writer;
-        $this->formatter = $formatter;
+    public function __construct(
+        JournalWriter|JournalSink $writerOrSink,
+        ?JournalFormatter $formatter = null,
+        private string $minimumLevel = '',
+    ) {
+        $this->sink = $writerOrSink instanceof JournalSink
+            ? $writerOrSink
+            : new LaneJournalSink(
+                $formatter ?? throw new \InvalidArgumentException('Diary requires JournalFormatter with JournalWriter'),
+                $writerOrSink,
+            );
     }
 
     /**
@@ -50,11 +57,34 @@ final class Diary
      */
     public function record(string $level, string $event, array $fields = []): void
     {
+        if (!$this->passesLevel($level)) {
+            return;
+        }
         try {
-            $line = $this->formatter->format(JournalEntry::now($level, $event, $fields));
-            $this->writer->write($line);
+            $this->sink->emit(JournalEntry::now($level, $event, $fields));
         } catch (\Throwable) {
             // 日记目标不可用不得中断业务路径。
         }
+    }
+
+    private function passesLevel(string $level): bool
+    {
+        if ($this->minimumLevel === '') {
+            return true;
+        }
+        return self::levelRank($level) >= self::levelRank($this->minimumLevel);
+    }
+
+    private static function levelRank(string $level): int
+    {
+        return match (strtolower($level)) {
+            'debug' => 10,
+            'info' => 20,
+            'notice' => 30,
+            'warning' => 40,
+            'error' => 50,
+            'critical' => 60,
+            default => 20,
+        };
     }
 }

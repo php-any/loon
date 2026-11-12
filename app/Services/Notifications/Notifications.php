@@ -19,13 +19,15 @@ final class Notifications
     private \App\Services\Access\Admin $admin;
     private \App\Services\Operations\OperationsData $operationsData;
     private \Loom\Queue $queue;
+    private \Loom\Mail\Mailer $mailer;
 
-    public function __construct(\Loom\Database $database, \App\Services\Access\Admin $admin, \App\Services\Operations\OperationsData $operationsData, \Loom\Queue $queue)
+    public function __construct(\Loom\Database $database, \App\Services\Access\Admin $admin, \App\Services\Operations\OperationsData $operationsData, \Loom\Queue $queue, \Loom\Mail\Mailer $mailer)
     {
         $this->database = $database;
         $this->admin = $admin;
         $this->operationsData = $operationsData;
         $this->queue = $queue;
+        $this->mailer = $mailer;
     }
 
     // 事务由调用方管理；通知与队列任务在提交后才进入 Stream。
@@ -189,7 +191,7 @@ final class Notifications
             if ($transport !== null) {
                 $ok = (bool)$transport($delivery, $message);
             } elseif ($delivery['channel'] === 'mail') {
-                $ok = (bool)json_decode(\Loom\Native\sendMail($message['email'], $message['title'], $message['body']), true)['ok'];
+                $ok = $this->mailer->send($this->mailer->defaultTransport(), $message['email'], $message['title'], $message['body']);
             } else {
                 $channel = Channel::whereChannel('webhook')->firstOrFail()->toArray();
                 $body = json_encode(['event_id' => 'notification-' . $message['id'], 'user_id' => (int)$message['user_id'], 'title' => $message['title'], 'body' => $message['body']], JSON_THROW_ON_ERROR);

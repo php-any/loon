@@ -122,7 +122,7 @@ final class Application
     }
 
     /**
-     * 登记长驻进程停止信号回调，写法同 ApplicationBuilder::onStop()，用于 build() 之后追加或覆盖。
+     * 登记长驻进程停止信号回调，写法同 ApplicationBuilder::onStop()；多次登记按顺序累积执行。
      */
     public function onStop(callable $handler): self
     {

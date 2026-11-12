@@ -22,6 +22,8 @@ $env:LOOM_SMTP_FROM = 'noreply@example.com'
 $env:LOOM_SMTP_TLS = 'starttls'
 $env:LOOM_SMTP_USER = 'smtp-user'
 # 从部署环境的密钥管理器注入 LOOM_SMTP_PASSWORD。
+
+框架级 `Loom\Mail\Mailer`（可选 `config/mail.php`，默认传输 `smtp`）封装上述环境变量；`$builder->mail->extend()` 可在 `build()` 前登记其他传输。应用内通知的邮件渠道经 `Mailer` 投递，账户验证邮件仍由 `admin:mail` 与原生 `sendMail` 处理。
 # 同样注入 LOOM_WEBHOOK_SECRET_MAIN，值至少 32 字节。
 ./build/loom.exe admin:notify
 ```

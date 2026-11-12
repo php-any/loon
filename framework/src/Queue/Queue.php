@@ -12,7 +12,7 @@ final class Queue
     public function __construct(
         private readonly \Loom\Process $process,
         private readonly \Loom\Config $config,
-        private readonly \Loom\RedisQueue $redisQueue,
+        private readonly QueueBackend $backend,
         private readonly \Loom\Database $database,
         private readonly ?\Loom\Monitoring\Monitoring $monitoring = null,
         private readonly ?\Loom\Monitoring\CorrelationId $correlationId = null,
@@ -53,7 +53,7 @@ final class Queue
 
     public function claim(?int $now = null): ?array
     {
-        $job = $this->redisQueue->claim($now ?? time());
+        $job = $this->backend->claim($now ?? time());
         if ($job === null) {
             return null;
         }
@@ -76,7 +76,7 @@ final class Queue
         $attempt = (int)($job['attempt'] ?? 1);
         if ($error === null) {
             $this->archiveCompleted($job, $result, $now);
-            $this->redisQueue->ack($messageId);
+            $this->backend->ack($messageId);
             $this->monitoring?->recordEvent('queue.job.acked', [
                 'kind' => $job['kind'],
                 'id' => $job['id'] ?? 0,
@@ -87,7 +87,7 @@ final class Queue
         }
         if ($attempt >= 3) {
             $this->archiveFailed($job, $error, $now);
-            $this->redisQueue->dead($messageId, $job);
+            $this->backend->dead($messageId, $job);
             $this->monitoring?->recordEvent('queue.job.dead', [
                 'kind' => $job['kind'],
                 'id' => $job['id'] ?? 0,
@@ -101,7 +101,7 @@ final class Queue
         $retry = $job;
         $retry['attempt'] = $nextAttempt;
         $this->archiveRetry($job, $error, $available, $now);
-        $this->redisQueue->requeue($messageId, $retry, $available, $now);
+        $this->backend->requeue($messageId, $retry, $available, $now);
         $this->monitoring?->recordEvent('queue.job.retried', [
             'kind' => $job['kind'],
             'id' => $job['id'] ?? 0,
@@ -128,7 +128,7 @@ final class Queue
 
     private function publishEnvelope(array $envelope, int $available, int $now): string
     {
-        return $this->redisQueue->enqueue($envelope, $available, $now);
+        return $this->backend->enqueue($envelope, $available, $now);
     }
 
     private function archivePending(string $kind, array $payload, int $owner, int $available, int $now): int
