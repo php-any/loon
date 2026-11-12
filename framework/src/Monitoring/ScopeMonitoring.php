@@ -37,7 +37,7 @@ final class ScopeMonitoring
                 }
                 ActiveMonitoring::push($monitoring);
                 try {
-                    return $operation($scope);
+                    return $scope->run($operation);
                 } finally {
                     ActiveMonitoring::pop();
                 }

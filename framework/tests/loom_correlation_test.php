@@ -26,6 +26,7 @@ $lines = [];
 $services = new Loom\ServiceCollection();
 $services->addSingleton(Loom\Config::class, static fn (): Loom\Config => new Loom\Config(sys_get_temp_dir()));
 $services->addScoped(Loom\Monitoring\CorrelationId::class);
+$services->addScoped(Loom\Database::class);
 $services->addScoped(
     Loom\Monitoring\Monitoring::class,
     static function () use (&$lines): Loom\Monitoring\Monitoring {
@@ -59,6 +60,16 @@ $provider->withMonitoredScope(
 );
 $session = json_decode($lines[0], true, 64, JSON_THROW_ON_ERROR);
 correlationCheck(($session['correlation_id'] ?? '') === $generatedId, 'Generated id on monitoring line');
+
+if (\function_exists('Loom\\Native\\withCorrelation')) {
+    $provider->withMonitoredScope(
+        Loom\Monitoring\MonitoringContext::console('model-bind'),
+        static function (Loom\ServiceScope $scope): void {
+            $database = $scope->get(Loom\Database::class);
+            correlationCheck(Loom\ModelContext::database() === $database, 'withMonitoredScope keeps model database inside withCorrelation');
+        },
+    );
+}
 
 $id = new Loom\Monitoring\CorrelationId();
 correlationCheck($id->establish('first-id') === 'first-id', 'establish sets id');
