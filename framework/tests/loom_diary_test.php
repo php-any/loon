@@ -329,7 +329,7 @@ $customNamerPath = sys_get_temp_dir() . '/loom-diary-custom-name-' . bin2hex(ran
 file_put_contents($namerRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'stack', 'formatter' => 'json', 'pattern' => '', 'file' => '', 'date' => 'Y-m-d', 'timezone' => 'Asia/Shanghai', 'level' => '', 'stack' => [['driver' => 'file', 'formatter' => 'text', 'namer' => 'custom']]];\n");
 try {
     $namerBuilder = Loom\Application::createBuilder($namerRoot);
-    $namerBuilder->diary->extendNamer('custom', static function (Loom\Logging\JournalEntry $entry, array $item): string {
+    $namerBuilder->diary->extendNamer('custom', static function (Loom\Logging\JournalEntry $entry, array $item) use ($customNamerPath): string {
         return $customNamerPath;
     });
     $namerApp = $namerBuilder->build();
