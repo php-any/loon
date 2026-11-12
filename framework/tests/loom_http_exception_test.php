@@ -125,7 +125,12 @@ try {
     httpExceptionCheck(($exceptionRecord['message'] ?? '') === 'route exploded', 'http.exception must record message');
     httpExceptionCheck(($exceptionRecord['file'] ?? '') !== '', 'http.exception must record file');
     httpExceptionCheck(is_int($exceptionRecord['line'] ?? null) || is_numeric($exceptionRecord['line'] ?? null), 'http.exception must record line');
-    httpExceptionCheck(str_contains((string) ($exceptionRecord['stack'] ?? ''), 'route exploded'), 'http.exception must record stack');
+    $stack = (string) ($exceptionRecord['stack'] ?? '');
+    httpExceptionCheck($stack !== '', 'http.exception must record non-empty stack');
+    httpExceptionCheck(
+        str_contains($stack, 'Stack trace') || str_contains($stack, ' at '),
+        'http.exception stack must include frame information',
+    );
     httpExceptionCheck(($exceptionRecord['method'] ?? '') === 'GET', 'http.exception must record method');
     httpExceptionCheck(($exceptionRecord['path'] ?? '') === '/boom', 'http.exception must record path');
     httpExceptionCheck(($exceptionRecord['correlation_id'] ?? '') === $correlationHeader, 'http.exception must record correlation_id');
