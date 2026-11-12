@@ -8,10 +8,10 @@ use Loom\Request;
 use Loom\Response;
 use App\Presentation\SitePages;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class GuideController
 {
-    #[\Loom\Attributes\Route('GET', '/guide', '', [])]
+    #[\Net\Annotation\GetMapping('/guide')]
     public function page(Request $request): Response
     {
         return SitePages::page('guide', '从第一行，到一个完整响应');

@@ -8,10 +8,10 @@ use Loom\Request;
 use Loom\Response;
 use App\Models\Projects\Task;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class UpdateTaskController
 {
-    #[\Loom\Attributes\Route('PATCH', '/api/studio/tasks/{id}', 'studio.task', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Loom\Attributes\HttpRoute('PATCH', '/api/studio/tasks/{id}', 'studio.task', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
     public function update(Request $request): Response
     {
         $user = $request->attribute('user');

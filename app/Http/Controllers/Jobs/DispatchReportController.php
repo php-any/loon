@@ -7,7 +7,9 @@ namespace App\Http\Controllers\Jobs;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
+#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class DispatchReportController
 {
     private \Loom\Queue $queue;
@@ -17,7 +19,7 @@ final class DispatchReportController
         $this->queue = $queue;
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/studio/reports', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/reports')]
     public function report(Request $request): Response
     {
         $user = $request->attribute('user');

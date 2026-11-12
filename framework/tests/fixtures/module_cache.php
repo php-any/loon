@@ -11,10 +11,11 @@ final class MutableMetadataMiddleware implements \Loom\Middleware
     }
 }
 
-#[\Loom\Attributes\Controller('', [new MutableMetadataMiddleware()])]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(MutableMetadataMiddleware::class)]
 final class MutableMetadataEndpoint
 {
-    #[\Loom\Attributes\Route('GET', '/mutable')]
+    #[\Net\Annotation\GetMapping('/mutable')]
     public function index(): \Loom\Response
     {
         return new \Loom\Response('mutable');

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class AdminBootstrap extends \Loom\Console\Command
 {
     private \App\Services\Access\Admin $admin;

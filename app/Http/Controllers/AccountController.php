@@ -10,7 +10,7 @@ use Loom\HttpError;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class AccountController
 {
     private \Loom\Auth $auth;
@@ -24,7 +24,7 @@ final class AccountController
         $this->admin = $admin;
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/account/{operation}')]
+    #[\Net\Annotation\PostMapping('/api/account/{operation}')]
     public function handle(Request $request): Response
     {
         $this->auth->checkOrigin();

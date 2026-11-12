@@ -8,10 +8,12 @@ use Loom\Request;
 use Loom\Response;
 use Loom\Schedule;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
+#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class PreviewCronController
 {
-    #[\Loom\Attributes\Route('POST', '/api/studio/cron/preview', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/cron/preview')]
     public function preview(Request $request): Response
     {
         $input = $request->attribute('input')->only(['expression', 'timezone']);

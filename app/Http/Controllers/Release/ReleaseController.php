@@ -19,7 +19,7 @@ use Loom\Response;
 use Loom\Queue;
 use Loom\Schedule;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class ReleaseController
 {
     private \App\Services\Release\ReleaseWorkspace $releaseDemo;
@@ -35,13 +35,13 @@ final class ReleaseController
         $this->queue = $queue;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/demo/release')]
+    #[\Net\Annotation\GetMapping('/api/demo/release')]
     public function state(Request $request): Response
     {
         return Response::json($this->releaseDemo->state($this->releaseDemo->session($request)))->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/demo/release/start')]
+    #[\Net\Annotation\PostMapping('/api/demo/release/start')]
     public function start(Request $request): Response
     {
         ReleaseDemo::origin($request);
@@ -67,7 +67,7 @@ final class ReleaseController
             ->withHeader('Set-Cookie', 'loom_demo=' . $token . '; Path=/api/demo; Max-Age=7200; HttpOnly; SameSite=Lax' . (str_starts_with($request->origin(), 'https://') ? '; Secure' : ''));
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/demo/release/project')]
+    #[\Net\Annotation\PostMapping('/api/demo/release/project')]
     public function project(Request $request): Response
     {
         $session = $this->releaseDemo->guard($request);
@@ -89,7 +89,7 @@ final class ReleaseController
         return $this->state($request);
     }
 
-    #[\Loom\Attributes\Route('PATCH', '/api/demo/release/tasks/{id}')]
+    #[\Loom\Attributes\HttpRoute('PATCH', '/api/demo/release/tasks/{id}')]
     public function task(Request $request): Response
     {
         $session = $this->releaseDemo->guard($request);
@@ -106,7 +106,7 @@ final class ReleaseController
         return $this->state($request);
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/demo/release/report')]
+    #[\Net\Annotation\PostMapping('/api/demo/release/report')]
     public function report(Request $request): Response
     {
         $session = $this->releaseDemo->guard($request);
@@ -124,7 +124,7 @@ final class ReleaseController
         return $this->state($request);
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/demo/release/schedule')]
+    #[\Net\Annotation\PostMapping('/api/demo/release/schedule')]
     public function schedule(Request $request): Response
     {
         $session = $this->releaseDemo->guard($request);

@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace ModuleFixtures;
 
-use Loom\Attributes\Service;
-use Loom\Attributes\Inject;
-use Loom\Attributes\Controller;
-use Loom\Attributes\Route;
 use Loom\Attributes\Job;
 use Loom\Attributes\Module;
 use Database\Annotation\Table;
@@ -22,7 +18,7 @@ use Database\Annotation\Table;
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(Value::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-#[Service('module.value')]
+#[\Container\Annotation\Scoped('module.value')]
 final class Value
 {
     /**
@@ -52,7 +48,9 @@ final class Value
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(Endpoint::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-#[Controller('/module', [\ModuleFixtures\FirstMiddleware::class])]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Route('/module')]
+#[\Net\Annotation\Middleware(\ModuleFixtures\FirstMiddleware::class)]
 final class Endpoint
 {
     private Value $value;
@@ -65,7 +63,7 @@ final class Endpoint
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $instance = $services->get(Endpoint::class); // 在对应测试环境中解析；无效夹具用于断言异常
      */
-    public function __construct(#[Inject('module.value')] Value $value)
+    public function __construct(#[\Container\Annotation\Named('module.value')] Value $value)
     {
         $this->value = $value;
     }
@@ -78,7 +76,7 @@ final class Endpoint
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $response = $endpoint->show($request->withAttribute('order', '12'));
      */
-    #[Route('GET', '/value', 'module.value', [\ModuleFixtures\SecondMiddleware::class])]
+    #[\Loom\Attributes\HttpRoute('GET', '/value', 'module.value', [\ModuleFixtures\SecondMiddleware::class])]
     public function show(\Loom\Request $request): \Loom\Response
     {
         return new \Loom\Response($this->value->text() . $request->attribute('order'));
@@ -162,7 +160,7 @@ final class Work
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $instance = $services->get(Work::class); // 在对应测试环境中解析；无效夹具用于断言异常
      */
-    public function __construct(#[Inject('module.value')] Value $value)
+    public function __construct(#[\Container\Annotation\Named('module.value')] Value $value)
     {
         $this->value = $value;
     }
@@ -190,7 +188,7 @@ final class Work
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(DuplicateService::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-#[Service('module.value')]
+#[\Container\Annotation\Scoped('module.value')]
 final class DuplicateService
 {
 }
@@ -231,7 +229,7 @@ final class DuplicateJob
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $instance = $services->get(InvalidController::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
-#[Controller]
+#[\Net\Annotation\Controller]
 final class InvalidController
 {
     /**
@@ -244,7 +242,7 @@ final class InvalidController
      * 内部调用示例（仅类内使用）：
      * @example $this->hidden();
      */
-    #[Route('GET', '/hidden')]
+    #[\Net\Annotation\GetMapping('/hidden')]
     private function hidden(): void
     {
     }
@@ -319,7 +317,7 @@ final class TimerTask
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $instance = $services->get(TimerTask::class); // 在对应测试环境中解析；无效夹具用于断言异常
      */
-    public function __construct(#[Inject('module.value')] Value $value)
+    public function __construct(#[\Container\Annotation\Named('module.value')] Value $value)
     {
         $this->value = $value;
     }

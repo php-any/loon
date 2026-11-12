@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Identity;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class LogoutController
 {
     private \Loom\Auth $auth;
@@ -19,7 +19,7 @@ final class LogoutController
         $this->admin = $admin;
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/studio/logout')]
+    #[\Net\Annotation\PostMapping('/api/studio/logout')]
     public function logout(Request $request): Response
     {
         $user = $this->auth->guard();

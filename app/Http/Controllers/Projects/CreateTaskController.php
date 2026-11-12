@@ -10,10 +10,12 @@ use Loom\HttpError;
 use App\Models\Projects\Task;
 use App\Models\Projects\Project;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
+#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class CreateTaskController
 {
-    #[\Loom\Attributes\Route('POST', '/api/studio/tasks', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/tasks')]
     public function create(Request $request): Response
     {
         $user = $request->attribute('user');

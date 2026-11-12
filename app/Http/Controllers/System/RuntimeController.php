@@ -8,7 +8,7 @@ use Loom\Request;
 use Loom\Response;
 use Loom\RuntimeStatus;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class RuntimeController
 {
     private \Loom\RuntimeStatus $runtimeStatus;
@@ -18,7 +18,7 @@ final class RuntimeController
         $this->runtimeStatus = $runtimeStatus;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/studio/runtime')]
+    #[\Net\Annotation\GetMapping('/api/studio/runtime')]
     public function status(Request $request): Response
     {
         return Response::json(['services' => $this->runtimeStatus->snapshot(), 'now' => time()])->withHeader('Cache-Control', 'no-store');

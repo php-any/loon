@@ -12,10 +12,10 @@ use App\Models\Customers\CustomerSession;
 use App\Models\Customers\Purchase;
 use App\Services\Customers\CheckoutOffer;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class CustomerController
 {
-    #[\Loom\Attributes\Route('GET', '/account')]
+    #[\Net\Annotation\GetMapping('/account')]
     public function page(Request $request): Response
     {
         return \App\Presentation\SitePages::page('customer', '用户中心', [
@@ -39,13 +39,13 @@ final class CustomerController
         $this->offer = $offer;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/customer/session')]
+    #[\Net\Annotation\GetMapping('/api/customer/session')]
     public function session(Request $request): Response
     {
         return Response::json(['user' => $this->customers->guard()])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/customer/{operation}')]
+    #[\Net\Annotation\PostMapping('/api/customer/{operation}')]
     public function account(Request $request): Response
     {
         $operation = $request->parameter('operation');
@@ -64,7 +64,7 @@ final class CustomerController
         return Response::json(['csrf' => $session['csrf']], $register ? 201 : 200)->withHeader('Set-Cookie', $session['cookie'])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/customer/orders')]
+    #[\Net\Annotation\GetMapping('/api/customer/orders')]
     public function orders(Request $request): Response
     {
         $user = $this->customers->guard();
@@ -72,7 +72,7 @@ final class CustomerController
         return Response::json(['items' => $items])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/customers')]
+    #[\Net\Annotation\GetMapping('/api/admin/customers')]
     public function listing(Request $request): Response
     {
         $actor = $this->auth->guard();
@@ -82,7 +82,7 @@ final class CustomerController
         return Response::json(Customer::listing($this->database, $page, $q))->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/admin/customers')]
+    #[\Net\Annotation\PostMapping('/api/admin/customers')]
     public function save(Request $request): Response
     {
         $actor = $this->auth->guard();
@@ -111,7 +111,7 @@ final class CustomerController
         return Response::json($result);
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/purchases')]
+    #[\Net\Annotation\GetMapping('/api/admin/purchases')]
     public function purchases(Request $request): Response
     {
         $actor = $this->auth->guard();

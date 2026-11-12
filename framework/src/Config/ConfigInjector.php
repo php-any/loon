@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 /**
- * 按构造参数上的 Inject、InjectConfig 或类类型从容器取值并 new 出对象，再按继承链给带 InjectConfig 的实例属性赋值。
+ * 按构造参数上的 Container Inject/Named、InjectConfig 或类类型从容器取值并 new 出对象，再按继承链给带 InjectConfig 的实例属性赋值。
  *
  * 构造参数：无，本类型未声明构造参数。
  *
@@ -18,9 +18,8 @@ final class ConfigInjector
 {
     /**
      * 没有构造函数时直接 new。否则按参数顺序取值。
-     * 同一参数上有多个 Inject，或 Inject 与 InjectConfig 同时存在，抛出 LogicException。Inject 的标识为空，或标在可变参数上，同样失败。
-     * 有 Inject 时从容器 get 该标识。有 InjectConfig 时调用它的 resolve；可变参数上的 InjectConfig 会失败。
-     * 两者都没有时，非可变的类类型参数按类型名向容器 get；类型是未登记的接口时，依次改用默认值或 null。再否则使用参数默认值。仍然无法决定且该参数不是可变参数时抛出 LogicException。
+     * 同一参数上有多个 Inject/Named，或它们与 InjectConfig 同时存在，抛出 LogicException。Named 标识为空、标在可变参数上，同样失败。
+     * 空 Inject（无 service）按参数类类型从容器 get。两者都没有时，非可变的类类型参数按类型名向容器 get；类型是未登记的接口时，依次改用默认值或 null。再否则使用参数默认值。仍然无法决定且该参数不是可变参数时抛出 LogicException。
      * 返回值只完成构造，属性上的 InjectConfig 还没有写入。
      *
      * @param string $id 要 new 的完整类名。
@@ -41,16 +40,37 @@ final class ConfigInjector
         foreach ($constructor->getParameters() as $parameter) {
             $target = $constructor->getDeclaringClass()->getName() . '::__construct($' . $parameter->getName() . ')';
             $attributes = $parameter->getAttributes(\Loom\InjectConfig::class);
-            $dependencies = $parameter->getAttributes(\Loom\Attributes\Inject::class);
-            if (count($dependencies) > 1 || ($dependencies !== [] && $attributes !== [])) {
+            $injects = $parameter->getAttributes(\Container\Annotation\Inject::class);
+            $named = $parameter->getAttributes(\Container\Annotation\Named::class);
+            if (count($injects) > 1 || count($named) > 1 || ($injects !== [] && $named !== []) || (($injects !== [] || $named !== []) && $attributes !== [])) {
                 throw new \LogicException('Conflicting injection annotations on ' . $target);
             }
-            if ($dependencies !== []) {
-                $dependency = $dependencies[0]->newInstance();
-                if ($dependency->id === '' || $parameter->isVariadic()) {
+            if ($injects !== []) {
+                $dependency = $injects[0]->newInstance();
+                if ($parameter->isVariadic()) {
                     throw new \LogicException('Invalid service injection: ' . $target);
                 }
-                $arguments[] = $services->get($dependency->id);
+                $serviceId = $dependency->service ?? '';
+                if ($serviceId === '' || $serviceId === null) {
+                    $type = $parameter->getType();
+                    if (!$type instanceof \ReflectionNamedType || $type->isBuiltin()) {
+                        throw new \LogicException('Invalid service injection: ' . $target);
+                    }
+                    $serviceId = $type->getName();
+                }
+                $arguments[] = $services->get((string) $serviceId);
+                continue;
+            }
+            if ($named !== []) {
+                $dependency = $named[0]->newInstance();
+                if ($parameter->isVariadic()) {
+                    throw new \LogicException('Invalid service injection: ' . $target);
+                }
+                $serviceId = $dependency->name ?? '';
+                if ($serviceId === '' || $serviceId === null) {
+                    throw new \LogicException('Invalid service injection: ' . $target);
+                }
+                $arguments[] = $services->get((string) $serviceId);
                 continue;
             }
             if (count($attributes) > 1) {

@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Loom;
 
 use Loom\Attributes\Module;
-use Loom\Attributes\Controller;
-use Loom\Attributes\Route;
-use Loom\Attributes\Service;
+use Loom\Attributes\HttpRoute;
 use Loom\Attributes\Job;
 use Database\Annotation\Table;
 
@@ -52,6 +50,14 @@ final class ModuleDiscovery
     private array $eventListeners = [];
     private bool $frozen = false;
     private ?Router $routeTable = null;
+
+    /** @var array<string, string> */
+    private const HTTP_MAPPINGS = [
+        \Net\Annotation\GetMapping::class => 'GET',
+        \Net\Annotation\PostMapping::class => 'POST',
+        \Net\Annotation\PutMapping::class => 'PUT',
+        \Net\Annotation\DeleteMapping::class => 'DELETE',
+    ];
 
     /**
      * 按给定模块类名逐个 add，生成路由表，再冻结。ApplicationBuilder::build() 调用它一次，结果作为单例登记。
@@ -164,11 +170,65 @@ final class ModuleDiscovery
     }
 
     /**
+     * @return array{0: string, 1: string}|null [id, lifetime] 或尚无生命周期声明时 null
+     */
+    private function serviceDeclaration(\ReflectionClass $reflection): ?array
+    {
+        $singleton = self::attribute($reflection, \Container\Annotation\Singleton::class);
+        $scoped = self::attribute($reflection, \Container\Annotation\Scoped::class);
+        $component = self::attribute($reflection, \Container\Annotation\Component::class);
+        $markers = array_values(array_filter([$singleton, $scoped, $component], static fn ($marker): bool => $marker !== null));
+        if (count($markers) > 1) {
+            throw new \LogicException('Conflicting service lifetime annotations on ' . $reflection->getName());
+        }
+        $bind = self::attribute($reflection, \Container\Annotation\Bind::class);
+        $lifetimeMarker = $markers[0] ?? null;
+        if ($lifetimeMarker === null && $bind === null) {
+            return null;
+        }
+        if ($lifetimeMarker instanceof \Container\Annotation\Singleton) {
+            $lifetime = 'singleton';
+            $name = $lifetimeMarker->name ?? '';
+        } elseif ($lifetimeMarker instanceof \Container\Annotation\Scoped) {
+            $lifetime = 'scoped';
+            $name = $lifetimeMarker->name ?? '';
+        } elseif ($lifetimeMarker instanceof \Container\Annotation\Component) {
+            $lifetime = 'transient';
+            $name = $lifetimeMarker->name ?? '';
+        } else {
+            $lifetime = 'scoped';
+            $name = '';
+        }
+        if ($bind !== null) {
+            $abstract = $bind->abstract ?? '';
+            if ($abstract === '') {
+                throw new \LogicException('Bind requires a non-empty abstract on ' . $reflection->getName());
+            }
+            return [$abstract, $lifetime];
+        }
+        $id = $name === '' || $name === null ? $reflection->getName() : (string) $name;
+        return [$id, $lifetime];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function classMiddleware(\ReflectionClass $reflection): array
+    {
+        $middleware = [];
+        foreach ($reflection->getAttributes(\Net\Annotation\Middleware::class) as $attribute) {
+            $instance = $attribute->newInstance();
+            $className = $instance->className ?? '';
+            if (!is_string($className) || $className === '') {
+                throw new \LogicException('Middleware requires a non-empty class name on ' . $reflection->getName());
+            }
+            $middleware[] = $className;
+        }
+        return $middleware;
+    }
+
+    /**
      * 检查一个组件类并记下合法声明。同一个类只处理一次；对象已冻结时抛出 LogicException。
-     * 有 Service 时类必须可实例化，标识为空则改用类名，标识重复则失败。
-     * 有 Table 时类必须是 Model 子类，并调用它的 validateDefinition。
-     * 方法上有 Route 但没有 Controller 时失败。Job 的 kind 不能为空或重复，处理方法交给 handler 校验。
-     * 带 Timer 的类只记录类名。带 ConsoleCommand 的类必须是可实例化的 Command 子类。
      *
      * @param string $class 要检查的组件完整类名。
      * @return void 无返回值。声明不合法时抛出 LogicException。
@@ -185,17 +245,17 @@ final class ModuleDiscovery
             throw new \LogicException('Configured module metadata is immutable');
         }
         $reflection = new \ReflectionClass($class);
-        $service = self::attribute($reflection, \Loom\Attributes\Service::class);
+        $service = $this->serviceDeclaration($reflection);
         if ($service !== null) {
             if (!$reflection->isInstantiable()) {
                 throw new \LogicException('Service must be concrete: ' . $class);
             }
-            $id = $service->id === '' ? $class : $service->id;
+            [$id, $lifetime] = $service;
             if (isset($this->services[$id])) {
                 throw new \LogicException('Duplicate service id: ' . $id);
             }
             $this->services[$id] = $class;
-            $this->serviceLifetimes[$id] = $service->lifetime;
+            $this->serviceLifetimes[$id] = $lifetime;
         }
         $table = self::attribute($reflection, \Database\Annotation\Table::class);
         if ($table !== null) {
@@ -205,13 +265,47 @@ final class ModuleDiscovery
                 throw new \LogicException('Application models must extend Loom\\Model: ' . $class);
             }
         }
-        $controller = self::attribute($reflection, \Loom\Attributes\Controller::class);
+        $controller = self::attribute($reflection, \Net\Annotation\Controller::class);
+        $classRoute = self::attribute($reflection, \Net\Annotation\Route::class);
+        $classMiddleware = $this->classMiddleware($reflection);
+        if ($controller === null && ($classRoute !== null || $classMiddleware !== [])) {
+            throw new \LogicException('Route metadata requires Controller: ' . $class);
+        }
+        $prefix = '';
+        if ($classRoute !== null) {
+            $routePrefix = $classRoute->prefix ?? '/';
+            $prefix = $routePrefix === '/' ? '' : (string) $routePrefix;
+        }
         foreach ($reflection->getMethods() as $method) {
-            foreach ($method->getAttributes(\Loom\Attributes\Route::class) as $attribute) {
+            $mappingFound = false;
+            foreach (self::HTTP_MAPPINGS as $type => $httpMethod) {
+                $attributes = $method->getAttributes($type);
+                if ($attributes === []) {
+                    continue;
+                }
+                if (count($attributes) > 1) {
+                    throw new \LogicException('Duplicate ' . $type . ' on ' . $class . '::' . $method->getName());
+                }
                 if ($controller === null) {
                     throw new \LogicException('Route requires Controller: ' . $class);
                 }
-                $this->route($reflection, $controller, $attribute->newInstance(), $method->getName());
+                $mappingFound = true;
+                $mapping = $attributes[0]->newInstance();
+                $path = $mapping->path ?? '/';
+                $this->appendRoute($reflection, $prefix, $classMiddleware, $httpMethod, (string) $path, '', [], false, $method->getName());
+            }
+            $httpRoutes = $method->getAttributes(HttpRoute::class);
+            if ($httpRoutes !== []) {
+                if ($controller === null) {
+                    throw new \LogicException('Route requires Controller: ' . $class);
+                }
+                if ($mappingFound) {
+                    throw new \LogicException('HttpRoute conflicts with mapping on ' . $class . '::' . $method->getName());
+                }
+                foreach ($httpRoutes as $attribute) {
+                    $route = $attribute->newInstance();
+                    $this->appendRoute($reflection, $prefix, $classMiddleware, $route->method, $route->path, $route->name, $route->middleware, $route->websocket, $method->getName());
+                }
             }
         }
         $job = self::attribute($reflection, \Loom\Attributes\Job::class);
@@ -225,9 +319,9 @@ final class ModuleDiscovery
         if (self::attribute($reflection, \Loom\Timer::class) !== null) {
             $this->timers[] = $class;
         }
-        if (self::attribute($reflection, \Loom\Attributes\ConsoleCommand::class) !== null) {
+        if (self::attribute($reflection, \Cli\Annotation\Command::class) !== null) {
             if (!$reflection->isInstantiable() || !$reflection->isSubclassOf(\Loom\Console\Command::class)) {
-                throw new \LogicException('ConsoleCommand requires a concrete Command subclass: ' . $class);
+                throw new \LogicException('Command requires a concrete Command subclass: ' . $class);
             }
             $this->commands[] = $class;
         }
@@ -275,37 +369,41 @@ final class ModuleDiscovery
     }
 
     /**
-     * 先用 handler 校验处理方法。WebSocket 路由的方法不是 GET 时抛出 LogicException。
-     * 类级和本路由的中间件合并后，每一项都必须是非空字符串，否则抛出 LogicException。
-     * 通过后把控制器前缀和路由路径拼在一起，连同动作、名称、中间件和 websocket 标记追加到路由列表。
-     *
-     * @param \ReflectionClass $class 控制器类反射，用来取类名并校验方法。
-     * @param Controller $controller 提供前缀和类级中间件的控制器注解。
-     * @param Route $route 这一条路由的方法、路径、名称、中间件和 websocket 标记。
-     * @param string $method 实际调用的控制器方法名。
-     * @return void 无返回值。
-     *
-     * 内部调用示例（仅类内使用）：
-     * @example $this->route($class, $controller, $route, $method);
+     * @param list<string> $classMiddleware
+     * @param list<string> $routeMiddleware
      */
-    private function route(\ReflectionClass $class, Controller $controller, Route $route, string $method): void
-    {
-        if ($method === '__invoke') {
+    private function appendRoute(
+        \ReflectionClass $class,
+        string $prefix,
+        array $classMiddleware,
+        string $method,
+        string $path,
+        string $name,
+        array $routeMiddleware,
+        bool $websocket,
+        string $handlerMethod,
+    ): void {
+        if ($handlerMethod === '__invoke') {
             throw new \LogicException('Route handler must not use __invoke: ' . $class->getName());
         }
-        $this->handler($class, $method);
-        if ($route->websocket && strtoupper($route->method) !== 'GET') {
+        $this->handler($class, $handlerMethod);
+        if ($websocket && strtoupper($method) !== 'GET') {
             throw new \LogicException('WebSocket route requires GET');
         }
-        $middleware = array_merge($controller->middleware, $route->middleware);
+        $middleware = array_merge($classMiddleware, $routeMiddleware);
         foreach ($middleware as $entry) {
             if (!is_string($entry) || $entry === '') {
                 throw new \LogicException('Attribute middleware must use service class names; register instances from a service provider');
             }
         }
-        $this->routes[] = ['method' => $route->method, 'path' => rtrim($controller->prefix, '/') . $route->path,
-            'action' => [$class->getName(), $method], 'name' => $route->name,
-            'middleware' => $middleware, 'websocket' => $route->websocket];
+        $this->routes[] = [
+            'method' => $method,
+            'path' => rtrim($prefix, '/') . $path,
+            'action' => [$class->getName(), $handlerMethod],
+            'name' => $name,
+            'middleware' => $middleware,
+            'websocket' => $websocket,
+        ];
     }
 
     /**
@@ -407,7 +505,7 @@ final class ModuleDiscovery
         return $this->timers;
     }
     /**
-     * 返回通过 ConsoleCommand 校验的命令类名，顺序与发现顺序一致。不实例化命令。
+     * 返回通过 Command 注解校验的命令类名，顺序与发现顺序一致。不实例化命令。
      *
      * 参数：无。
      *

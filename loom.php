@@ -54,7 +54,7 @@ $app = $builder->build();
 // 全局中间件，按请求作用域解析。
 $app->use(RequestLog::class);
 
-// 控制器、任务、定时器和带 ConsoleCommand 的命令类由模块注解发现，这里只写手工映射。
+// 控制器、任务、定时器和带 Command 注解的命令类由模块注解发现，这里只写手工映射。
 $app->mapGrpc('/loom.examples.ReleasePolicy/Evaluate', [ReleasePolicyService::class, 'evaluate']);
 
 if (!$entry) {

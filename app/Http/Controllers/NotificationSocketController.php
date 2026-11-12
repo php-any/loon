@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class NotificationSocketController
 {
     private \Loom\Auth $auth;
@@ -20,7 +20,7 @@ final class NotificationSocketController
         $this->stream = $stream;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/notifications/socket', '', [\App\Http\Middleware\RequireNotificationSocket::class], true)]
+    #[\Loom\Attributes\HttpRoute('GET', '/api/admin/notifications/socket', '', [\App\Http\Middleware\RequireNotificationSocket::class], true)]
     public function connect(\Loom\Request $request, \Net\Websocket\Conn $connection): void
     {
         $user = (int)$request->attribute('notification_user');

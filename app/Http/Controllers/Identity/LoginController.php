@@ -7,7 +7,8 @@ namespace App\Http\Controllers\Identity;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class LoginController
 {
     private \Loom\Auth $auth;
@@ -19,7 +20,7 @@ final class LoginController
         $this->admin = $admin;
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/studio/login', '', [\Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/login')]
     public function login(Request $request): Response
     {
         $input = $request->attribute('input')->only(['email', 'password']);

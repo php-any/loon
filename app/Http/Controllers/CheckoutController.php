@@ -11,7 +11,7 @@ use Loom\HttpError;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class CheckoutController
 {
     private \App\Services\Customers\CustomerAuth $auth;
@@ -29,7 +29,7 @@ final class CheckoutController
         $this->offer = $offer;
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/checkout/simulate')]
+    #[\Net\Annotation\PostMapping('/api/checkout/simulate')]
     public function pay(Request $request): Response
     {
         $user = $this->auth->guard();

@@ -9,7 +9,7 @@ use Loom\Auth;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class OperationsController
 {
     private \Loom\Auth $auth;
@@ -21,7 +21,7 @@ final class OperationsController
         $this->operations = $operations;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/operations/{resource}')]
+    #[\Net\Annotation\GetMapping('/api/admin/operations/{resource}')]
     public function listing(Request $request): Response
     {
         $user = $this->auth->guard();
@@ -31,7 +31,7 @@ final class OperationsController
         }
         return Response::json($this->operations->listing($request->parameter('resource'), $user['id'], $query))->withHeader('Cache-Control', 'no-store');
     }
-    #[\Loom\Attributes\Route('POST', '/api/admin/operations/{resource}')]
+    #[\Net\Annotation\PostMapping('/api/admin/operations/{resource}')]
     public function mutate(Request $request): Response
     {
         $user = $this->auth->guard();

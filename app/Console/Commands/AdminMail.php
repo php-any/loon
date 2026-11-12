@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class AdminMail extends \Loom\Console\Command
 {
     public function __construct(

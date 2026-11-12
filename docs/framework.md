@@ -10,7 +10,7 @@ Loom 是具体应用项目，`framework/` 是随项目开发的内部框架，�
 
 `Config`、`Database`、`Auth` 不再支持静态调用。服务在启动时登记到 `ServiceCollection`，在工作单元的 `ServiceScope` 里解析，见 [依赖注入与作用域](core-services.md)。
 
-业务使用普通类型化构造参数；容器自动解析非内置类型，按非类名标识取服务时用 `#[Inject('service.id')]`。不要在业务类中注入容器再查找依赖。
+业务使用普通类型化构造参数；容器自动解析非内置类型，按非类名标识取服务时用 `Container\Annotation\Named` 或带 service 的 `Inject`。不要在业务类中注入容器再查找依赖。
 
 ```php
 final class TaskService
@@ -62,7 +62,7 @@ scoped 服务不能在根上解析，singleton 构造时也不能依赖 scoped �
 
 配置节绑定、后台服务的启停顺序，以及 `serve` 如何把定时器装进 Host，见 [宿主、应用与选项](hosting.md)。
 
-`#[Loom\Attributes\Service(id: CacheInterface::class, lifetime: 'singleton')]` 可为模块服务选择生命周期，默认 `scoped`。`build()` 用 `tryAdd` 登记这些类，应用已经登记的同名标识优先。构造参数和 `InjectConfig` 属性由 `ConfigInjector` 注入。
+模块服务使用 std 的 `Container\Annotation\{Singleton,Scoped,Component}` 与可选的 `Bind`：`Component` 映射为 `transient` 生命周期；仅 `Bind` 时默认 `scoped`。`name` 为空则用类名作为服务标识。`build()` 用 `tryAdd` 登记这些类，应用已经登记的同名标识优先。构造参数上的 `Container\Annotation\{Inject,Named}` 与 `InjectConfig` 属性由 `ConfigInjector` 注入。
 
 `ModuleDiscovery` 负责扫描和声明校验，`ApplicationBuilder::build()` 消费这些定义，装配服务、路由、命令和定时器；任务交给 `JobDispatcher`。发现过程不会创建业务服务；定时器触发及实际请求执行时才解析实例。
 
@@ -77,26 +77,28 @@ final class AppModule {}
 
 `ApplicationBuilder::build()` 把 `addModule()` 登记的名单交给 `ModuleDiscovery::configured($config, $modules)`：按导入顺序加载模块、递归扫描 PHP 类、读取反射元数据并预校验声明路由，然后冻结，不可再添加组件。结果作为实例登记在根容器上，请求不再扫描目录。不同应用各自扫描，修改模块声明后重启应用。`build()` 之后不能再调用 `addModule()`。注解中间件须使用服务类名，在请求作用域内解析；需要闭包的路由在 `loom.php` 里用 `mapGet()` 等登记。重复导入/重叠扫描去重，循环导入、重复服务标识、重复任务类型和无效处理方法会报错。类与文件路径必须遵循对应命名空间的自动加载规则，扫描跳过符号链接；未声明组件注解的类不自动注册。模块类只声明元数据，不在构造器中执行启动副作用。
 
-业务扩展注解位于 `Loom\Attributes`；数据库映射直接使用 std 的 `Database\Annotation` 注解，现有 `Loom\Timer`、`Loom\InjectConfig` 保持原接口：
+Loom 保留 `Module`、`Job`、`Listens`、`Timer`、`InjectConfig` 与逃生舱 `HttpRoute`；HTTP、容器与 CLI 标记使用 std 注解；数据库映射直接使用 `Database\Annotation`：
 
 ```php
-#[Controller('/api', [AuthMiddleware::class])]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Route('/api')]
+#[\Net\Annotation\Middleware(AuthMiddleware::class)]
 final class UserController
 {
     private UserService $service;
-    public function __construct(#[Inject(UserService::class)] UserService $service)
+    public function __construct(#[\Container\Annotation\Inject] UserService $service)
     {
         $this->service = $service;
     }
 
-    #[Route('GET', '/users/{id}', 'users.show')]
+    #[\Loom\Attributes\HttpRoute('GET', '/users/{id}', 'users.show')]
     public function show(\Loom\Request $request): \Loom\Response { /* 返回响应 */ }
 }
 ```
 
-`Controller` 的参数依次为路径前缀、中间件列表。`Route` 只能标在公开处理方法上，参数依次为 HTTP 方法、路径、路由名、中间件列表、是否 WebSocket（默认 false）。发现阶段登记的动作为 `[控制器类, 方法名]`；`__invoke` 与单独的类名字符串注册都会被拒绝。控制器中间件先于路由中间件执行，随后调用处理方法。HTTP 与 WebSocket 共用重复路径/名称校验；WebSocket 必须声明 GET。
+HTTP 路由以 `Net\Annotation\Controller` 标记控制器；可选类级 `Route` 为路径前缀（默认 `"/"` 时等价空前缀）、可重复 `Middleware` 为类级中间件。常见方法使用 `GetMapping` / `PostMapping` / `PutMapping` / `DeleteMapping`。命名路由、PATCH/HEAD/OPTIONS、方法级中间件与 WebSocket 使用 `Loom\Attributes\HttpRoute`（与语言 Mapping 不能同方法共存）。发现阶段登记的动作为 `[控制器类, 方法名]`；`__invoke` 与单独的类名字符串注册都会被拒绝。类中间件先于 `HttpRoute` 方法中间件执行。HTTP 与 WebSocket 共用重复路径/名称校验；WebSocket 必须声明 GET。
 
-`Service($id = '', $lifetime = 'scoped')` 登记容器服务，空 id 使用类名，非空 id 以该标识登记这个类。`Inject($id)` 标注普通构造参数，按标识解析，支持递归解析和依赖循环检测；同一参数不能同时声明 Inject 与 InjectConfig。`loom.php` 里显式登记的同名标识优先于注解。不要使用属性提升参数声明注解，Origami 参数反射目前不完整。
+构造参数上的 `Inject` / `Named` 按标识解析，空 `Inject` 按参数类型推断；同一参数不能同时声明 Inject、Named 与 InjectConfig。`loom.php` 里显式登记的同名标识优先于注解。不要使用属性提升参数声明注解，Origami 参数反射目前不完整。
 
 模型直接使用 std 的 `Table`、`Column`、`Id` 和 `GeneratedValue` 注解，并继承 `Loom\Model`。字段类型由 public 属性声明，支持复合主键；查询条件可使用属性名或列名，数据库结构由迁移维护。
 
@@ -119,7 +121,7 @@ $data = $stored->toArray();
 
 `Job($kind, $method = 'handle')` 根据持久化队列记录的 kind，由 `JobDispatcher` 分发到对应服务实例，处理方法接收 Request 并返回 Response。不同 kind 可以使用不同类，未知 kind 报错并由既有队列重试策略处理。隔离子进程、租约与幂等要求不变。
 
-`ConsoleCommand` 标记继承 `Loom\Console\Command` 的类，沿用 signature/description/handle 契约。命令生成器自动添加此注解，闭包命令在 `loom.php` 里用 `$app->mapCommand()` 登记。
+`Cli\Annotation\Command` 标记继承 `Loom\Console\Command` 的类，沿用 signature/description/handle 契约（不使用注解内的 name/description）。命令生成器自动添加此注解，闭包命令在 `loom.php` 里用 `$app->mapCommand()` 登记。
 
 `Timer` 同样由模块发现，登记进单例 `TimerRunner`。支持固定秒间隔或五段 Cron（互斥）；Cron 使用与 `Schedule` 相同的 `Loom\Cron` 解析。`serve` 通过 `TimerHostedService` 把它接进 `Host`，在监听前启动、退出时停止。每次触发在新作用域里解析定时器；需要跨触发保留计数等状态的定时器登记为单例。忙碌时跳过节拍、不补跑、同一定时器不重叠的语义保持不变。启动顺序见 [宿主、应用与选项](hosting.md)。
 
@@ -189,7 +191,7 @@ Cron 支持五字段数字、星号、范围、列表和步长，要求明确 IA
 
 `Application::run($args)` 为这条命令开一个作用域，交给 `Loom\Console\Console` 执行，结束时释放作用域。框架命令、模块命令和闭包命令共享 `Console` 注册表，统一执行、帮助、参数校验和 `Console::call()`；重名注册报错。输入错误返回 2，执行异常返回 1。
 
-应用闭包命令在 `loom.php` 里用 `$app->mapCommand()` 登记，参数由 `Loom\Invoker` 绑定：`Input`、`Output` 来自这次调用，其他类类型参数从命令作用域解析。模块命令类由 `app/Console/Commands` 里的 `#[ConsoleCommand]` 发现，排在内置命令之后。`make:command` 等生成命令由 [ScaffoldCommands](../framework/src/Console/Commands/ScaffoldCommands.php) 登记，生成器不覆盖已有文件。
+应用闭包命令在 `loom.php` 里用 `$app->mapCommand()` 登记，参数由 `Loom\Invoker` 绑定：`Input`、`Output` 来自这次调用，其他类类型参数从命令作用域解析。模块命令类由 `app/Console/Commands` 里的 `#[\Cli\Annotation\Command]` 发现，排在内置命令之后。`make:command` 等生成命令由 [ScaffoldCommands](../framework/src/Console/Commands/ScaffoldCommands.php) 登记，生成器不覆盖已有文件。
 
 命令类的 `$signature`、`$description` 和可选 `$hidden` 必须在属性默认值中声明，不应在构造函数中设置。注册时读取元数据，不调用命令构造函数或解析业务依赖；执行并通过参数校验后才从命令作用域取得命令。`list` 和 `help` 不初始化数据库或启动服务。内部 `_job` 命令仍通过相同注册表执行，但不在列表中显示。嵌套 `Console::call()` 沿用外层命令的作用域，不提前释放外层命令的资源。
 
