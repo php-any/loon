@@ -123,7 +123,7 @@ loom.php 中 addModule() 登记模块类名
   → 读取 Module 注解中的扫描范围
   → ClassDiscovery 递归枚举 PHP 路径，推导完整类名
   → 对每个类做 ReflectionClass，触发必要的自动加载
-  → 读取并校验 Controller、Route、Service、Job 等注解
+  → 读取并校验 Net Controller / 映射 / HttpRoute、Singleton·Scoped·Component·Bind、Cli Command、Job 等注解
   → ApplicationBuilder::build() 把声明登记到服务、路由、命令、任务和定时器
 ```
 
@@ -135,7 +135,7 @@ loom.php 中 addModule() 登记模块类名
 
 ### 3.7 应用在启动时装配一次
 
-`ApplicationBuilder::build()` 把 `addModule()` 收集的名单交给 `ModuleDiscovery::configured($config, $modules)`：扫描并校验声明、预构建注解路由表，然后冻结。`#[Service]` 类用 `tryAdd` 补登记，`ConsoleCommand` 类进入命令表，`Timer` 类交给 `TimerRunner`，`Job` 交给 `JobDispatcher`。`ModuleDiscovery`、`Router`、`HttpKernel`、`Console` 和 `Grpc\Dispatcher` 作为实例登记在根容器上。
+`ApplicationBuilder::build()` 把 `addModule()` 收集的名单交给 `ModuleDiscovery::configured($config, $modules)`：扫描并校验声明、预构建注解路由表，然后冻结。带 `Singleton` / `Scoped` / `Component` 的类用 `tryAdd` 补登记，`Cli\Annotation\Command` 类进入命令表，`Timer` 类交给 `TimerRunner`，`Job` 交给 `JobDispatcher`。`ModuleDiscovery`、`Router`、`HttpKernel`、`Console` 和 `Grpc\Dispatcher` 作为实例登记在根容器上。
 
 `build()` 返回后，`loom.php` 再用 `use()`、`mapGet()` 等、`mapCommand()`、`mapGrpc()` 往同一张路由表、命令表和 gRPC 方法表里追加。路由表属于应用，不按请求重新装配，也不加载 `routes/*.php`。每个请求、消息、调用或命令由宿主开一个作用域，控制器、中间件、`RequestContext` 和 `Database` 从这个作用域解析。修改模块声明或 `loom.php` 后需要重启应用。
 
@@ -185,7 +185,7 @@ Go 宿主和 Origami 虚拟机常驻，HTTP 回调可以并发。这不是 php-f
 - `configure`：把配置节绑定为 singleton 选项对象。绑定规则见 [宿主、应用与选项](hosting.md)。
 - `addHostedService`：登记由 `Host` 启停的后台服务。`serve` 的启动顺序见 [宿主、应用与选项](hosting.md)。
 
-同一标识登记多次时取最后一条，应用登记覆盖框架默认值。控制器通过类型化构造参数表达依赖，容器递归解析；非类名标识可用 `Inject`，配置使用 `InjectConfig` 或工厂。`loom.php` 的显式登记优先于 `#[Service]` 注解。
+同一标识登记多次时取最后一条，应用登记覆盖框架默认值。控制器通过类型化构造参数表达依赖，容器递归解析；非类名标识可用 `Container\Annotation\Inject` / `Named`，配置使用 `InjectConfig` 或工厂。`loom.php` 的显式登记优先于模块服务生命周期注解。
 
 `ServiceScope::run()` 在回调期间把本作用域的 `Database` 绑定到执行帧，模型静态查询因此用这一份。事务只属于调用它的那一次 `transaction()` 回调，作用域不拥有连接。
 

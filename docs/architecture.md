@@ -18,7 +18,7 @@ HTTP 按职责组合：`ApplicationBuilder` 组合服务，`Application` 暴露 
 
 依赖注入照 ASP.NET Core：`ServiceCollection` 登记，`build()` 得到持有单例的根 `ServiceProvider`，每个工作单元一个 `ServiceScope`。singleton 所有作用域共用，scoped 每个作用域一份，transient 每次创建；构造参数和配置注入由 `ConfigInjector` 完成。规则见 [依赖注入与作用域](core-services.md)。Config、Database、Auth 已改为实例服务，控制器、中间件、任务、命令和业务服务使用构造器注入。Config 属于应用配置，Database 与 RequestContext 属于作用域；Auth 注入这两个服务，不读取全局请求。模型继承 Loom\Model，使用 public 强类型属性和原生数据库注解。`ServiceScope::run()` 把作用域的 Database 绑定到执行帧，`ModelContext` 从这里取，模型静态查询因此使用当前作用域的 Database。ModelQuery 保存创建时的 Database，条件和绑定参数留在查询对象上。普通读写使用进程池；在事务回调里创建的查询使用该事务。关联查询和归属限制保留在应用仓储。旧实体管理器和手写查询器已移除。
 
-框架默认服务在 `ApplicationBuilder` 里登记，应用登记写在 [loom.php](../loom.php)，后登记的覆盖先登记的。`loom.php` 在 `build()` 之前用 `addModule()` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用类/方法注解注册，`loom.php` 里的显式登记优先于 `#[Service]`，闭包路由和命令也写在 `loom.php` 里。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
+框架默认服务在 `ApplicationBuilder` 里登记，应用登记写在 [loom.php](../loom.php)，后登记的覆盖先登记的。`loom.php` 在 `build()` 之前用 `addModule()` 指定带 `Module` 注解的启动模块，`ModuleDiscovery` 通过 `ClassDiscovery` 统一发现并校验服务、模型、路由、队列、定时器和命令声明。业务默认用 std 容器与网络注解注册，`loom.php` 里的显式登记优先于模块服务注解，闭包路由和命令也写在 `loom.php` 里。TCP 处理器、迁移命名空间及网络设置分别在 `config/tcp.php`、`config/migrations.php` 和 `config/network.php`，gRPC 协议清单保持由 proto 生成。通用 JSON 中间件属于框架；工作台权限中间件 RequireWorkspaceAccess 属于 app。
 
 ## 后台管理边界
 
@@ -56,8 +56,8 @@ HTTP 按职责组合：`ApplicationBuilder` 组合服务，`Application` 暴露 
 
 - `std/container` 已由 `std.Load()` 加载，但 Loom 不使用 `Container\Container`。根/作用域两层生命周期、作用域依赖校验和配置属性注入都是 Loom 的契约，std 容器只提供构造器注入，默认自动装配策略也不同。缓存、工厂执行和循环依赖检测由 `ServiceProvider` / `ServiceScope` 自己完成；Go 侧 `withSingletonLock` 保护并发单例构造。
 - `std/database/annotation` 提供 Table、Column、Id、GeneratedValue，模型直接使用这组原生注解。表名和列名来自原生元数据，类型来自属性声明；Id 用于模型主键，GeneratedValue 标记数据库生成字段。Loom 不另定义数据库映射注解，也不设置批量写入字段白名单。当前原生注解的 getArguments() 在探针中返回空数组，不能依赖它恢复原始参数。
-- `std/container/annotation` 提供 Component、Singleton、Scoped、Bind、Inject、Named。它们带注册/宏执行行为，不能当成普通 PHP 元数据注解直接替换。旧版本中，原生 Inject/Named 因缺少参数所属类信息而在加载时失败。该问题已由上游提交 `ef4fe76d31954059dfa362168cce19fa7ae23679` 修复，支持普通/提升参数及继承构造器，并拒绝非构造器目标。Loom 的 Inject 仍承担自身配置注入适配契约，本次没有改动应用注解 API。
-- `std/net/annotation` 提供 Application、Controller、Route、GetMapping/PostMapping 等。原生 Route 表达类级前缀，映射宏与原生 HTTP handler 参数绑定；Loom Route 还承担 Request/Response、中间件顺序、命名路由和 WebSocket 适配，暂保留该契约。原生 CLI Command 使用 execute()，也不等价于现有签名解析和 handle() 命令契约。
+- `std/container/annotation` 提供 Component、Singleton、Scoped、Bind、Inject、Named。`ModuleDiscovery` 与 `ConfigInjector` 读取这些注解的构造参数元数据（不启用原生 `Container\Container`）。`Component` 在 Loom 中映射为 `transient` 生命周期。`Inject` 空 service 时按参数类型解析，与 `loom_native_inject_test` 一致。
+- `std/net/annotation` 提供 Controller、类级 Route（前缀）、Middleware、GetMapping/PostMapping 等。Loom 用 `HttpRoute` 覆盖命名路由、PATCH/HEAD/OPTIONS、方法级中间件与 WebSocket。原生 CLI `Command` 仅作发现标记；仍读 `signature()` / `handle()`。
 - 当前版本未发现可直接提供“固定周期、超时跳过、同任务不并发”契约的标准库定时器；TimerRunner 保留这部分调度策略，继续复用 std spawn 和 PHP 时间函数。队列的租约、重试、隔离进程以及业务写入白名单也属于 Loom 策略。
 
 后续增加基础能力前先核对固定版本 std 的实现和行为测试；能直接使用的能力直接使用，语义有差异的能力通过适配层接入，确认的上游缺口应先记录再考虑补齐。

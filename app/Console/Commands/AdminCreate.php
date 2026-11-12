@@ -3,7 +3,7 @@
 declare(strict_types=1);
 namespace App\Console\Commands;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class AdminCreate extends \Loom\Console\Command
 {
     private \Loom\Database $database;

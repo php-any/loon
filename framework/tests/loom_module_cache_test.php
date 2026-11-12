@@ -16,7 +16,7 @@ $root = sys_get_temp_dir() . '/loom-metadata-' . bin2hex(random_bytes(6));
 mkdir($root . '/config', 0700, true);
 mkdir($root . '/components', 0700, true);
 mkdir($root . '/empty', 0700, true);
-file_put_contents($root . '/components/Endpoint.php', '<?php namespace MetadataFixture; #[\Loom\Attributes\Controller] final class Endpoint { #[\Loom\Attributes\Route("GET", "/cached")] public function index(): \Loom\Response { return new \Loom\Response("cached"); } }');
+file_put_contents($root . '/components/Endpoint.php', '<?php namespace MetadataFixture; #[\Net\Annotation\Controller] final class Endpoint { #[\Net\Annotation\GetMapping("/cached")] public function index(): \Loom\Response { return new \Loom\Response("cached"); } }');
 require $root . '/components/Endpoint.php';
 $app = null;
 $isolated = null;

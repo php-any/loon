@@ -49,7 +49,7 @@ final class ScaffoldCommands
             if (file_exists($path)) {
                 throw new InputError('命令文件已存在，未覆盖：' . $path);
             }
-            $source = "<?php\ndeclare(strict_types=1);\n\nnamespace App\\Console\\Commands;\n\nuse Loom\\Console\\Command;\n\n#[\\Loom\\Attributes\\ConsoleCommand]\nfinal class " . $name . " extends Command\n{\n    protected string \$signature = " . var_export($signature, true) . ";\n    protected string \$description = '请填写命令说明';\n\n    public function handle(): int\n    {\n        \$this->info('命令已就绪，请在 handle 方法中实现业务逻辑。');\n        return 0;\n    }\n}\n";
+            $source = "<?php\ndeclare(strict_types=1);\n\nnamespace App\\Console\\Commands;\n\nuse Loom\\Console\\Command;\n\n#[\\Cli\\Annotation\\Command]\nfinal class " . $name . " extends Command\n{\n    protected string \$signature = " . var_export($signature, true) . ";\n    protected string \$description = '请填写命令说明';\n\n    public function handle(): int\n    {\n        \$this->info('命令已就绪，请在 handle 方法中实现业务逻辑。');\n        return 0;\n    }\n}\n";
             // 独占创建，并发执行时不会覆盖已有文件。
             $handle = fopen($path, 'x');
             if ($handle === false) {

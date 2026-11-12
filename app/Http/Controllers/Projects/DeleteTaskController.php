@@ -8,10 +8,11 @@ use Loom\Request;
 use Loom\Response;
 use App\Models\Projects\Task;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
 final class DeleteTaskController
 {
-    #[\Loom\Attributes\Route('DELETE', '/api/studio/tasks/{id}', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    #[\Net\Annotation\DeleteMapping('/api/studio/tasks/{id}')]
     public function delete(Request $request): Response
     {
         $user = $request->attribute('user');

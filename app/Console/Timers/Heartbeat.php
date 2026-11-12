@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace App\Console\Timers;
 
-use Loom\Attributes\Service;
 use Loom\Timer;
 
 // 单例：节拍计数要跨 tick 保留。
 #[Timer(5)]
-#[Service('', 'singleton')]
+#[\Container\Annotation\Singleton]
 final class Heartbeat
 {
     private \Loom\RuntimePulse $pulse;

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-#[Loom\Attributes\Service('di.module.shared', 'singleton')]
+#[\Container\Annotation\Singleton('di.module.shared')]
 class DiModuleSingleton {}
-#[Loom\Attributes\Service('di.module.scoped')]
+#[\Container\Annotation\Scoped('di.module.scoped')]
 class DiModuleScoped {}
-#[Loom\Attributes\Service('di.module.fresh', 'transient')]
+#[\Container\Annotation\Component('di.module.fresh')]
 class DiModuleTransient {}

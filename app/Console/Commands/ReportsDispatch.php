@@ -9,7 +9,7 @@ use Loom\Console\Command;
 use Loom\Console\InputError;
 use Loom\Queue;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class ReportsDispatch extends Command
 {
     private Queue $queue;

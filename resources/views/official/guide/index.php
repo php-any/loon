@@ -11,10 +11,10 @@
 ├── resources/views/ <span>布局与页面模板</span>
 ├── database/        <span>版本化迁移</span>
 └── public/          <span>样式、脚本与图标</span></pre></div></section>
-<section id="action"><div class="eyebrow">02 / ONE INTENTION, ONE ACTION</div><h2>让入口读起来像业务。</h2><p>控制器接收 Request，返回 Response。发布验收入口用路由注解注册，页面与业务服务按职责组织。</p><pre class="guide-code"><code>#[\Loom\Attributes\Controller]
+<section id="action"><div class="eyebrow">02 / ONE INTENTION, ONE ACTION</div><h2>让入口读起来像业务。</h2><p>控制器接收 Request，返回 Response。发布验收入口用路由注解注册，页面与业务服务按职责组织。</p><pre class="guide-code"><code>#[\Net\Annotation\Controller]
 final class ReleasePageController
 {
-    #[\Loom\Attributes\Route('GET', '/demo')]
+    #[\Net\Annotation\GetMapping('/demo')]
     public function release(Request $request): Response
     {
         return SitePages::page('release', '发布准备室 · 端到端业务体验');

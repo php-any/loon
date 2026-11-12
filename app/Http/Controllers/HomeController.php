@@ -9,7 +9,7 @@ use App\Services\Customers\CheckoutOffer;
 use Loom\Request;
 use Loom\Response;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class HomeController
 {
     private CheckoutOffer $offer;
@@ -19,7 +19,7 @@ final class HomeController
         $this->offer = $offer;
     }
 
-    #[\Loom\Attributes\Route('GET', '/', '', [])]
+    #[\Net\Annotation\GetMapping('/')]
     public function page(Request $request): Response
     {
         return SitePages::page('home', '从一次体验，开启更多可能', [

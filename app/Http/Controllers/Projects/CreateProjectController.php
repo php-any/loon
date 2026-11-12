@@ -9,10 +9,12 @@ use Loom\Response;
 use Loom\HttpError;
 use App\Models\Projects\Project;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
+#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class CreateProjectController
 {
-    #[\Loom\Attributes\Route('POST', '/api/studio/projects', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/projects')]
     public function create(Request $request): Response
     {
         $user = $request->attribute('user');

@@ -9,10 +9,11 @@ use Loom\Response;
 use Loom\Models\Job;
 use Loom\HttpError;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
+#[\Net\Annotation\Middleware(\App\Http\Middleware\RequireWorkspaceAccess::class)]
 final class RetryJobController
 {
-    #[\Loom\Attributes\Route('POST', '/api/studio/jobs/{id}/retry', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    #[\Net\Annotation\PostMapping('/api/studio/jobs/{id}/retry')]
     public function retry(Request $request): Response
     {
         $user = $request->attribute('user');

@@ -13,7 +13,7 @@ use Loom\Models\MigrationRecord;
 use Loom\Models\Job;
 use Loom\Models\ScheduledJob;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class StateController
 {
     private \App\Repositories\Projects\ProjectRepository $projects;
@@ -23,7 +23,7 @@ final class StateController
         $this->projects = $projects;
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/studio/state', 'studio.state', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    #[\Loom\Attributes\HttpRoute('GET', '/api/studio/state', 'studio.state', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
     public function state(Request $request): Response
     {
         $user = $request->attribute('user');

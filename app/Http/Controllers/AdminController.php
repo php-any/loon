@@ -12,7 +12,7 @@ use App\Models\Identity\Account;
 use App\Models\Projects\Project;
 use App\Models\Projects\Task;
 
-#[\Loom\Attributes\Controller]
+#[\Net\Annotation\Controller]
 final class AdminController
 {
     private \Loom\Auth $auth;
@@ -28,7 +28,7 @@ final class AdminController
         $this->config = $config;
     }
 
-    #[\Loom\Attributes\Route('GET', '/admin')]
+    #[\Net\Annotation\GetMapping('/admin')]
     public function page(Request $request): Response
     {
         $entry = $this->config->path('public/admin/index.html');
@@ -44,7 +44,7 @@ final class AdminController
             ->withHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/session')]
+    #[\Net\Annotation\GetMapping('/api/admin/session')]
     public function session(Request $request): Response
     {
         $user = $this->auth->guard();
@@ -54,7 +54,7 @@ final class AdminController
         return Response::json(['user' => $user, 'permissions' => $grants, 'menus' => $this->admin->menus($grants), 'verified' => ($account[0]['verified_at'] ?? null) !== null, 'branding' => ['name' => $settings['site_name'], 'description' => $settings['site_description']]])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/overview')]
+    #[\Net\Annotation\GetMapping('/api/admin/overview')]
     public function overview(Request $request): Response
     {
         $user = $this->auth->guard();
@@ -62,7 +62,7 @@ final class AdminController
         return Response::json(['projects' => Project::whereUserId($user['id'])->count(), 'tasks' => Task::whereUserId($user['id'])->count(), 'completed' => Task::whereUserId($user['id'])->whereCompleted(1)->count(), 'runtime' => $this->runtimeStatus->snapshot()])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('GET', '/api/admin/manage/{resource}')]
+    #[\Net\Annotation\GetMapping('/api/admin/manage/{resource}')]
     public function listing(Request $request): Response
     {
         $user = $this->auth->guard();
@@ -71,7 +71,7 @@ final class AdminController
         return Response::json($this->admin->listing($request->parameter('resource'), $user['id'], $page, $search))->withHeader('Cache-Control', 'no-store');
     }
 
-    #[\Loom\Attributes\Route('POST', '/api/admin/manage/{resource}')]
+    #[\Net\Annotation\PostMapping('/api/admin/manage/{resource}')]
     public function mutate(Request $request): Response
     {
         $user = $this->auth->guard();

@@ -28,7 +28,7 @@ Loom 的项目目标是构建可扩展的通用型后台，为不同业务提供
 ./build/loom.exe serve
 ```
 
-[loom.php](loom.php) 是组合根，照 ASP.NET Core 的 `Program.cs` 用顶层语句显式声明主机和作用域：`Application::createBuilder()` 得到构建器，往 `$builder->services` 按生命周期登记服务，`build()` 得到应用，再 `use()` 中间件、`mapCommand()` 命令、`mapGrpc()` gRPC 方法，最后 `run()` 执行一条命令。测试在闭包里 `require` 它，取得未运行的应用。运行时是 Go 宿主里的 Origami，不是 php-fpm。根容器持有单例，每个 HTTP 请求、TCP 消息、gRPC 调用、命令和队列、调度、定时器节拍各开一个作用域。`RequestContext` 与 `Database` 登记为 scoped；`Database` 保存这次工作的事务和命名连接，不占有连接，连接池是进程级的。应用的登记覆盖框架默认值，也优先于 `#[Service]` 注解。说明见 [宿主、应用与选项](docs/hosting.md) 和 [依赖注入与作用域](docs/core-services.md)。
+[loom.php](loom.php) 是组合根，照 ASP.NET Core 的 `Program.cs` 用顶层语句显式声明主机和作用域：`Application::createBuilder()` 得到构建器，往 `$builder->services` 按生命周期登记服务，`build()` 得到应用，再 `use()` 中间件、`mapCommand()` 命令、`mapGrpc()` gRPC 方法，最后 `run()` 执行一条命令。测试在闭包里 `require` 它，取得未运行的应用。运行时是 Go 宿主里的 Origami，不是 php-fpm。根容器持有单例，每个 HTTP 请求、TCP 消息、gRPC 调用、命令和队列、调度、定时器节拍各开一个作用域。`RequestContext` 与 `Database` 登记为 scoped；`Database` 保存这次工作的事务和命名连接，不占有连接，连接池是进程级的。应用的登记覆盖框架默认值，也优先于模块 `Singleton` / `Scoped` / `Component` 注解。说明见 [宿主、应用与选项](docs/hosting.md) 和 [依赖注入与作用域](docs/core-services.md)。
 
 官网 `/`、后台 `/admin`、指南 `/guide` 和发布验收场景 `/demo` 共用服务。演示围绕一次发布的计划、验收、摘要交付与自动回顾展开，协议、队列和调度能力在这条业务流程中展示。旧工作室、协议实验室和 HTTP 实验页面地址统一跳转到 `/demo`。
 
@@ -98,7 +98,7 @@ final class Heartbeat
 [2026-10-31 22:00:10] [INFO] timer: service is running
 ```
 
-周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。每次触发在新作用域里解析定时器类，支持构造注入、`InjectConfig` 和 `loom.php` 里登记的工厂；需要跨触发保留状态时登记为单例，例如 Heartbeat 用 `#[Service('', 'singleton')]`。类名、命名空间需与 `app/Console/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
+周期为正整数秒，以启动时间为基准按固定周期触发，同一定时器不会重叠执行。如果任务仍在执行，期间的触发直接跳过，不排队、不补跑；完成后等待下一个原定时间点。例如周期为 5 秒，任务在第 5 秒开始、第 12 秒结束，则跳过第 10 秒的触发，下一次在第 15 秒执行。每个定时器独立运行，等待不阻塞 HTTP 请求；异常写入标准错误后仍按原周期继续。每次触发在新作用域里解析定时器类，支持构造注入、`InjectConfig` 和 `loom.php` 里登记的工厂；需要跨触发保留状态时登记为单例，例如 Heartbeat 用 `#[\Container\Annotation\Singleton]`。类名、命名空间需与 `app/Console/Timers/` 下的路径一致；未声明注解的类会被忽略，错误注解或处理方法会在启动时拒绝。
 
 只有 `serve` 启动 `Host`：每个 HTTP 服务进程把这组定时器装进 Host，监听前启动，进程退出后停止，不需要队列或调度进程；多进程部署会各自执行，不提供分布式去重或任务持久化。修改类后重启服务；删除示例类或移除其注解即可关闭日志示例。其他后台服务的登记方式见 [宿主、应用与选项](docs/hosting.md)。
 
@@ -187,13 +187,13 @@ composer format:check
 
 [loom.php](loom.php) 在 `build()` 之前用 `$builder->addModule(\App\AppModule::class)` 声明启动模块；`app/AppModule.php` 用 `#[Module(['App' => 'app'])]` 指定扫描范围。模型、控制器、路由、服务、队列、定时器和命令共用 `ModuleDiscovery` 的一次扫描，由 `ApplicationBuilder::build()` 装配，无需各自维护扫描代码。
 
-- `#[Controller]` 配合方法上的 `#[Route('GET', '/demo')]` 自动注册 HTTP 路由；发布验收页面使用该入口。控制器支持前缀和中间件，Route 支持命名和额外中间件，WebSocket 也走同一注册链路。
-- `#[Service]` 登记服务，第二个参数选择生命周期（默认 `scoped`）；`#[Service('service.id')]` 以该标识登记；构造参数用 `#[Inject(ServiceClass::class)]` 或 `#[Inject('service.id')]` 注入。`InjectConfig` 继续用于配置注入。
+- `Net\Annotation\Controller` 与 `GetMapping` 等映射注册常见 HTTP 路由；命名路由、PATCH、方法中间件与 WebSocket 使用 `Loom\Attributes\HttpRoute`。类级 `Route` 为前缀，`Middleware` 可重复。
+- `Container\Annotation\{Singleton,Scoped,Component}`（可选 `Bind`）登记服务；`Component` 映射为 `transient`。构造参数用 `Container\Annotation\Inject` / `Named` 或类型推断。`InjectConfig` 继续用于配置注入。
 - 模型直接使用 std 的 `Database\Annotation\Table`、`Column`、`Id`、`GeneratedValue`；字段类型取自属性声明，所有已映射字段均可写入，无需声明字段白名单，实体使用 public 强类型属性；可继承 `Loom\Model`，直接使用 `User::whereName("TEST")->first()` 等原生 ORM 快捷入口，详见 [基础模型](docs/models.md)。连接由框架根据配置自动初始化，与 PDO 共用事务；应用统一使用基础模型入口，旧 EntityManager 已移除；业务通过模型操作数据，必要的并发 SQL 封装在对应模型方法中。
 - `#[Job('studio.digest')]` 声明队列任务类型，默认调用 `handle(Request): Response`；不同任务不再共用一个 `job_handler`。
-- `#[Timer(5)]` 固定秒间隔，或 `#[Timer(0, '*/5 * * * *', 'UTC')]` Cron（第一个参数 0，后接五段表达式与时区；不能与正数秒间隔混写）；`make:timer` 可生成骨架。`#[ConsoleCommand]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
+- `#[Timer(5)]` 固定秒间隔，或 `#[Timer(0, '*/5 * * * *', 'UTC')]` Cron（第一个参数 0，后接五段表达式与时区；不能与正数秒间隔混写）；`make:timer` 可生成骨架。`#[\Cli\Annotation\Command]` 标记继承 `Loom\Console\Command` 的命令类，`make:command` 自动生成该注解。
 
-除原生数据库注解、`Loom\Timer`、`Loom\InjectConfig` 外，上述注解都在 `Loom\Attributes` 命名空间。现有应用类已迁移；具体用法和生命周期见 [框架文档](docs/framework.md)。注解之外的路由、命令、gRPC 方法和服务登记写在 `loom.php` 里，重复路由会报错，显式登记优先于服务注解。
+模块/任务/事件仍用 `Loom\Attributes`；HTTP、容器与 CLI 标记使用 Origami std 注解；`HttpRoute` 为 Loom 逃生舱。具体用法见 [框架文档](docs/framework.md)。注解之外的路由、命令、gRPC 方法和服务登记写在 `loom.php` 里，重复路由会报错，显式登记优先于服务注解。
 
 容器是 Loom 自己的 `ServiceCollection` / `ServiceProvider` / `ServiceScope`，不使用 Origami 的 `Container\Container`。当前 std 的复用边界见 [架构说明](docs/architecture.md)。
 

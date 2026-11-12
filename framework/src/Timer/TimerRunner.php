@@ -8,7 +8,7 @@ namespace Loom;
  * 在独立循环里跑带 Timer 注解的无参可调用类。同一个定时器不重入，错过的节拍直接跳过。
  *
  * 每次节拍打开一个新的 ServiceScope，从中解析定时器并调用，结束后释放，对应 ASP.NET Core 后台服务里“每次工作建一个作用域”的写法。
- * 定时器要在节拍之间保留状态时，把它登记成 singleton（例如 #[Service(lifetime: 'singleton')]），此时它不能依赖 scoped 服务。
+ * 定时器要在节拍之间保留状态时，把它登记成 singleton（例如 #[\Container\Annotation\Singleton]），此时它不能依赖 scoped 服务。
  *
  * 使用示例（依赖对象由所在应用或测试环境提供）：
  * @example $runner = new TimerRunner($provider); $runner->register(\App\Console\Timers\Heartbeat::class); $runner->start();

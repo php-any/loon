@@ -10,7 +10,7 @@ use App\Models\Projects\Task;
 use Loom\Console\Command;
 use Loom\Console\InputError;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class ProjectsTasks extends Command
 {
     protected string $signature = 'projects:tasks {user : 用户 ID} {--completed : 仅显示已完成任务} {--P|project= : 按项目 ID 筛选} {--json : 输出 JSON}';

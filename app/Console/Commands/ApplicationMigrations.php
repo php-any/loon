@@ -7,7 +7,7 @@ namespace App\Console\Commands;
 use Loom\Console\Command;
 use Loom\Models\MigrationRecord;
 
-#[\Loom\Attributes\ConsoleCommand]
+#[\Cli\Annotation\Command]
 final class ApplicationMigrations extends Command
 {
     private \Loom\Config $config;

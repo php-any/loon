@@ -55,9 +55,9 @@ $app = (static function () {
 
 在 `build()` 之前用 `addModule(\Some\Module::class)` 登记启动模块；`build()` 扫描这些模块：
 
-- 带 `#[Service]` 的类按注解的生命周期 `tryAdd`，应用已登记的标识不覆盖。
-- 控制器上的 `#[Route]` 进入路由表。
-- `#[ConsoleCommand]` 类进入命令表，排在内置命令之后。
+- 带 `Singleton` / `Scoped` / `Component`（可选 `Bind`）的类按注解的生命周期 `tryAdd`，应用已登记的标识不覆盖。
+- `Net\Annotation` 控制器与映射（及 `HttpRoute` 逃生舱）进入路由表。
+- `#[\Cli\Annotation\Command]` 类进入命令表，排在内置命令之后。
 - `#[Timer]` 类交给 `TimerRunner`。
 - `ModuleDiscovery`、`Router`、`HttpKernel`、`Console`、`Grpc\Dispatcher` 作为实例登记，可以注入。
 
@@ -159,6 +159,6 @@ $builder->services->addHostedService(\App\Workers\HeartbeatHost::class);
 
 ## 定时器
 
-`#[Timer(秒)]` 类由 `TimerRunner` 按周期触发，[TimerHostedService](../framework/src/Hosting/TimerHostedService.php) 把它接进 Host。每次触发在新的作用域里解析定时器并调用 `__invoke()`，同一个定时器上一次还没结束时跳过这一拍。需要跨触发保留状态的定时器登记成单例，例如 [Heartbeat](../app/Console/Timers/Heartbeat.php) 用 `#[Service('', 'singleton')]`。`#[Timer]` 类放在 `app/Console/Timers/`，与 `app/Console/Commands` 同属 Console 区域；秒间隔 `#[Timer(5)]` 与 Cron `#[Timer(0, '0 * * * *')]` 互斥，Cron 解析复用 `Loom\Cron`（与数据库计划相同五字段）。`make:timer` 可生成任一种骨架。
+`#[Timer(秒)]` 类由 `TimerRunner` 按周期触发，[TimerHostedService](../framework/src/Hosting/TimerHostedService.php) 把它接进 Host。每次触发在新的作用域里解析定时器并调用 `__invoke()`，同一个定时器上一次还没结束时跳过这一拍。需要跨触发保留状态的定时器登记成单例，例如 [Heartbeat](../app/Console/Timers/Heartbeat.php) 用 `#[\Container\Annotation\Singleton]`。`#[Timer]` 类放在 `app/Console/Timers/`，与 `app/Console/Commands` 同属 Console 区域；秒间隔 `#[Timer(5)]` 与 Cron `#[Timer(0, '0 * * * *')]` 互斥，Cron 解析复用 `Loom\Cron`（与数据库计划相同五字段）。`make:timer` 可生成任一种骨架。
 
 源码：[ApplicationBuilder](../framework/src/Hosting/ApplicationBuilder.php)、[Application](../framework/src/Hosting/Application.php)、[Host](../framework/src/Hosting/Host.php)、[HttpServer](../framework/src/Http/HttpServer.php)、[TimerRunner](../framework/src/Timer/TimerRunner.php)。测试：`framework/tests/loom_hosting_test.php`、`framework/tests/loom_di_test.php`。
