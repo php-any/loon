@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('GET', '/api/admin/notifications/socket', '', [\App\Http\Middleware\RequireNotificationSocket::class], '__invoke', true)]
-final class NotificationSocketController implements \Loom\WebSocketAction
+final class NotificationSocketController
 {
     private \Loom\Auth $auth;
     private \App\Services\Access\Admin $admin;
@@ -21,7 +20,8 @@ final class NotificationSocketController implements \Loom\WebSocketAction
         $this->stream = $stream;
     }
 
-    public function __invoke(\Loom\Request $request, \Net\Websocket\Conn $connection): void
+    #[\Loom\Attributes\Route('GET', '/api/admin/notifications/socket', '', [\App\Http\Middleware\RequireNotificationSocket::class], true)]
+    public function connect(\Loom\Request $request, \Net\Websocket\Conn $connection): void
     {
         $user = (int)$request->attribute('notification_user');
         \Loom\Native\watchWebSocket($connection);

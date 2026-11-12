@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Projects;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
 use App\Models\Projects\Task;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('DELETE', '/api/studio/tasks/{id}', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
-final class DeleteTaskController implements Action
+final class DeleteTaskController
 {
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('DELETE', '/api/studio/tasks/{id}', '', [\App\Http\Middleware\RequireWorkspaceAccess::class])]
+    public function delete(Request $request): Response
     {
         $user = $request->attribute('user');
         $task = Task::whereId($request->parameter('id'))->whereUserId($user['id'])->firstOrFail();

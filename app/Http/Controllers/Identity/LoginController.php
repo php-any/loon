@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Identity;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
-use Loom\Auth;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('POST', '/api/studio/login', '', [\Loom\Http\Middleware\ParseJsonInput::class])]
-final class LoginController implements Action
+final class LoginController
 {
     private \Loom\Auth $auth;
     private \App\Services\Access\Admin $admin;
@@ -22,7 +19,8 @@ final class LoginController implements Action
         $this->admin = $admin;
     }
 
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('POST', '/api/studio/login', '', [\Loom\Http\Middleware\ParseJsonInput::class])]
+    public function login(Request $request): Response
     {
         $input = $request->attribute('input')->only(['email', 'password']);
         $session = $this->auth->login($input->string('email', 3, 254), $input->string('password', 10, 72));

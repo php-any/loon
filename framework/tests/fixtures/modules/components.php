@@ -232,7 +232,6 @@ final class DuplicateJob
  * @example $instance = $services->get(InvalidController::class); // 在对应测试环境中解析；无效夹具用于断言异常
  */
 #[Controller]
-#[Route('GET', '/hidden', '', [], 'hidden')]
 final class InvalidController
 {
     /**
@@ -245,6 +244,7 @@ final class InvalidController
      * 内部调用示例（仅类内使用）：
      * @example $this->hidden();
      */
+    #[Route('GET', '/hidden')]
     private function hidden(): void
     {
     }

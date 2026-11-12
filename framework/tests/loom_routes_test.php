@@ -156,32 +156,6 @@ class RouteMethodsController
         return new Loom\Response('private');
     }
 }
-/**
- * 提供可调用控制器，验证 __invoke 路由解析。
- *
- * 构造参数：无，本类型未声明构造参数。
- *
- * 返回值：使用 new 构造时得到 RouteInvokableController 实例；注册到容器时由容器管理实例的创建与复用。
- *
- * 使用示例（依赖对象由所在应用或测试环境提供）：
- * @example $instance = $services->get(RouteInvokableController::class); // 在对应测试环境中解析；无效夹具用于断言异常
- */
-class RouteInvokableController
-{
-    /**
-     * 提供无具名操作的控制器调用入口。
-     *
-     * @param Loom\Request $request 当前 HTTP 请求；中间件修改属性时应传递请求副本。
-     * @return Loom\Response 正文 invokable 的响应。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $response = $controller($request);
-     */
-    public function __invoke(Loom\Request $request): Loom\Response
-    {
-        return new Loom\Response('invokable');
-    }
-}
 $GLOBALS['route_factory_calls'] = 0;
 $methods = routes_app(null, function (Loom\ServiceCollection $services) {
     $services->addScoped(RouteMethodsController::class, function () {
@@ -192,9 +166,15 @@ $methods = routes_app(null, function (Loom\ServiceCollection $services) {
 $methods->mapGet('/items/{id}', [RouteMethodsController::class, 'show'], 'show');
 $methods->mapPost('/items', [RouteMethodsController::class, 'store']);
 $methods->mapGet('/object/{id}', [new RouteMethodsController('object:'), 'show']);
-$methods->mapGet('/invoke', RouteInvokableController::class);
+$thrown = false;
+try {
+    $methods->mapGet('/invoke', RouteMethodsController::class);
+} catch (LogicException $e) {
+    $thrown = true;
+}
+check_route($thrown);
 check_route($GLOBALS['route_factory_calls'] === 0);
-foreach ([['GET', '/items/7', 200, 'item:7'], ['POST', '/items', 201, 'created'], ['GET', '/object/9', 200, 'object:9'], ['GET', '/invoke', 200, 'invokable']] as $case) {
+foreach ([['GET', '/items/7', 200, 'item:7'], ['POST', '/items', 201, 'created'], ['GET', '/object/9', 200, 'object:9']] as $case) {
     $result = $methods->handle(new Loom\Request(['method' => $case[0], 'path' => $case[1]]))->toArray();
     check_route($result['status'] === $case[2] && $result['body'] === $case[3]);
 }
@@ -211,7 +191,7 @@ foreach (['missing', 'hidden'] as $method) {
     }
     check_route($thrown);
 }
-foreach ([[], [RouteMethodsController::class], [RouteMethodsController::class, ''], [42, 'show'], ['controller' => RouteMethodsController::class, 'method' => 'show']] as $bad) {
+foreach ([[], [RouteMethodsController::class], [RouteMethodsController::class, ''], [RouteMethodsController::class, '__invoke'], [42, 'show'], ['controller' => RouteMethodsController::class, 'method' => 'show']] as $bad) {
     foreach (['mapGet', 'mapWebSocket'] as $register) {
         $thrown = false;
         try {

@@ -167,7 +167,7 @@ final class ModuleDiscovery
      * 检查一个组件类并记下合法声明。同一个类只处理一次；对象已冻结时抛出 LogicException。
      * 有 Service 时类必须可实例化，标识为空则改用类名，标识重复则失败。
      * 有 Table 时类必须是 Model 子类，并调用它的 validateDefinition。
-     * 类或方法上有 Route 但没有 Controller 时失败。Job 的 kind 不能为空或重复，处理方法交给 handler 校验。
+     * 方法上有 Route 但没有 Controller 时失败。Job 的 kind 不能为空或重复，处理方法交给 handler 校验。
      * 带 Timer 的类只记录类名。带 ConsoleCommand 的类必须是可实例化的 Command 子类。
      *
      * @param string $class 要检查的组件完整类名。
@@ -206,14 +206,6 @@ final class ModuleDiscovery
             }
         }
         $controller = self::attribute($reflection, \Loom\Attributes\Controller::class);
-        $classRoutes = $reflection->getAttributes(\Loom\Attributes\Route::class);
-        if ($classRoutes !== [] && $controller === null) {
-            throw new \LogicException('Route requires Controller: ' . $class);
-        }
-        foreach ($classRoutes as $attribute) {
-            $route = $attribute->newInstance();
-            $this->route($reflection, $controller, $route, $route->handler);
-        }
         foreach ($reflection->getMethods() as $method) {
             foreach ($method->getAttributes(\Loom\Attributes\Route::class) as $attribute) {
                 if ($controller === null) {
@@ -298,6 +290,9 @@ final class ModuleDiscovery
      */
     private function route(\ReflectionClass $class, Controller $controller, Route $route, string $method): void
     {
+        if ($method === '__invoke') {
+            throw new \LogicException('Route handler must not use __invoke: ' . $class->getName());
+        }
         $this->handler($class, $method);
         if ($route->websocket && strtoupper($route->method) !== 'GET') {
             throw new \LogicException('WebSocket route requires GET');

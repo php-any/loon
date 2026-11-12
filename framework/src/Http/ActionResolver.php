@@ -32,36 +32,39 @@ final class ActionResolver
         $this->container = $container;
     }
     /**
-     * 检查处理器是 [控制器, 方法名]、类名字符串或可调用对象。数组长度不是 2、方法名为空，或控制器既不是字符串也不是对象时抛出 LogicException。这里不实例化控制器。
+     * 检查处理器是 [控制器, 方法名] 或非字符串可调用对象。数组长度不是 2、方法名为空或 __invoke、控制器既不是字符串也不是对象，以及单独的类名字符串时抛出 LogicException。这里不实例化控制器。
      *
      * @param mixed $action 待检查的处理器定义。
      * @return void 无返回值。结构无效时抛出 LogicException。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example ActionResolver::validate([\App\Http\Controllers\HomeController::class, '__invoke']);
+     * @example ActionResolver::validate([\App\Http\Controllers\HomeController::class, 'page']);
      */
     public static function validate(mixed $action): void
     {
         if (is_array($action)) {
             if (count($action) !== 2 || !array_key_exists(0, $action) || !array_key_exists(1, $action)
                 || (!is_string($action[0]) && !is_object($action[0]))
-                || !is_string($action[1]) || $action[1] === '') {
+                || !is_string($action[1]) || $action[1] === '' || $action[1] === '__invoke') {
                 throw new \LogicException('Expected [controller, method]');
             }
             return;
         }
-        if (!is_string($action) && !is_callable($action)) {
+        if (is_string($action)) {
+            throw new \LogicException('Invalid route handler');
+        }
+        if (!is_callable($action)) {
             throw new \LogicException('Invalid route handler');
         }
     }
     /**
-     * 把类名或 [类名, 方法] 变成可调用对象。字符串类名通过容器取出，数组中的对象控制器保持原实例。结果不可调用时抛出 LogicException。
+     * 把 [类名或实例, 方法] 变成可调用对象。数组中的对象控制器保持原实例。结果不可调用时抛出 LogicException。
      *
-     * @param mixed $action 类名、可调用对象，或 [控制器类名或实例, 方法名]。
+     * @param mixed $action 可调用对象，或 [控制器类名或实例, 方法名]。
      * @return callable 可接受 Request 的公开可调用对象。
      *
      * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $handler = $resolver->resolve([\App\Http\Controllers\HomeController::class, '__invoke']);
+     * @example $handler = $resolver->resolve([\App\Http\Controllers\HomeController::class, 'page']);
      */
     public function resolve(mixed $action): callable
     {
@@ -71,8 +74,6 @@ final class ActionResolver
                 $controller = $this->container->get($controller);
             }
             $action = [$controller, $action[1]];
-        } elseif (is_string($action)) {
-            $action = $this->container->get($action);
         }
         if (!is_callable($action)) {
             throw new \LogicException('Route must resolve to a callable public controller method');

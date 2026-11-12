@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Jobs;
 
-use Loom\Action;
 use Loom\Request;
 use Loom\Response;
-use Loom\Queue;
 
 #[\Loom\Attributes\Controller]
-#[\Loom\Attributes\Route('POST', '/api/studio/reports', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
-final class DispatchReportController implements Action
+final class DispatchReportController
 {
     private \Loom\Queue $queue;
 
@@ -20,7 +17,8 @@ final class DispatchReportController implements Action
         $this->queue = $queue;
     }
 
-    public function __invoke(Request $request): Response
+    #[\Loom\Attributes\Route('POST', '/api/studio/reports', '', [\App\Http\Middleware\RequireWorkspaceAccess::class, \Loom\Http\Middleware\ParseJsonInput::class])]
+    public function report(Request $request): Response
     {
         $user = $request->attribute('user');
         $input = $request->attribute('input')->only(['delay']);

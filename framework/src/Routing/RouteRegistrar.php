@@ -88,7 +88,7 @@ final class RouteRegistrar
      *
      * @param string $method HTTP 方法。路由器只接受 GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。
      * @param string $path 相对当前前缀的路径，需以 / 开头，可含 {id} 这样的整段占位符。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -106,7 +106,7 @@ final class RouteRegistrar
      * 登记一条 GET 路由，等价于 route('GET', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -121,7 +121,7 @@ final class RouteRegistrar
      * 登记一条 POST 路由，等价于 route('POST', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -136,7 +136,7 @@ final class RouteRegistrar
      * 登记一条 PUT 路由，等价于 route('PUT', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -151,7 +151,7 @@ final class RouteRegistrar
      * 登记一条 PATCH 路由，等价于 route('PATCH', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -166,7 +166,7 @@ final class RouteRegistrar
      * 登记一条 DELETE 路由，等价于 route('DELETE', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -181,7 +181,7 @@ final class RouteRegistrar
      * 登记一条 HEAD 路由，等价于 route('HEAD', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -196,7 +196,7 @@ final class RouteRegistrar
      * 登记一条 OPTIONS 路由，等价于 route('OPTIONS', ...)。同方法路径重叠或路由名重复时由路由器抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
@@ -211,7 +211,7 @@ final class RouteRegistrar
      * 在当前前缀和中间件下登记一条 WebSocket 路由。处理器稍后接收请求和原生连接，这里不升级连接。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符。
-     * @param mixed $action 升级后调用的处理器。类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action 升级后调用的处理器。[控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @return self 当前注册器。
      *
