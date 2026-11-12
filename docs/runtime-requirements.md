@@ -1,8 +1,8 @@
 # Origami 运行时要求与验证
 
-> 当前依赖为 Origami 正式版 `v1.0.9`，包含 `std/net/tcp`、`std/net/grpc`、`v1.0.7` 的 HTTP 并发修复，以及执行帧 Go context 与 `Database\bind`。`v1.0.7` 缺少 TCP 和 gRPC 包，不能用于构建当前宿主。
+> 当前依赖为 Origami 正式版 `v1.0.10`，包含 `std/net/tcp`、`std/net/grpc`、`v1.0.7` 的 HTTP 并发修复、执行帧 Go context 与 `Database\bind`，以及编译期将未限定 `Name::class` 解析为 FQCN。`v1.0.7` 缺少 TCP 和 gRPC 包，不能用于构建当前宿主。
 
-Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查会创建并删除一张唯一命名的普通表）。`runtime/go.mod` 固定模块标签 `v1.0.9`（提交 `232c9acd383fcd9652e6d3434dd5073e8914d836`）。此前版本曾固定提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`（原生 Inject/Named）与 `v1.0.8`（通用网络 API）；执行帧 context 与 `Database\bind` 自 `v1.0.9` 起并入正式版。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
+Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查会创建并删除一张唯一命名的普通表）。`runtime/go.mod` 固定模块标签 `v1.0.10`（提交 `ba8e74115e53a6a89694861dfce795fbf9c25cc7`）。此前版本曾固定提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`（原生 Inject/Named）、`v1.0.8`（通用网络 API）与 `v1.0.9`（执行帧 context 与 `Database\bind`）。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
 
 ```powershell
 ./scripts/build.ps1 -Test
@@ -50,11 +50,13 @@ go test -mod=readonly -timeout 30s ./std/net/tcp ./std/net/http ./std/net/websoc
 go run -mod=readonly ./zy.go tests/php/net_api_test.php
 ```
 
-这些网络修改在 Origami `v1.0.8` 中发布；执行帧 context 与 `Database\bind` 在 `v1.0.9` 中发布。Loom 直接依赖 `v1.0.9` 模块标签，无需伪版本或 `replace`。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions/load.go` 注册。应用 streaming RPC 与 TLS 终止尚未提供。长驻命令通过脚本层 `StopSignal` 与 Origami `std/signal` 接收停止信号，可选执行 `onStop` 回调后直接退出，不内置排空；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md) 与 [宿主说明](hosting.md)。
+这些网络修改在 Origami `v1.0.8` 中发布；执行帧 context 与 `Database\bind` 在 `v1.0.9` 中发布；未限定 `Name::class` 的编译期 FQCN 解析在 `v1.0.10` 中发布。Loom 直接依赖 `v1.0.10` 模块标签，无需伪版本或 `replace`。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions/load.go` 注册。应用 streaming RPC 与 TLS 终止尚未提供。长驻命令通过脚本层 `StopSignal` 与 Origami `std/signal` 接收停止信号，可选执行 `onStop` 回调后直接退出，不内置排空；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md) 与 [宿主说明](hosting.md)。
 
 运行验证：`./build/loom.exe tests/run.php`；Windows 端到端验证：`./tests/e2e/http.ps1`。另有 `tests/e2e/protocols.py` 和 `tests/e2e/network_limits.py` 验证真实协议及慢客户端。测试使用独立数据库、临时输出、随机回环端口和独立作业进程，不使用业务数据库。
 
 ## 提交前审核与验证
+
+2026-11-12 发布 Origami `v1.0.10`（`ba8e74115e53a6a89694861dfce795fbf9c25cc7`），在 `v1.0.9` 基础上合入 origami#23：编译期将未限定 `Name::class` 解析为 FQCN，行为与官方 PHP 一致。Loom `runtime/go.mod` 改为直接依赖该模块标签。
 
 2026-11-12 发布 Origami `v1.0.9`（`232c9acd383fcd9652e6d3434dd5073e8914d836`），合并执行帧 Go context、`Database\bind` 与 `ReflectionAttribute` 的 `getArguments` / `newInstance`。Loom `runtime/go.mod` 改为直接依赖该模块标签，移除此前指向本机 `origami-frame-context` 的 `replace`。
 

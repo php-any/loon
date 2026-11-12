@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gorilla/websocket v1.5.3
-	github.com/php-any/origami v1.0.9
+	github.com/php-any/origami v1.0.10
 	golang.org/x/net v0.47.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.11
