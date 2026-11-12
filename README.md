@@ -111,7 +111,7 @@ final class Heartbeat
 
 加 `--once` 可只执行一次。HTTP 不自动启动后台进程。停止进程后，未完成任务由租约过期恢复；任务需要保持幂等。
 
-开发时在项目根目录执行 `go -C runtime run ./cmd/loom serve`。`runtime/go.mod` 固定 Origami 正式版 `v1.0.9`（含执行帧 context 与 `Database\bind`）。联调其他 Origami 源码时可指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，详见 [运行时要求](docs/runtime-requirements.md)。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
+开发时在项目根目录执行 `go -C runtime run ./cmd/loom serve`。`runtime/go.mod` 固定 Origami 正式版 `v1.0.10`（含执行帧 context、`Database\bind`，以及编译期将未限定 `Name::class` 解析为 FQCN）。联调其他 Origami 源码时可指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE`，详见 [运行时要求](docs/runtime-requirements.md)。构建产物不纳入版本控制；Linux/macOS 产物为 `build/loom`。原有 `build/zy.exe` 不再是默认运行程序。
 
 Composer 只用于构建和代码风格工具：`composer build` 构建宿主（源码覆盖使用 `LOOM_ORIGAMI_SOURCE`）；`composer start`、`composer test`、`composer loom -- list` 调用上述 Origami 脚本。应用入口不加载 `vendor/autoload.php`。宿主在运行脚本前把 `app/` 和 `generated/grpc/` 写入 Origami 类路径，因此仓库内置应用无需先运行 Composer。部署需要携带匹配的运行程序、脚本和资源；目标机器无需 Go 工具链、Origami 源码或 `go.work`。Go 模块和构建入口位于 `runtime/`。
 
