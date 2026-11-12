@@ -12,19 +12,23 @@ namespace Loom;
  */
 final class Redis
 {
+    private static ?RedisOptions $options = null;
+
+    public static function bindOptions(RedisOptions $options): void
+    {
+        self::$options = $options;
+    }
+
     /**
-     * 在业务键后缀前添加 LOOM_REDIS_PREFIX，未设置时使用 loom:。
+     * 在业务键后缀前添加连接上的前缀，默认连接未设置时使用 loom:。
      *
      * @param string $suffix 不含环境前缀的业务键后缀。
-     * @return string 带环境前缀的完整 Redis 键。
-     *
-     * 使用示例（依赖对象由所在应用或测试环境提供）：
-     * @example $key = Redis::key('session:demo');
+     * @param ?string $connection 命名连接；null 表示 default。
      */
-    public static function key(string $suffix): string
+    public static function key(string $suffix, ?string $connection = null): string
     {
-        $prefix = getenv('LOOM_REDIS_PREFIX');
-        return ($prefix === false || $prefix === '' ? 'loom:' : $prefix) . $suffix;
+        $resolved = self::resolvedConnection($connection);
+        return $resolved['prefix'] . $suffix;
     }
     /**
      * 为一条原始 Redis 命令创建短生命周期连接并执行。
@@ -35,9 +39,9 @@ final class Redis
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = Redis::command(['PING']);
      */
-    public static function command(array $args): mixed
+    public static function command(array $args, ?string $connection = null): mixed
     {
-        return self::using(fn ($client) => self::execute($client, $args));
+        return self::using(fn ($client) => self::execute($client, $args), $connection);
     }
     // 连接属于当前显式作用域，不属于复制的请求或定时器静态缓存。
     /**
@@ -49,11 +53,11 @@ final class Redis
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = Redis::using(fn (\Redis $client) => $client);
      */
-    public static function using(callable $operation): mixed
+    public static function using(callable $operation, ?string $connection = null): mixed
     {
         $client = new \Redis();
         try {
-            $url = getenv('LOOM_REDIS_URL') ?: 'redis://127.0.0.1:6379/0';
+            $url = self::resolvedConnection($connection)['url'];
             $parts = parse_url($url);
             if (!is_array($parts) || !in_array($parts['scheme'] ?? '', ['redis', 'rediss'], true) || empty($parts['host']) || isset($parts['query']) || isset($parts['fragment'])) {
                 throw new \LogicException('Invalid Redis configuration');
@@ -152,8 +156,21 @@ final class Redis
      * 使用示例（依赖对象由所在应用或测试环境提供）：
      * @example $value = Redis::eval('return KEYS[1]', ['loom:example']);
      */
-    public static function eval(string $script, array $keys, array $args = []): mixed
+    public static function eval(string $script, array $keys, array $args = [], ?string $connection = null): mixed
     {
-        return self::command(array_merge(['EVAL', $script, (string)count($keys)], $keys, $args));
+        return self::command(array_merge(['EVAL', $script, (string)count($keys)], $keys, $args), $connection);
+    }
+
+    /**
+     * @return array{url: string, prefix: string}
+     */
+    private static function resolvedConnection(?string $connection): array
+    {
+        $options = self::$options ?? RedisOptions::fromEnvironment();
+        $name = $connection ?? '';
+        if ($name === '') {
+            $name = $options->default;
+        }
+        return $options->resolve($name);
     }
 }

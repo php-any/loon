@@ -12,21 +12,22 @@ namespace Loom;
  */
 final class StopSignal
 {
-    private ?\Closure $handler = null;
+    /** @var list<\Closure> */
+    private array $handlers = [];
     private bool $listening = false;
     private bool $dispatched = false;
 
     /**
-     * 登记停止时要执行的回调。后一次登记覆盖前一次。未登记时收到信号直接退出。
+     * 登记停止时要执行的回调。多次登记按顺序累积执行。未登记时收到信号直接退出。
      */
     public function onStop(callable $handler): void
     {
-        $this->handler = $handler(...);
+        $this->handlers[] = $handler(...);
     }
 
     public function hasHandler(): bool
     {
-        return $this->handler !== null;
+        return $this->handlers !== [];
     }
 
     /**
@@ -65,8 +66,8 @@ final class StopSignal
             return;
         }
         $this->dispatched = true;
-        if ($this->handler !== null) {
-            ($this->handler)();
+        foreach ($this->handlers as $handler) {
+            $handler();
         }
         if ($exit) {
             exit(0);

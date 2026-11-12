@@ -21,9 +21,13 @@ final class ApplicationBuilder
     public readonly \Loom\Filesystem\FilesystemBuilder $filesystems;
     public readonly \Loom\Events\EventsBuilder $events;
     public readonly \Loom\CacheBuilder $cache;
+    public readonly \Loom\Logging\DiaryBuilder $diary;
+    public readonly \Loom\QueueBuilder $queue;
+    public readonly \Loom\Mail\MailBuilder $mail;
     private \Loom\Events\EventsRegistration $eventsRegistration;
     private bool $built = false;
-    private ?\Closure $onStop = null;
+    /** @var list<\Closure> */
+    private array $onStopHandlers = [];
     /** @var list<string> */
     private array $modules = [];
 
@@ -49,7 +53,15 @@ final class ApplicationBuilder
         $services->addSingleton(HttpServer::class);
         $services->addSingleton(TcpServer::class);
         $services->addSingleton(GrpcServer::class);
-        $services->tryAddSingleton(\Loom\RedisQueue::class);
+        $diaryRegistration = new \Loom\Logging\DiaryRegistration();
+        $services->addInstance(\Loom\Logging\DiaryRegistration::class, $diaryRegistration);
+        $this->diary = new \Loom\Logging\DiaryBuilder($diaryRegistration);
+        $queueRegistration = new \Loom\QueueRegistration();
+        $services->addInstance(\Loom\QueueRegistration::class, $queueRegistration);
+        $this->queue = new \Loom\QueueBuilder($queueRegistration);
+        $mailRegistration = new \Loom\Mail\MailRegistration();
+        $services->addInstance(\Loom\Mail\MailRegistration::class, $mailRegistration);
+        $this->mail = new \Loom\Mail\MailBuilder($mailRegistration);
         $services->tryAddScoped(\Loom\Queue::class);
         $services->tryAddScoped(\Loom\Events\EventListenJob::class);
         $services->configure(HttpServerOptions::class, 'http');
@@ -62,24 +74,67 @@ final class ApplicationBuilder
         });
         $services->tryAddSingleton(\Loom\Logging\JournalWriter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalWriter {
             $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
-            return match ($options->writer) {
-                'file' => new \Loom\Logging\FileJournalWriter(
-                    $options->file !== ''
-                        ? $options->file
-                        : $resolver->get(Config::class)->path('storage/logs/diary.log'),
-                ),
-                'null' => new \Loom\Logging\NullJournalWriter(),
-                default => new \Loom\Logging\StderrJournalWriter(),
-            };
+            return \Loom\Logging\DiaryComposer::createWriter(
+                $options,
+                $resolver->get(\Loom\Logging\DiaryRegistration::class),
+                $resolver->get(Config::class),
+            );
         });
         $services->tryAddSingleton(\Loom\Logging\JournalFormatter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalFormatter {
             $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
-            return match ($options->formatter) {
-                'text', 'plain' => new \Loom\Logging\PlainTextJournalFormatter(),
-                default => new \Loom\Logging\JsonLineJournalFormatter(),
-            };
+            return \Loom\Logging\DiaryComposer::formatter($options->formatter);
         });
-        $services->tryAddSingleton(\Loom\Logging\Diary::class);
+        $services->tryAddSingleton(\Loom\Logging\Diary::class, static function (ServiceResolver $resolver): \Loom\Logging\Diary {
+            $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
+            $sink = \Loom\Logging\DiaryComposer::createSink(
+                $options,
+                $resolver->get(\Loom\Logging\DiaryRegistration::class),
+                $resolver->get(Config::class),
+            );
+            return new \Loom\Logging\Diary($sink, null, $options->level);
+        });
+        $services->tryAddSingleton(\Loom\RedisOptions::class, static function (ServiceResolver $resolver): \Loom\RedisOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\RedisOptions::class, 'redis');
+            if (!($bound instanceof \Loom\RedisOptions)) {
+                throw new \LogicException('RedisOptions binding must return RedisOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\QueueOptions::class, static function (ServiceResolver $resolver): \Loom\QueueOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\QueueOptions::class, 'queue');
+            if (!($bound instanceof \Loom\QueueOptions)) {
+                throw new \LogicException('QueueOptions binding must return QueueOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\RedisQueue::class, static function (ServiceResolver $resolver): \Loom\RedisQueue {
+            $options = $resolver->get(\Loom\QueueOptions::class);
+            $profile = $options->connectionProfile($options->default);
+            $factory = $resolver->get(\Loom\QueueRegistration::class)->factory($profile['driver']);
+            if ($factory !== null) {
+                $instance = $factory($resolver);
+                if (!$instance instanceof \Loom\RedisQueue) {
+                    throw new \LogicException('Queue driver factory must return RedisQueue');
+                }
+                return $instance;
+            }
+            if ($profile['driver'] !== 'redis') {
+                throw new \LogicException('Unsupported queue driver: ' . $profile['driver']);
+            }
+            return new \Loom\RedisQueue(
+                $resolver->get(Config::class),
+                (string)($profile['connection'] ?? ''),
+                (string)($profile['name'] ?? ''),
+            );
+        });
+        $services->tryAddSingleton(\Loom\Mail\MailOptions::class, static function (ServiceResolver $resolver): \Loom\Mail\MailOptions {
+            $bound = $resolver->get(Options::class)->bindOptional(\Loom\Mail\MailOptions::class, 'mail');
+            if (!($bound instanceof \Loom\Mail\MailOptions)) {
+                throw new \LogicException('MailOptions binding must return MailOptions');
+            }
+            return $bound;
+        });
+        $services->tryAddSingleton(\Loom\Mail\Mailer::class);
         $services->addHostedService(TimerHostedService::class);
         $services->addScoped(Database::class);
         $services->addScoped(RequestContext::class);
@@ -144,7 +199,7 @@ final class ApplicationBuilder
      */
     public function onStop(callable $handler): self
     {
-        $this->onStop = $handler(...);
+        $this->onStopHandlers[] = $handler(...);
         return $this;
     }
 
@@ -257,8 +312,10 @@ final class ApplicationBuilder
             $console->add($class);
         }
         $provider = $services->build();
-        if ($this->onStop !== null) {
-            $provider->get(StopSignal::class)->onStop($this->onStop);
+        \Loom\Redis::bindOptions($provider->get(\Loom\RedisOptions::class));
+        $stopSignal = $provider->get(StopSignal::class);
+        foreach ($this->onStopHandlers as $handler) {
+            $stopSignal->onStop($handler);
         }
         return new Application($provider, $this->configuration, $router, $kernel, $console, $grpc);
     }

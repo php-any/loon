@@ -91,17 +91,94 @@ if ($httpRecord['event'] !== 'http.request' || $httpRecord['status'] !== 204 || 
     throw new RuntimeException('RequestLog diary record must include http.request metadata');
 }
 
-// 未提供 config/diary.php 时 bindOptional 回落到类默认值（与样板 diary.php 一致）。
+// 未提供 config/diary.php 时 bindOptional 回落到类默认值（默认 writer 为 stack）。
 $bareRoot = sys_get_temp_dir() . '/loom-diary-bare-' . bin2hex(random_bytes(6));
 mkdir($bareRoot . '/config', 0700, true);
 try {
     $bare = (new Loom\Options(new Loom\Config($bareRoot)))->bindOptional(Loom\Logging\DiaryOptions::class, 'diary');
-    if (!($bare instanceof Loom\Logging\DiaryOptions) || $bare->writer !== 'stderr' || $bare->formatter !== 'json' || $bare->file !== '') {
+    if (!($bare instanceof Loom\Logging\DiaryOptions) || $bare->writer !== 'stack' || $bare->formatter !== 'json' || $bare->file !== '' || count($bare->stack) < 2) {
         throw new RuntimeException('Missing diary config must keep DiaryOptions defaults');
     }
 } finally {
     rmdir($bareRoot . '/config');
     rmdir($bareRoot);
+}
+
+// Stack 同时写入多个目标；单项 formatter 覆盖全局 formatter。
+$stackTextPath = sys_get_temp_dir() . '/loom-diary-stack-' . bin2hex(random_bytes(6)) . '.log';
+$stackJsonPath = sys_get_temp_dir() . '/loom-diary-stack-json-' . bin2hex(random_bytes(6)) . '.log';
+$stackSink = new Loom\Logging\StackJournalSink([
+    new Loom\Logging\LaneJournalSink($plain, new Loom\Logging\CallableJournalWriter(static function (string $line) use ($stackTextPath): void {
+        file_put_contents($stackTextPath, $line, FILE_APPEND);
+    })),
+    new Loom\Logging\LaneJournalSink($json, new Loom\Logging\CallableJournalWriter(static function (string $line) use ($stackJsonPath): void {
+        file_put_contents($stackJsonPath, $line, FILE_APPEND);
+    })),
+]);
+$stackDiary = new Loom\Logging\Diary($stackSink);
+$stackDiary->event('stack.probe', ['n' => 2]);
+$textBody = file_get_contents($stackTextPath);
+$jsonBody = file_get_contents($stackJsonPath);
+if ($textBody === false || !str_contains($textBody, 'stack.probe n=2')) {
+    throw new RuntimeException('Stack stderr lane must use text formatter');
+}
+if ($jsonBody === false || diaryJsonLines([trim($jsonBody)])[0]['event'] !== 'stack.probe') {
+    throw new RuntimeException('Stack file lane must use json formatter');
+}
+@unlink($stackTextPath);
+@unlink($stackJsonPath);
+
+// 级别过滤：低于阈值的条目被丢弃。
+$levelLines = [];
+$levelDiary = new Loom\Logging\Diary(
+    new Loom\Logging\CallableJournalWriter(static function (string $line) use (&$levelLines): void {
+        $levelLines[] = $line;
+    }),
+    $json,
+    'warning',
+);
+$levelDiary->event('low', [], 'info');
+$levelDiary->event('high', [], 'error');
+if (count($levelLines) !== 1 || diaryJsonLines($levelLines)[0]['event'] !== 'high') {
+    throw new RuntimeException('Diary level filter must drop entries below threshold');
+}
+
+// DiaryBuilder extend 与未知驱动在组装时拒绝。
+$extendRoot = sys_get_temp_dir() . '/loom-diary-extend-' . bin2hex(random_bytes(6));
+mkdir($extendRoot . '/config', 0777, true);
+file_put_contents($extendRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'custom', 'formatter' => 'json', 'file' => '', 'level' => '', 'stack' => []];\n");
+try {
+    $extendBuilder = Loom\Application::createBuilder($extendRoot);
+    $extendBuilder->diary->extend('custom', static fn () => new Loom\Logging\NullJournalWriter());
+    $extendApp = $extendBuilder->build();
+    $extendApp->services->get(Loom\Logging\Diary::class)->event('custom.writer', []);
+    $extendBuilderUnknown = Loom\Application::createBuilder($extendRoot);
+    try {
+        $extendBuilderUnknown->build()->services->get(Loom\Logging\Diary::class);
+        throw new RuntimeException('Unknown diary writer must be rejected at bind time');
+    } catch (LogicException) {
+        // expected when extend not registered
+    }
+} finally {
+    @unlink($extendRoot . '/config/diary.php');
+    @rmdir($extendRoot . '/config');
+    @rmdir($extendRoot);
+}
+
+// StackJournalWriter：同一行写入多个 writer，单个失败不影响其余。
+$primary = [];
+$failing = new Loom\Logging\CallableJournalWriter(static function (): void {
+    throw new RuntimeException('sink failed');
+});
+$stackWriter = new Loom\Logging\StackJournalWriter([
+    $failing,
+    new Loom\Logging\CallableJournalWriter(static function (string $line) use (&$primary): void {
+        $primary[] = $line;
+    }),
+]);
+$stackWriter->write("line\n");
+if (count($primary) !== 1) {
+    throw new RuntimeException('StackJournalWriter must continue after one writer fails');
 }
 
 echo "loom_diary_test: OK\n";

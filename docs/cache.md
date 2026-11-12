@@ -15,7 +15,7 @@ $cache->remember('report:daily', 300, static fn (): array => loadReport());
 
 ## 与 Loom\Redis 的分工
 
-**不要**把认证会话、`RedisQueue`、通知 Stream 等现有用法迁到 `Cache`，也不要用 `Cache` 替代 `Redis::command` / `using` / `pipeline` / `XADD`。`Redis` 仍是短连接命令包装；`Cache` 只在业务键上附加 `cache:{store}:` 前缀（再经 `Redis::key()` 加 `LOOM_REDIS_PREFIX`），与会话键、队列流等隔离。
+**不要**把认证会话、`RedisQueue`、通知 Stream 等现有用法迁到 `Cache`，也不要用 `Cache` 替代 `Redis::command` / `using` / `pipeline` / `XADD`。`Redis` 仍是短连接命令包装；`Cache` 只在业务键上附加 `cache:{store}:` 前缀（再经 `Redis::key()` 加命名连接前缀），与会话键、队列流等隔离。`redis` 驱动可在存储配置中加 `'connection' => 'analytics'` 使用 `config/redis.php` 里的命名连接。
 
 ## API 摘要
 

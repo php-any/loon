@@ -7,18 +7,12 @@ declare(strict_types=1);
  * 修改后需重启长期运行的进程。
  */
 return [
-    /**
-     * 写入器：stderr（默认）、file 或 null（丢弃）。
-     */
-    'writer' => getenv('LOOM_DIARY_WRITER') ?: 'stderr',
-
-    /**
-     * 格式化器：json（默认，JSON 行）或 text（纯文本）。
-     */
+    'writer' => getenv('LOOM_DIARY_WRITER') ?: 'stack',
+    'stack' => [
+        ['driver' => 'stderr', 'formatter' => 'text'],
+        ['driver' => 'file', 'formatter' => 'json'],
+    ],
     'formatter' => getenv('LOOM_DIARY_FORMATTER') ?: 'json',
-
-    /**
-     * writer 为 file 时的路径。空则使用 storage/logs/diary.log。
-     */
     'file' => getenv('LOOM_DIARY_FILE') ?: '',
+    'level' => getenv('LOOM_DIARY_LEVEL') ?: '',
 ];
