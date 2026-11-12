@@ -262,7 +262,8 @@ try {
     $mapped->mapGet('/explicit', function ($request) {
         return new Loom\Response('explicit');
     });
-    $mapped->mapWebSocket('/explicit-socket', 'FixtureSocket');
+    $mapped->mapWebSocket('/explicit-socket', static function (\Loom\Request $request, \Net\Websocket\Conn $connection): void {
+    });
     $mapped->mapGrpc('/fixture/echo', [RouteFixtureRpc::class, 'echoValue']);
     $router = $mapped->services->get(Loom\Router::class);
     check_route($router->match('GET', '/explicit')->status === 200 && !$router->match('GET', '/explicit')->websocket);

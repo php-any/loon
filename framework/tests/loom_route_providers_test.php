@@ -47,7 +47,8 @@ final class FixtureHttpRoutes
     {
         $this->calls++;
         $routes->get('/explicit', function ($request) { return new Loom\Response('explicit'); });
-        $routes->websocket('/explicit-socket', 'FixtureSocket');
+        $routes->websocket('/explicit-socket', static function (\Loom\Request $request, \Net\Websocket\Conn $connection): void {
+        });
     }
 }
 
