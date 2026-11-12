@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Loom\Logging;
 
 /**
- * 写入 STDERR。
+ * 每次写入时打开 php://stderr 写出日记行。
  *
  * @example (new StderrJournalWriter())->write("line\n", $entry);
  */
@@ -13,6 +13,14 @@ final class StderrJournalWriter implements JournalWriter
 {
     public function write(string $line, JournalEntry $entry): void
     {
-        @fwrite(STDERR, $line);
+        $stream = @fopen('php://stderr', 'w');
+        if ($stream === false) {
+            return;
+        }
+        try {
+            @fwrite($stream, $line);
+        } finally {
+            fclose($stream);
+        }
     }
 }

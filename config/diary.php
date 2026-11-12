@@ -33,6 +33,11 @@ return [
     'pattern' => getenv('LOOM_DIARY_PATTERN') ?: '[{time}] {level} {event} {fields}',
 
     /**
+     * file 驱动命名器：默认 template（路径模板）；stack 子项可覆盖。
+     */
+    'namer' => getenv('LOOM_DIARY_NAMER') ?: 'template',
+
+    /**
      * file 驱动路径模板，支持 {date}、{level}。空则 storage/logs/diary-{date}.log（相对应用根）。
      */
     'file' => getenv('LOOM_DIARY_FILE') ?: '',

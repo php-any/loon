@@ -111,7 +111,7 @@ HTTP 正文与敏感绑定**从不**在 UI 中展示原始值。
 |------|------|--------|
 | 作用域内观测 | `Monitoring` | 采集已 `begin()`；`dispose()` 前 `record*` |
 | 独立一行日志 | `Diary` | `RequestLog`、审计脚本 |
-| 写出目标与格式 | `JournalWriter` / `JournalFormatter` | 仅 `config/diary.php` |
+| 写出目标与格式 | `JournalWriter` / `JournalFormatter` | `config/diary.php` 默认；`$builder->diary` 扩展 writer/formatter/namer |
 
 不要为监控再增加第二套 log-file 配置。`config/diary.php` 的默认 `writer` 为 `stack`（stderr 文本 + 按日 JSON 文件）；`config/monitoring.php` 中 `driver=log` 时 `monitoring.session` 只经 **Diary** 写出，与 RequestLog 共用同一管道。file 路径、时区与 pattern 等见 `config/diary.php` 与 `$builder->diary` 扩展点。
 

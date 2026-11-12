@@ -25,6 +25,11 @@ final class TemplateJournalNamer
         }
         $dateFormat = (string) ($item['date'] ?? $options->date);
         $timezone = (string) ($item['timezone'] ?? $options->timezone);
+        try {
+            new \DateTimeZone($timezone);
+        } catch (\Exception $e) {
+            throw new \LogicException('Invalid diary timezone: ' . $timezone, 0, $e);
+        }
         return static function (JournalEntry $entry) use ($config, $fileTemplate, $dateFormat, $timezone): string {
             $path = self::expand($entry, $fileTemplate, $dateFormat, $timezone);
             return self::resolvePath($config, $path);

@@ -37,6 +37,11 @@ final class DiaryOptions
     public string $pattern = '[{time}] {level} {event} {fields}';
 
     /**
+     * file 驱动使用的命名器：内置 template，或通过 diary.extendNamer 登记的名称。
+     */
+    public string $namer = 'template';
+
+    /**
      * file 驱动路径模板，支持 {date}、{level}。空则 daily 文件 storage/logs/diary-{date}.log。
      */
     public string $file = '';

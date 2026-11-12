@@ -105,15 +105,15 @@ final class DiaryComposer
    */
     private static function resolveNamer(DiaryOptions $options, DiaryRegistration $registration, Config $config, array $item): callable
     {
-        $namerName = (string) ($item['namer'] ?? 'template');
+        $namerName = (string) ($item['namer'] ?? $options->namer);
+        $factory = $registration->namerFactory($namerName);
+        if ($factory !== null) {
+            return static fn (JournalEntry $entry): string => $factory($entry, $item);
+        }
         if ($namerName === 'template') {
             return TemplateJournalNamer::callable($options, $config, $item);
         }
-        $factory = $registration->namerFactory($namerName);
-        if ($factory === null) {
-            throw new \LogicException('Unsupported diary namer: ' . $namerName);
-        }
-        return static fn (JournalEntry $entry): string => $factory($entry, $item);
+        throw new \LogicException('Unsupported diary namer: ' . $namerName);
     }
 
     /**

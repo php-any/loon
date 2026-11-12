@@ -346,4 +346,73 @@ try {
     @unlink($customNamerPath);
 }
 
+// writer=file 时全局 options.namer（非 stack）可选用扩展命名器。
+$globalNamerPath = sys_get_temp_dir() . '/loom-diary-global-namer-' . bin2hex(random_bytes(6)) . '.log';
+$globalNamerRoot = sys_get_temp_dir() . '/loom-diary-global-namer-root-' . bin2hex(random_bytes(6));
+mkdir($globalNamerRoot . '/config', 0777, true);
+file_put_contents($globalNamerRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'file', 'formatter' => 'json', 'pattern' => '', 'namer' => 'globalpath', 'file' => '', 'date' => 'Y-m-d', 'timezone' => 'Asia/Shanghai', 'level' => '', 'stack' => []];\n");
+try {
+    $globalBuilder = Loom\Application::createBuilder($globalNamerRoot);
+    $globalBuilder->diary->extendNamer('globalpath', static function (Loom\Logging\JournalEntry $entry, array $item) use ($globalNamerPath): string {
+        return $globalNamerPath;
+    });
+    $globalApp = $globalBuilder->build();
+    $globalApp->services->get(Loom\Logging\Diary::class)->event('global.namer', ['ok' => true]);
+    $globalBody = file_get_contents($globalNamerPath);
+    if ($globalBody === false || !str_contains($globalBody, 'global.namer')) {
+        throw new RuntimeException('Global diary namer must apply for writer=file without stack');
+    }
+    $globalApp->dispose();
+} finally {
+    @unlink($globalNamerRoot . '/config/diary.php');
+    @rmdir($globalNamerRoot . '/config');
+    @rmdir($globalNamerRoot);
+    @unlink($globalNamerPath);
+}
+
+// extendNamer('template', ...) 覆盖内置模板命名器。
+$templateOverridePath = sys_get_temp_dir() . '/loom-diary-template-override-' . bin2hex(random_bytes(6)) . '.log';
+$templateOverrideRoot = sys_get_temp_dir() . '/loom-diary-template-override-root-' . bin2hex(random_bytes(6));
+mkdir($templateOverrideRoot . '/config', 0777, true);
+file_put_contents($templateOverrideRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'file', 'formatter' => 'text', 'pattern' => '', 'namer' => 'template', 'file' => 'storage/logs/diary-{date}.log', 'date' => 'Y-m-d', 'timezone' => 'Asia/Shanghai', 'level' => '', 'stack' => []];\n");
+try {
+    $templateBuilder = Loom\Application::createBuilder($templateOverrideRoot);
+    $templateBuilder->diary->extendNamer('template', static function (Loom\Logging\JournalEntry $entry, array $item) use ($templateOverridePath): string {
+        return $templateOverridePath;
+    });
+    $templateApp = $templateBuilder->build();
+    $templateApp->services->get(Loom\Logging\Diary::class)->event('template.override', []);
+    $templateBody = file_get_contents($templateOverridePath);
+    if ($templateBody === false || !str_contains($templateBody, 'template.override')) {
+        throw new RuntimeException('extendNamer(template) must override built-in template namer');
+    }
+    $defaultPath = (new Loom\Config($templateOverrideRoot))->path('storage/logs');
+    if (is_dir($defaultPath) && count(glob($defaultPath . '/diary-*.log')) > 0) {
+        throw new RuntimeException('Template override must not write via built-in path');
+    }
+    $templateApp->dispose();
+} finally {
+    @unlink($templateOverrideRoot . '/config/diary.php');
+    @rmdir($templateOverrideRoot . '/config');
+    @rmdir($templateOverrideRoot);
+    @unlink($templateOverridePath);
+}
+
+// 非法 timezone 在 build() 阶段失败。
+$badTzRoot = sys_get_temp_dir() . '/loom-diary-bad-tz-' . bin2hex(random_bytes(6));
+mkdir($badTzRoot . '/config', 0777, true);
+file_put_contents($badTzRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'file', 'formatter' => 'json', 'pattern' => '', 'namer' => 'template', 'file' => '', 'date' => 'Y-m-d', 'timezone' => 'Not/A/Zone', 'level' => '', 'stack' => []];\n");
+try {
+    try {
+        Loom\Application::createBuilder($badTzRoot)->build();
+        throw new RuntimeException('Invalid diary timezone must be rejected at build time');
+    } catch (LogicException) {
+        // expected
+    }
+} finally {
+    @unlink($badTzRoot . '/config/diary.php');
+    @rmdir($badTzRoot . '/config');
+    @rmdir($badTzRoot);
+}
+
 echo "loom_diary_test: OK\n";
