@@ -38,8 +38,7 @@ final class HasOne extends Relation
     {
         $relatedTable = $this->relatedTable();
         $fkColumn = SqlIdentifier::quote($this->related::modelColumn($this->foreignKey));
-        $parentClass = $this->parent::class;
-        $localColumn = SqlIdentifier::quote($parentClass::modelColumn($this->localKey));
+        $localColumn = SqlIdentifier::quote($this->parent::modelColumn($this->localKey));
         $parentQuoted = SqlIdentifier::quote($parentTable);
         $relatedQuoted = SqlIdentifier::quote($relatedTable);
         $base = 'SELECT 1 FROM ' . $relatedQuoted . ' WHERE ' . $relatedQuoted . '.' . $fkColumn
