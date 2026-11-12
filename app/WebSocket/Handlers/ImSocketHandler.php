@@ -74,12 +74,10 @@ final class ImSocketHandler
     {
         $conversationId = (int)($message['conversation_id'] ?? 0);
         try {
-            $saved = $this->im->sendMessage($conversationId, $this->userId, (string)($message['body'] ?? ''));
+            $this->im->sendMessage($conversationId, $this->userId, (string)($message['body'] ?? ''));
         } catch (\Loom\HttpError $error) {
             $connection->writeText(json_encode(['type' => 'error', 'message' => $error->getMessage()], JSON_THROW_ON_ERROR));
-            return;
         }
-        $connection->writeText(json_encode(['type' => 'message', 'data' => $saved], JSON_THROW_ON_ERROR));
     }
 
     #[\Loom\Attributes\WebSocketMessage('read')]

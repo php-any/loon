@@ -76,19 +76,38 @@ final class ImMessaging
         }
         $members = array_values(array_unique(array_merge([$actorId], $memberIds)));
         sort($members);
-        if ($type === 'direct') {
-            if (count($members) !== 2) {
-                throw new HttpError(422, '直聊需要恰好两名成员');
-            }
-            $existing = $this->findDirectConversation($members[0], $members[1]);
-            if ($existing !== null) {
-                return $existing;
-            }
-        } else {
-            if (count($members) < 2) {
-                throw new HttpError(422, '群聊至少需要两名成员');
-            }
+        if ($type === 'direct' && count($members) !== 2) {
+            throw new HttpError(422, '直聊需要恰好两名成员');
         }
+        if ($type === 'group' && count($members) < 2) {
+            throw new HttpError(422, '群聊至少需要两名成员');
+        }
+        return $this->database->transaction(function () use ($type, $title, $members): array {
+            if ($type === 'direct') {
+                $lock = 'loom:im:direct:' . $members[0] . ':' . $members[1];
+                $acquired = (int)($this->database->query('SELECT GET_LOCK(?, 10) AS acquired', [$lock])[0]['acquired'] ?? 0);
+                if ($acquired !== 1) {
+                    throw new HttpError(503, '会话创建繁忙，请稍后重试');
+                }
+                try {
+                    $existing = $this->findDirectConversation($members[0], $members[1]);
+                    if ($existing !== null) {
+                        return $existing;
+                    }
+                    return $this->persistConversation($type, $title, $members);
+                } finally {
+                    $this->database->query('SELECT RELEASE_LOCK(?)', [$lock]);
+                }
+            }
+            return $this->persistConversation($type, $title, $members);
+        });
+    }
+
+    /**
+     * @param list<int> $members
+     */
+    private function persistConversation(string $type, ?string $title, array $members): array
+    {
         $now = time();
         $conversation = Conversation::create([
             'type' => $type,
@@ -129,7 +148,14 @@ final class ImMessaging
 
     public function markRead(int $conversationId, int $userId, int $messageId): void
     {
+        if ($messageId < 1) {
+            throw new HttpError(422, '无效的消息');
+        }
         $this->assertMember($conversationId, $userId);
+        $message = Message::whereId($messageId)->whereConversationId($conversationId)->rows(['id']);
+        if ($message === []) {
+            throw new HttpError(404, '消息不存在或不属于此会话');
+        }
         ConversationMember::whereConversationId($conversationId)->whereUserId($userId)->native()
             ->update(['last_read_message_id' => $messageId]);
     }

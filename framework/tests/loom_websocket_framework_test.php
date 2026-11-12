@@ -30,13 +30,12 @@ namespace {
 
     try {
         $hub = new Loom\WebSocket\Hub($config);
-        $channel = 'test:channel';
-        $hub->send($channel, ['type' => 'ping', 'value' => 1]);
+        $channel = 'test:channel:' . bin2hex(random_bytes(4));
         Loom\Redis::using(function ($client) use ($hub, $channel): void {
             $cursor = $hub->tail($client, $channel);
-            wsFrameworkCheck($cursor !== '0-0', 'Hub publish creates stream entry');
+            $hub->send($channel, ['type' => 'ping', 'value' => 1]);
             $events = $hub->read($client, [$channel => $cursor], 0, 10);
-            wsFrameworkCheck($events !== [], 'Hub read returns payload');
+            wsFrameworkCheck($events !== [], 'Hub read returns payload after cursor');
             $decoded = json_decode($events[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
             wsFrameworkCheck(($decoded['type'] ?? '') === 'ping', 'Hub payload round trip');
         });

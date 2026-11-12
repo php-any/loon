@@ -48,14 +48,17 @@ final class HandlerDispatcher
                 Invoker::call([$instance, 'onOpen'], $services, [$request, $connection]);
             }
             $poll = $instance !== null && $class->hasMethod('poll') && $class->getMethod('poll')->isPublic();
+            $connection->configure(['readTimeoutMs' => 1000]);
             while (true) {
                 if ($poll) {
                     Invoker::call([$instance, 'poll'], $services, [$connection]);
                 }
                 try {
-                    $connection->configure(['readTimeoutMs' => 1000]);
                     $raw = $connection->readText();
                 } catch (\Throwable $closed) {
+                    if (self::isReadIdleTimeout($closed)) {
+                        continue;
+                    }
                     break;
                 }
                 $this->monitoring?->recordEvent('websocket.message', ['handler' => $class->getName()]);
@@ -81,6 +84,14 @@ final class HandlerDispatcher
                 }
             }
         }
+    }
+
+    private static function isReadIdleTimeout(\Throwable $error): bool
+    {
+        $message = strtolower($error->getMessage());
+        return str_contains($message, 'i/o timeout')
+            || str_contains($message, 'deadline exceeded')
+            || str_contains($message, 'read timeout');
     }
 
     /**
