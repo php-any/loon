@@ -1,8 +1,8 @@
 # Origami 运行时要求与验证
 
-> 当前依赖为 Origami 正式版 `v1.0.8`，包含 `std/net/tcp`、`std/net/grpc`，并保留 `v1.0.7` 的 HTTP 并发修复。`v1.0.7` 缺少这两个网络包，不能用于构建当前宿主。
+> 当前依赖为 Origami 正式版 `v1.0.9`，包含 `std/net/tcp`、`std/net/grpc`、`v1.0.7` 的 HTTP 并发修复，以及执行帧 Go context 与 `Database\bind`。`v1.0.7` 缺少 TCP 和 gRPC 包，不能用于构建当前宿主。
 
-Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查会创建并删除一张唯一命名的普通表）。此前 Go 模块固定 Origami 提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`，包含原生 Inject/Named 修复。标准库修复在提交 `9ffb515e`，通用网络 API 与审核修正在 `93d26a39`；两者已推送到 Origami 远端 main。执行帧 context 与 `Database\bind` 在 Origami 分支 `feat/frame-context-sql-executor`（`cff7a40`、`51286ed`，基于 `v1.0.8`）。Loom 通过 `replace` 使用检出 `origami-frame-context`。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
+Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build/loom.exe doctor` 检查所需能力（需要配置可连接的 MySQL，检查会创建并删除一张唯一命名的普通表）。`runtime/go.mod` 固定模块标签 `v1.0.9`（提交 `232c9acd383fcd9652e6d3434dd5073e8914d836`）。此前版本曾固定提交 `ef4fe76d31954059dfa362168cce19fa7ae23679`（原生 Inject/Named）与 `v1.0.8`（通用网络 API）；执行帧 context 与 `Database\bind` 自 `v1.0.9` 起并入正式版。目录和构建方式见 [运行时目录说明](../runtime/README.md)。
 
 ```powershell
 ./scripts/build.ps1 -Test
@@ -10,7 +10,7 @@ Loom 使用 `runtime/` 中的自定义 Go 宿主嵌入 Origami，通过 `./build
 ./tests/run-all.ps1
 ```
 
-`runtime/go.mod` 仍要求经过校验的 `v1.0.8`，并用 `replace` 指向本机检出。该检出提供 `Context.SetGoContext()`、`Context.RawGoContext()`、子帧继承、include/require 只继承帧上已经保存的 context，以及帧回收清理。恢复绑定时写回 `RawGoContext()`；`GoContext()` 在未保存时会借用调用截止时间，把这个回退值写回帧会挡住之后的请求取消。`Database\bind` 让 `Database\DB` 除了 `*sql.DB` 也能在 `Database\Sql` 返回的 `*sql.Tx` 上执行。上游打上包含这两项能力的版本标签后，可去掉 `replace` 并更新固定版本。
+`v1.0.9` 提供 `Context.SetGoContext()`、`Context.RawGoContext()`、子帧继承、include/require 只继承帧上已经保存的 context，以及帧回收清理。恢复绑定时写回 `RawGoContext()`；`GoContext()` 在未保存时会借用调用截止时间，把这个回退值写回帧会挡住之后的请求取消。`Database\bind` 让 `Database\DB` 除了 `*sql.DB` 也能在 `Database\Sql` 返回的 `*sql.Tx` 上执行。
 
 指定 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE` 联调其他本地源码时，不自动修改提供的源码；调用方需确保它已包含上述上下文能力和查询器事务绑定。未具备上下文能力时，宿主测试或第一次绑定会明确报错。项目根目录可直接执行 `go -C runtime run ./cmd/loom serve`。
 
@@ -50,11 +50,13 @@ go test -mod=readonly -timeout 30s ./std/net/tcp ./std/net/http ./std/net/websoc
 go run -mod=readonly ./zy.go tests/php/net_api_test.php
 ```
 
-这些网络修改已在 Origami 正式版 `v1.0.8` 中发布，Loom 直接依赖该版本，无需伪版本或本地补丁。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions/load.go` 注册。应用 streaming RPC 与 TLS 终止尚未提供。长驻命令通过脚本层 `StopSignal` 与 Origami `std/signal` 接收停止信号，可选执行 `onStop` 回调后直接退出，不内置排空；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md) 与 [宿主说明](hosting.md)。
+这些网络修改在 Origami `v1.0.8` 中发布；执行帧 context 与 `Database\bind` 在 `v1.0.9` 中发布。Loom 直接依赖 `v1.0.9` 模块标签，无需伪版本或 `replace`。Loom 的 `runtime/internal/host/modules.go` 显式注册所需模块，项目扩展通过 `runtime/internal/extensions/load.go` 注册。应用 streaming RPC 与 TLS 终止尚未提供。长驻命令通过脚本层 `StopSignal` 与 Origami `std/signal` 接收停止信号，可选执行 `onStop` 回调后直接退出，不内置排空；网络资源限制与协作取消的具体边界见 [协议说明](protocols.md) 与 [宿主说明](hosting.md)。
 
 运行验证：`./build/loom.exe tests/run.php`；Windows 端到端验证：`./tests/e2e/http.ps1`。另有 `tests/e2e/protocols.py` 和 `tests/e2e/network_limits.py` 验证真实协议及慢客户端。测试使用独立数据库、临时输出、随机回环端口和独立作业进程，不使用业务数据库。
 
 ## 提交前审核与验证
+
+2026-11-12 发布 Origami `v1.0.9`（`232c9acd383fcd9652e6d3434dd5073e8914d836`），合并执行帧 Go context、`Database\bind` 与 `ReflectionAttribute` 的 `getArguments` / `newInstance`。Loom `runtime/go.mod` 改为直接依赖该模块标签，移除此前指向本机 `origami-frame-context` 的 `replace`。
 
 2026-11-01 发布 Origami `v1.0.8`（`2ad471122dd5da424f9bcdc1a4f4923113539a36`），合并网络 API、原生 Inject/Named 与 `v1.0.7` 的 HTTP 并发修复。上游 runtime、TCP、gRPC、HTTP、WebSocket、网络脚本绑定的 Go 测试及 `net_api_test.php` 通过；Loom 从 Go 代理下载正式版后，宿主测试、构建、doctor、协议端到端和网络限制测试通过。GitHub Release 四个平台产物构建并发布成功。
 
@@ -64,7 +66,7 @@ go run -mod=readonly ./zy.go tests/php/net_api_test.php
 
 根因是 `annotationTargetParameter` 对参数目标始终返回空所属类名。解析参数时没有携带构造器声明类；提升参数分支也没有执行参数注解。补丁在构造器解析入口显式传递类名，在参数节点中保留，并在所有参数形式返回前处理注解。容器按参数的构造器声明类读取元数据，因此继承构造器仍使用父类的 Inject/Named。普通方法、全局函数和闭包没有构造器所有者，明确拒绝这些目标。
 
-修复已提交并推送至 [Origami main](https://github.com/php-any/origami/commit/ef4fe76d31954059dfa362168cce19fa7ae23679)，并包含在正式版 `v1.0.8` 中。执行上下文和查询器事务绑定在 Origami 分支 `feat/frame-context-sql-executor`，见上文。
+修复已提交并推送至 [Origami main](https://github.com/php-any/origami/commit/ef4fe76d31954059dfa362168cce19fa7ae23679)，并包含在正式版 `v1.0.8` 中。执行上下文和查询器事务绑定已合入正式版 `v1.0.9`（`232c9acd383fcd9652e6d3434dd5073e8914d836`）。
 
 ```powershell
 ./scripts/build.ps1 -Test

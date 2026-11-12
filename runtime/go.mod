@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gorilla/websocket v1.5.3
-	github.com/php-any/origami v1.0.8
+	github.com/php-any/origami v1.0.9
 	golang.org/x/net v0.47.0
 	google.golang.org/grpc v1.76.0
 	google.golang.org/protobuf v1.36.11
@@ -24,6 +24,3 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
 )
-
-// 本机 Origami 检出：v1.0.8 加上执行帧 context 与 Database\bind。
-replace github.com/php-any/origami => ../../origami-frame-context

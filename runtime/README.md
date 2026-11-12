@@ -21,7 +21,7 @@ runtime/
 ./tests/run-all.ps1
 ```
 
-默认依赖 Origami 正式版 `v1.0.8` 的模块版本，包含宿主所需的 `std/net/tcp`、`std/net/grpc`、原生 Inject/Named 修复，以及 `v1.0.7` 的 HTTP 并发修复。`runtime/go.mod` 再用 `replace` 指向本机检出 `../../origami-frame-context`（分支 `feat/frame-context-sql-executor`）。该检出在 `v1.0.8` 上增加执行帧 context，以及让 `Database\DB` 在 `*sql.Tx` 上执行的 `Database\bind`。`v1.0.7` 缺少 TCP 和 gRPC 包，不能用于构建当前宿主。
+默认依赖 Origami 正式版 `v1.0.9` 的模块版本，包含宿主所需的 `std/net/tcp`、`std/net/grpc`、原生 Inject/Named 修复、`v1.0.7` 的 HTTP 并发修复，以及执行帧 Go context 与让 `Database\DB` 在 `*sql.Tx` 上执行的 `Database\bind`。`v1.0.7` 缺少 TCP 和 gRPC 包，不能用于构建当前宿主。
 
 因此在项目根目录可以直接执行 `go -C runtime run ./cmd/loom serve`。开发另一份已包含这两项能力的 Origami 源码时，用 `-OrigamiSource` 或 `LOOM_ORIGAMI_SOURCE` 覆盖；覆盖只写入被忽略的 `go.local.mod`，不修改提供的源码，也不把绝对路径写入提交的模块。构建以 readonly 模式运行，并关闭外部 Go workspace。`-Test` 先运行 Go 宿主测试；失败时不继续构建。
 
@@ -53,7 +53,7 @@ Linux/macOS 的产物名称为 `build/loom`。不带参数或使用 `--help`、`
 
 ## 扩展与边界
 
-`internal/host/modules.go` 显式装配 std、PHP、HTTP、WebSocket、TCP、gRPC、网络注解、system，以及 MySQL 驱动。`internal/extensions.Load` 在标准库之后加载项目原生能力，注册 `LOOM_RUNTIME=loom` 常量，以及网页协议面板使用的 `Loom\Native\protocolRequest` 客户端函数。该函数通过真实 TCP 连接或 gRPC StringValue unary RPC 通信，具有 3 秒总超时和 64 KiB 响应限制；应用控制器固定目标配置与 RPC 方法。此客户端属于 Loom 扩展，不是 Origami v1.0.8 标准库 API。
+`internal/host/modules.go` 显式装配 std、PHP、HTTP、WebSocket、TCP、gRPC、网络注解、system，以及 MySQL 驱动。`internal/extensions.Load` 在标准库之后加载项目原生能力，注册 `LOOM_RUNTIME=loom` 常量，以及网页协议面板使用的 `Loom\Native\protocolRequest` 客户端函数。该函数通过真实 TCP 连接或 gRPC StringValue unary RPC 通信，具有 3 秒总超时和 64 KiB 响应限制；应用控制器固定目标配置与 RPC 方法。此客户端属于 Loom 扩展，不是 Origami v1.0.9 标准库 API。
 
 依赖注入用到两个原生函数：`Loom\Native\withSingletonLock` 让同一个根 `ServiceProvider` 的单例并发解析只构造一次；`Loom\Native\withModelDatabase` 把作用域的 `Database` 挂在这次调用的执行帧上，`ServiceScope::run()` 用它让模型静态查询使用当前作用域，回调结束后恢复。作用域和容器本身是脚本，见 [依赖注入与作用域](../docs/core-services.md)。
 
