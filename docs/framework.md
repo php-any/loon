@@ -133,7 +133,7 @@ $data = $stored->toArray();
 
 `./build/loom.exe serve` 由 `HttpServer` 通过 `Net\Http\Server` 监听。路由表和中间件管道在 `build()` 和 `loom.php` 里装好。每个请求由 `HttpServer::handle()` 开一个作用域，用这张路由表匹配，再从该作用域解析控制器、中间件、`RequestContext` 和 `Database`。框架脚本在进程启动时加载，修改框架后需重启。
 
-路由支持闭包、`[控制器, 方法]`、路径参数、命名 URL、嵌套分组与中间件。闭包的参数由 `Loom\Invoker` 绑定：`Request` 来自这次请求，其他类类型参数从请求作用域解析。Request 参数、属性及中间件声明保留既有脚本 API。HEAD 调用路由后抑制正文；404/405 使用 problem 响应，405 带 Allow。未捕获异常对客户端返回通用 500，细节写入 stderr。
+路由支持闭包、`[控制器, 方法]`、路径参数、命名 URL、嵌套分组与中间件。闭包的参数由 `Loom\Invoker` 绑定：`Request` 来自这次请求，其他类类型参数从请求作用域解析。Request 参数、属性及中间件声明保留既有脚本 API。HEAD 调用路由后抑制正文；404/405 使用 problem 响应，405 带 Allow。未捕获异常对客户端返回通用 500，细节经 Diary 写出 `http.exception`（控制台文本 + 按日 JSON 文件），并记入当前请求的 `monitoring.session`。
 
 `loom.php` 用 `$app->use(RequestLog::class)` 登记 `Loom\Http\Middleware\RequestLog` 全局中间件。它经根容器上的 `Loom\Logging\Diary` 写出 `http.request` 访问行（含 `correlation_id` 字段）。作用域级 SQL/HTTP 摘要由 `Loom\Monitoring\LoggingMonitoring` 在收尾时写出 `monitoring.session`，同样走 Diary 并携带同一 `correlation_id`，详见 [统一监控](monitoring.md)。`config/diary.php` 与 `DiaryOptions` 只提供默认；真实定制在 `$builder->diary` 的 `extend()`、`extendFormatter()`、`extendNamer()` 上完成。节缺失时默认 `writer=stack`（stderr 文本 + 按日 JSON 文件 `storage/logs/diary-{date}.log`，`{date}` 按 `timezone`，默认 `Asia/Shanghai`）。格式化器含 `json`、`text`、`pattern`；file 路径模板支持 `{date}`、`{level}`。未知 writer / formatter / namer 在 `build()` 绑定阶段拒绝。404、405、HttpError 和未捕获异常（500）都会记录；不记录请求头、查询参数或请求正文。由运行时直接处理的 `/assets/` 静态文件不经过应用中间件。测试仍可向 `RequestLog` 或 `LoggingMonitoring` 传入 callable 覆盖输出。
 
