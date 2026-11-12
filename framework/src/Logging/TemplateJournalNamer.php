@@ -59,7 +59,11 @@ final class TemplateJournalNamer
 
     private static function formatDate(string $time, string $dateFormat, string $timezone): string
     {
-        $instant = new \DateTimeImmutable($time);
+        // Origami 上 DateTimeImmutable 构造器不能解析 JournalEntry 的 UTC ISO 串（…T…Z），须用 createFromFormat。
+        $instant = \DateTimeImmutable::createFromFormat('Y-m-d\TH:i:s\Z', $time, new \DateTimeZone('UTC'));
+        if ($instant === false) {
+            throw new \LogicException('Invalid diary entry time: ' . $time);
+        }
         $zoned = $instant->setTimezone(new \DateTimeZone($timezone));
         return $zoned->format($dateFormat);
     }
