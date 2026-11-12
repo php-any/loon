@@ -91,10 +91,12 @@ final class UserController
         $this->service = $service;
     }
 
-    #[\Loom\Attributes\HttpRoute('GET', '/users/{id}', 'users.show')]
+    #[\Net\Annotation\GetMapping('/users/{id}')]
     public function show(\Loom\Request $request): \Loom\Response { /* 返回响应 */ }
 }
 ```
+
+命名路由示例：`#[\Loom\Attributes\HttpRoute('GET', '/users/{id}', 'users.show')]`（与 Mapping 不能同方法共存）。
 
 HTTP 路由以 `Net\Annotation\Controller` 标记控制器；可选类级 `Route` 为路径前缀（默认 `"/"` 时等价空前缀）、可重复 `Middleware` 为类级中间件。常见方法使用 `GetMapping` / `PostMapping` / `PutMapping` / `DeleteMapping`。命名路由、PATCH/HEAD/OPTIONS、方法级中间件与 WebSocket 使用 `Loom\Attributes\HttpRoute`（与语言 Mapping 不能同方法共存）。发现阶段登记的动作为 `[控制器类, 方法名]`；`__invoke` 与单独的类名字符串注册都会被拒绝。类中间件先于 `HttpRoute` 方法中间件执行。HTTP 与 WebSocket 共用重复路径/名称校验；WebSocket 必须声明 GET。
 

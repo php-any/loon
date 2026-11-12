@@ -8,7 +8,7 @@ namespace Loom;
  * 应用的组合根，对应 ASP.NET Core 的 WebApplicationBuilder。构造时读取环境文件和 config/，并登记框架默认服务；
  * 应用在 build() 之前通过 $services 追加或覆盖登记。
  *
- * build() 时扫描 addModule() 登记的模块：带 Service 注解的类按注解的生命周期补登记（应用已登记的标识不覆盖），
+ * build() 时扫描 addModule() 登记的模块：带 Singleton / Scoped / Component（可选 Bind）注解的类按生命周期 tryAdd 补登记（应用已登记的标识不覆盖），
  * 控制器路由进入路由表，Command 注解类进入命令表，Timer 类交给 TimerRunner。
  *
  * @example $builder = Application::createBuilder(__DIR__); $builder->addModule(\App\AppModule::class); $builder->services->addSingleton(Clock::class); $app = $builder->build();

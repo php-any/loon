@@ -123,7 +123,7 @@ loom.php 中 addModule() 登记模块类名
   → 读取 Module 注解中的扫描范围
   → ClassDiscovery 递归枚举 PHP 路径，推导完整类名
   → 对每个类做 ReflectionClass，触发必要的自动加载
-  → 读取并校验 Controller、Route、Service、Job 等注解
+  → 读取并校验 Net Controller / 映射 / HttpRoute、Singleton·Scoped·Component·Bind、Cli Command、Job 等注解
   → ApplicationBuilder::build() 把声明登记到服务、路由、命令、任务和定时器
 ```
 

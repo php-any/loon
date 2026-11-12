@@ -26,9 +26,9 @@ final class ProbeMiddleware implements \Loom\Middleware
     }
 }
 
-#[\Net\Annotation\GetMapping('/orphan')]
 final class MappingWithoutController
 {
+    #[\Net\Annotation\GetMapping('/orphan')]
     public function index(): void {}
 }
 
