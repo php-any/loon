@@ -81,7 +81,8 @@ final class BelongsToMany extends Relation
         $fkPivot = SqlIdentifier::quote($this->foreignPivotKey);
         $relPivot = SqlIdentifier::quote($this->relatedPivotKey);
         $ownerColumn = SqlIdentifier::quote($this->related::modelColumn($this->related::primaryField()));
-        $localColumn = SqlIdentifier::quote($this->parent::class::modelColumn($this->localKey));
+        $parentClass = $this->parent::class;
+        $localColumn = SqlIdentifier::quote($parentClass::modelColumn($this->localKey));
         $base = 'SELECT 1 FROM ' . $pivot . ' INNER JOIN ' . $relatedQuoted . ' ON '
             . $relatedQuoted . '.' . $ownerColumn . '=' . $pivot . '.' . $relPivot
             . ' WHERE ' . $pivot . '.' . $fkPivot . '=' . $parentQuoted . '.' . $localColumn;

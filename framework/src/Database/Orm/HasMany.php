@@ -38,7 +38,8 @@ final class HasMany extends Relation
     {
         $relatedTable = $this->relatedTable();
         $fkColumn = SqlIdentifier::quote($this->related::modelColumn($this->foreignKey));
-        $localColumn = SqlIdentifier::quote($this->parent::class::modelColumn($this->localKey));
+        $parentClass = $this->parent::class;
+        $localColumn = SqlIdentifier::quote($parentClass::modelColumn($this->localKey));
         $parentQuoted = SqlIdentifier::quote($parentTable);
         $relatedQuoted = SqlIdentifier::quote($relatedTable);
         $base = 'SELECT 1 FROM ' . $relatedQuoted . ' WHERE ' . $relatedQuoted . '.' . $fkColumn
