@@ -7,7 +7,7 @@ namespace Loom;
 /**
  * HTTP 宿主，对应 ASP.NET Core 的 Kestrel 加请求管道入口。每个请求打开一个 ServiceScope，在其中跑 HttpKernel，结束时释放作用域。
  *
- * /assets/ 路径直接交给 StaticFiles。HttpError 写成对应状态的问题 JSON，其它异常写成 500 并记到标准错误。HEAD 不写正文。
+ * /assets/ 路径直接交给 StaticFiles。HttpError 写成对应状态的问题 JSON，其它异常写成 500 并经 Diary 记为 http.exception。HEAD 不写正文。
  *
  * Origami 在请求虚拟机里执行回调，请求内对脚本对象的写入只对该请求可见；路由表和单例要在 run() 之前准备好。
  *
@@ -80,6 +80,7 @@ final class HttpServer
         $monitoring = $scope->tryGet(\Loom\Monitoring\Monitoring::class);
         $started = microtime(true);
         $status = 500;
+        $request = null;
         try {
             set_time_limit(10);
             $body = file_get_contents('php://input');
@@ -117,7 +118,38 @@ final class HttpServer
                 'status' => 500,
                 'duration_ms' => round(max(0, microtime(true) - $started) * 1000, 3),
             ]);
-            fwrite(fopen('php://stderr', 'w'), $error->getMessage() . "\n");
+            $correlation = $scope->tryGet(\Loom\Monitoring\CorrelationId::class)?->tryCurrent();
+            $exceptionFields = [
+                'exception_class' => $error::class,
+                'message' => $error->getMessage(),
+                'file' => $error->getFile(),
+                'line' => $error->getLine(),
+                'stack' => $error->getTraceAsString(),
+                'method' => $request?->method() ?? $native->method(),
+                'path' => $request?->path() ?? $native->path(),
+                'correlation_id' => $correlation,
+            ];
+            try {
+                $diary = $scope->tryGet(\Loom\Logging\Diary::class);
+                if ($diary !== null) {
+                    $diary->record('error', 'http.exception', $exceptionFields);
+                } else {
+                    $stream = @fopen('php://stderr', 'w');
+                    if ($stream !== false) {
+                        try {
+                            @fwrite(
+                                $stream,
+                                $exceptionFields['exception_class'] . ': ' . $exceptionFields['message'] . "\n",
+                            );
+                        } finally {
+                            fclose($stream);
+                        }
+                    }
+                }
+                $monitoring?->recordEvent('http.exception', $exceptionFields);
+            } catch (\Throwable) {
+                // 异常日志失败不得阻止发送 500 响应。
+            }
             $transport->send(Response::json(['type' => 'about:blank', 'title' => 'Internal Server Error', 'status' => 500], 500), $native->method() === 'HEAD');
         }
     }
