@@ -51,7 +51,7 @@ final class Router implements RouteMatcher
      * 登记一条 GET 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -67,7 +67,7 @@ final class Router implements RouteMatcher
      * 登记一条 POST 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -83,7 +83,7 @@ final class Router implements RouteMatcher
      * 登记一条 PATCH 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -99,7 +99,7 @@ final class Router implements RouteMatcher
      * 登记一条 DELETE 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -173,7 +173,7 @@ final class Router implements RouteMatcher
      *
      * @param string $method 方法名，大小写不限。只接受 GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS。
      * @param string $path 以 / 开头的路径，可含整段占位符，不能带查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 追加到当前分组中间件之后的中间件。默认空数组。
      * @return self 当前路由器。
@@ -256,7 +256,7 @@ final class Router implements RouteMatcher
      * 登记一条方法固定为 GET 的 WebSocket 路由。路径和名称规则与普通路由相同，重叠或重名时抛出 LogicException。处理器稍后接收请求和原生连接。
      *
      * @param string $path 以 / 开头的路径，可含整段占位符。
-     * @param mixed $action 升级后调用的处理器定义。类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action 升级后调用的处理器定义。[控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 这条路由额外的中间件。默认空数组。
      * @return self 当前路由器。
@@ -272,7 +272,7 @@ final class Router implements RouteMatcher
      * 登记一条 PUT 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -288,7 +288,7 @@ final class Router implements RouteMatcher
      * 登记一条 HEAD 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。
@@ -304,7 +304,7 @@ final class Router implements RouteMatcher
      * 登记一条 OPTIONS 路由。控制器留到分发时解析。同一方法下路径形状重叠，或路由名重复时，抛出 LogicException。
      *
      * @param string $path 以 / 开头的路径，可含 {id} 这样的整段占位符，不含查询串或片段。
-     * @param mixed $action 类名、可调用对象，或 [控制器, 方法名]。
+     * @param mixed $action [控制器, 方法名]（方法名不能是 __invoke），或非字符串闭包/可调用对象。
      * @param string $name 路由名。空字符串表示不命名。默认空字符串。
      * @param array $middleware 只加在这条路由上的中间件定义。默认空数组。
      * @return self 当前路由器。

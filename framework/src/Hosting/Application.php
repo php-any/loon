@@ -52,7 +52,7 @@ final class Application
     }
 
     /**
-     * 登记路由。$action 可以是 [控制器类, 方法]、可调用类名或闭包；闭包参数按 Invoker 绑定，Request 来自这次请求。
+     * 登记路由。$action 可以是 [控制器, 方法名]（方法名不能是 __invoke）或非字符串闭包/可调用对象；闭包参数按 Invoker 绑定，Request 来自这次请求。
      */
     public function map(string $method, string $path, mixed $action, string $name = '', array $middleware = []): self
     {
