@@ -39,7 +39,10 @@ if (count($captured) !== 1 || diaryJsonLines($captured)[0]['event'] !== 'scope.o
 (new Loom\Logging\Diary(new Loom\Logging\NullJournalWriter(), $json))->event('dropped', []);
 $tempFile = sys_get_temp_dir() . '/loom-diary-' . bin2hex(random_bytes(6)) . '.log';
 try {
-    $fileDiary = new Loom\Logging\Diary(new Loom\Logging\FileJournalWriter($tempFile), $plain);
+    $fileDiary = new Loom\Logging\Diary(
+        new Loom\Logging\FileJournalWriter(static fn (Loom\Logging\JournalEntry $e): string => $tempFile),
+        $plain,
+    );
     $fileDiary->record('info', 'file.check', ['ok' => true]);
     $body = file_get_contents($tempFile);
     if ($body === false || !str_contains($body, 'file.check ok=1')) {
@@ -178,7 +181,7 @@ try {
         if ($path === '') {
             throw new RuntimeException('Custom stack driver must receive item file');
         }
-        return new Loom\Logging\FileJournalWriter($path);
+        return new Loom\Logging\FileJournalWriter(static fn (Loom\Logging\JournalEntry $e): string => $path);
     });
     $itemApp = $itemBuilder->build();
     $itemApp->services->get(Loom\Logging\Diary::class)->event('item.file', ['ok' => true]);
@@ -205,9 +208,142 @@ $stackWriter = new Loom\Logging\StackJournalWriter([
         $primary[] = $line;
     }),
 ]);
-$stackWriter->write("line\n");
+$stackProbe = Loom\Logging\JournalEntry::now('info', 'stack.writer', []);
+$stackWriter->write("line\n", $stackProbe);
 if (count($primary) !== 1) {
     throw new RuntimeException('StackJournalWriter must continue after one writer fails');
+}
+
+// pattern 格式化器与 {field.xxx}。
+$patternFormatter = new Loom\Logging\PatternJournalFormatter('[{time}] {level} {event} id={field.order_id} {fields}');
+$patternEntry = new Loom\Logging\JournalEntry('2026-01-02T03:04:05Z', 'info', 'order.placed', ['order_id' => 9, 'shop' => 'east']);
+$patternLine = rtrim($patternFormatter->format($patternEntry), "\n");
+if (!str_contains($patternLine, 'id=9') || !str_contains($patternLine, 'shop=east') || !str_contains($patternLine, 'order.placed')) {
+    throw new RuntimeException('PatternJournalFormatter must expand field placeholders');
+}
+
+// {date} 路径按 Asia/Shanghai：UTC 16:00 对应 CST 次日 00:00。
+$tzRoot = sys_get_temp_dir() . '/loom-diary-tz-' . bin2hex(random_bytes(6));
+mkdir($tzRoot . '/storage/logs', 0777, true);
+$config = new Loom\Config($tzRoot);
+$options = new Loom\Logging\DiaryOptions();
+$options->timezone = 'Asia/Shanghai';
+$options->date = 'Y-m-d';
+$namer = Loom\Logging\TemplateJournalNamer::callable($options, $config, []);
+$tzNamerFile = $namer(new Loom\Logging\JournalEntry('2024-03-14T16:00:00Z', 'info', 'tz.edge', []));
+if (!str_ends_with($tzNamerFile, 'diary-2024-03-15.log')) {
+    throw new RuntimeException('Diary {date} must use configured timezone at CST midnight boundary');
+}
+$wrongTz = Loom\Logging\TemplateJournalNamer::expand(
+    new Loom\Logging\JournalEntry('2024-03-14T16:00:00Z', 'info', 'tz.edge', []),
+    'diary-{date}.log',
+    'Y-m-d',
+    'UTC',
+);
+if ($wrongTz !== 'diary-2024-03-14.log') {
+    throw new RuntimeException('UTC timezone control must keep same calendar date for boundary probe');
+}
+$tzSink = new Loom\Logging\LaneJournalSink($plain, new Loom\Logging\FileJournalWriter($namer));
+$tzSink->emit(new Loom\Logging\JournalEntry('2024-03-14T16:00:00Z', 'info', 'tz.write', []));
+$tzPath = $config->path('storage/logs/diary-2024-03-15.log');
+if (!is_file($tzPath) || !str_contains((string) file_get_contents($tzPath), 'tz.write')) {
+    throw new RuntimeException('FileJournalWriter must resolve template path per entry');
+}
+@unlink($tzPath);
+@rmdir($tzRoot . '/storage/logs');
+@rmdir($tzRoot . '/storage');
+@rmdir($tzRoot);
+
+// {level} 分到不同文件。
+$levelRoot = sys_get_temp_dir() . '/loom-diary-level-' . bin2hex(random_bytes(6));
+mkdir($levelRoot . '/storage/logs', 0777, true);
+$levelConfig = new Loom\Config($levelRoot);
+$levelOptions = new Loom\Logging\DiaryOptions();
+$levelOptions->file = 'storage/logs/{level}.log';
+$levelNamer = Loom\Logging\TemplateJournalNamer::callable($levelOptions, $levelConfig, []);
+$levelSink = new Loom\Logging\LaneJournalSink($plain, new Loom\Logging\FileJournalWriter($levelNamer));
+$levelSink->emit(new Loom\Logging\JournalEntry('2026-05-01T00:00:00Z', 'info', 'level.split', ['n' => 1]));
+$levelSink->emit(new Loom\Logging\JournalEntry('2026-05-01T00:00:01Z', 'error', 'level.split', ['n' => 2]));
+$infoPath = $levelConfig->path('storage/logs/info.log');
+$errorPath = $levelConfig->path('storage/logs/error.log');
+if (!is_file($infoPath) || !is_file($errorPath)) {
+    throw new RuntimeException('Diary {level} template must split entries into separate files');
+}
+@unlink($infoPath);
+@unlink($errorPath);
+@rmdir($levelRoot . '/storage/logs');
+@rmdir($levelRoot . '/storage');
+@rmdir($levelRoot);
+
+// extendFormatter：stack 子项 pattern 传到工厂。
+$fmtRoot = sys_get_temp_dir() . '/loom-diary-fmt-' . bin2hex(random_bytes(6));
+mkdir($fmtRoot . '/config', 0777, true);
+$customPattern = '<evt>';
+file_put_contents($fmtRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'stack', 'formatter' => 'json', 'pattern' => '', 'file' => '', 'date' => 'Y-m-d', 'timezone' => 'Asia/Shanghai', 'level' => '', 'stack' => [['driver' => 'cap', 'formatter' => 'capfmt', 'pattern' => " . var_export($customPattern, true) . ']]];');
+$capturedFmt = [];
+try {
+    $fmtBuilder = Loom\Application::createBuilder($fmtRoot);
+    $fmtBuilder->diary->extend('cap', static function (Loom\Logging\DiaryOptions $options, Loom\Config $config, array $item): Loom\Logging\JournalWriter {
+        return new Loom\Logging\CallableJournalWriter(static function (string $line) use (&$capturedFmt): void {
+            $capturedFmt[] = $line;
+        });
+    });
+    $fmtBuilder->diary->extendFormatter('capfmt', static function (Loom\Logging\DiaryOptions $options, Loom\Config $config, array $item): Loom\Logging\JournalFormatter {
+        $pattern = (string) ($item['pattern'] ?? '');
+        if ($pattern === '') {
+            throw new RuntimeException('extendFormatter must receive stack pattern');
+        }
+        return new Loom\Logging\PatternJournalFormatter($pattern);
+    });
+    $fmtApp = $fmtBuilder->build();
+    $fmtApp->services->get(Loom\Logging\Diary::class)->event('fmt.custom', ['x' => 1]);
+    $fmtApp->dispose();
+    if (count($capturedFmt) !== 1 || !str_starts_with(rtrim($capturedFmt[0], "\n"), '<evt>')) {
+        throw new RuntimeException('extendFormatter must format stack lane output');
+    }
+    $fmtBuilderBad = Loom\Application::createBuilder($fmtRoot);
+    $fmtBuilderBad->diary->extend('cap', static fn () => new Loom\Logging\NullJournalWriter());
+    try {
+        $fmtBuilderBad->build();
+        throw new RuntimeException('Unknown diary formatter must be rejected at build time');
+    } catch (LogicException) {
+        // expected
+    }
+} finally {
+    @unlink($fmtRoot . '/config/diary.php');
+    @rmdir($fmtRoot . '/config');
+    @rmdir($fmtRoot);
+}
+
+// extendNamer：自定义路径收到条目。
+$namerRoot = sys_get_temp_dir() . '/loom-diary-namer-' . bin2hex(random_bytes(6));
+mkdir($namerRoot . '/config', 0777, true);
+$customNamerPath = sys_get_temp_dir() . '/loom-diary-custom-name-' . bin2hex(random_bytes(6)) . '.log';
+file_put_contents($namerRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'stack', 'formatter' => 'json', 'pattern' => '', 'file' => '', 'date' => 'Y-m-d', 'timezone' => 'Asia/Shanghai', 'level' => '', 'stack' => [['driver' => 'file', 'formatter' => 'text', 'namer' => 'custom']]];\n");
+try {
+    $namerBuilder = Loom\Application::createBuilder($namerRoot);
+    $namerBuilder->diary->extendNamer('custom', static function (Loom\Logging\JournalEntry $entry, array $item): string {
+        return $customNamerPath;
+    });
+    $namerApp = $namerBuilder->build();
+    $namerApp->services->get(Loom\Logging\Diary::class)->event('namer.custom', ['k' => 1]);
+    $namerBody = file_get_contents($customNamerPath);
+    if ($namerBody === false || !str_contains($namerBody, 'namer.custom')) {
+        throw new RuntimeException('extendNamer must receive entry for custom file path');
+    }
+    $namerApp->dispose();
+    $namerBuilderBad = Loom\Application::createBuilder($namerRoot);
+    try {
+        $namerBuilderBad->build();
+        throw new RuntimeException('Unknown diary namer must be rejected at build time');
+    } catch (LogicException) {
+        // expected
+    }
+} finally {
+    @unlink($namerRoot . '/config/diary.php');
+    @rmdir($namerRoot . '/config');
+    @rmdir($namerRoot);
+    @unlink($customNamerPath);
 }
 
 echo "loom_diary_test: OK\n";

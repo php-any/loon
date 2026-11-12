@@ -17,6 +17,6 @@ final class LaneJournalSink implements JournalSink
 
     public function emit(JournalEntry $entry): void
     {
-        $this->writer->write($this->formatter->format($entry));
+        $this->writer->write($this->formatter->format($entry), $entry);
     }
 }
