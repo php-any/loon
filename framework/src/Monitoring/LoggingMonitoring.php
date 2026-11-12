@@ -7,7 +7,7 @@ namespace Loom\Monitoring;
 use Loom\Logging\Diary;
 
 /**
- * 默认实现：在作用域内缓冲结构化事件，dispose() 时经 {@see Diary} 写出 `monitoring.session`（默认标准错误 JSON 行）。
+ * 默认实现：在作用域内缓冲结构化事件，dispose() 时经 {@see Diary} 写出 `monitoring.session`（控制台为可展开文本，文件为 JSON 行）。
  *
  * SQL 绑定值只做长度与类型摘要，避免日志泄露敏感数据。HTTP 正文只记录字节数。
  * 写入目标与格式由根容器上的 JournalWriter / JournalFormatter 决定，与 RequestLog 等共用一套日记管道。

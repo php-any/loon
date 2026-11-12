@@ -18,50 +18,35 @@ final class PatternJournalFormatter implements JournalFormatter
 
     public function format(JournalEntry $entry): string
     {
+        $split = JournalFieldText::splitScalarsAndNested($entry->fields);
         $replacements = [
             '{time}' => $entry->time,
             '{level}' => $entry->level,
             '{event}' => $entry->event,
-            '{fields}' => self::formatFields($entry->fields),
+            '{fields}' => implode(' ', $split['headerParts']),
         ];
         $line = str_replace(array_keys($replacements), array_values($replacements), $this->pattern);
-        return preg_replace_callback(
+        $line = preg_replace_callback(
             '/\{field\.([^}]+)\}/',
             static function (array $matches) use ($entry): string {
                 $key = $matches[1];
                 if (!array_key_exists($key, $entry->fields)) {
                     return '';
                 }
-                return self::scalarToString($entry->fields[$key]);
+                $value = $entry->fields[$key];
+                if (is_scalar($value) || $value === null) {
+                    return JournalFieldText::scalarToString($value);
+                }
+
+                return '';
             },
             $line,
-        ) . "\n";
-    }
+        );
+        $output = $line;
+        if ($split['extraLines'] !== []) {
+            $output .= "\n" . implode("\n", $split['extraLines']);
+        }
 
-    /**
-     * @param array<string, mixed> $fields
-     */
-    private static function formatFields(array $fields): string
-    {
-        if ($fields === []) {
-            return '';
-        }
-        $parts = [];
-        foreach ($fields as $key => $value) {
-            $parts[] = $key . '=' . self::scalarToString($value);
-        }
-        return implode(' ', $parts);
-    }
-
-    private static function scalarToString(mixed $value): string
-    {
-        if ($value === null) {
-            return 'null';
-        }
-        if (is_scalar($value)) {
-            return (string) $value;
-        }
-        $encoded = json_encode($value, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES);
-        return $encoded === false ? '{}' : $encoded;
+        return $output . "\n";
     }
 }
