@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Im;
 
-use App\Services\Access\Admin;
+use App\Models\Identity\Account;
 use Loom\HttpError;
 use Loom\Models\AuthLimit;
 use Loom\Models\User;
@@ -17,14 +17,20 @@ final class ImAuth
     private \Loom\Database $database;
     private \Loom\RequestContext $context;
     private \Loom\Auth $origin;
-    private Admin $admin;
 
-    public function __construct(\Loom\Database $database, \Loom\RequestContext $context, \Loom\Auth $origin, Admin $admin)
+    public function __construct(\Loom\Database $database, \Loom\RequestContext $context, \Loom\Auth $origin)
     {
         $this->database = $database;
         $this->context = $context;
         $this->origin = $origin;
-        $this->admin = $admin;
+    }
+
+    public function assertEnabledIdentity(int $id): void
+    {
+        $account = Account::whereUserId($id)->rows(['enabled']);
+        if ($account === [] || (int)$account[0]['enabled'] !== 1) {
+            throw new HttpError(403, '账号未开通或已停用');
+        }
     }
 
     private function sessionToken(): string
@@ -102,7 +108,7 @@ final class ImAuth
             throw new HttpError(401, '邮箱或密码不正确');
         }
         $id = (int)$rows[0]['id'];
-        $this->admin->assertActive($id);
+        $this->assertEnabledIdentity($id);
         $token = bin2hex(random_bytes(32));
         $csrf = bin2hex(random_bytes(32));
         $version = (int)$rows[0]['auth_version'];

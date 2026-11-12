@@ -108,8 +108,23 @@ namespace {
     $context->bind($originRequest('GET', '/api/admin/session', $studioCookie));
     imCheck($studioAuth->user()['id'] === $a, '聊天登出不影响后台会话');
 
+    $admin = $scope->get(App\Services\Access\Admin::class);
+    $admin->enroll($a);
+    $admin->enroll($b);
+
     $contacts = $im->contacts($a, $users[1]['email']);
     imCheck(count($contacts['items']) >= 1, '联系人搜索');
+
+    $orphanEmail = 'im-orphan-' . bin2hex(random_bytes(4)) . '@example.test';
+    $orphanId = (int)$db->execute('INSERT INTO loom_users(name,email,password) VALUES(?,?,?)', ['Orphan', $orphanEmail, password_hash($password, PASSWORD_BCRYPT, ['cost' => 4])])['id'];
+    $orphanVisible = false;
+    foreach ($im->contacts($a, $orphanEmail)['items'] as $item) {
+        if ((int)$item['id'] === $orphanId) {
+            $orphanVisible = true;
+        }
+    }
+    imCheck(!$orphanVisible, '无身份账户的用户不出现在联系人');
+    $db->execute('DELETE FROM loom_users WHERE id=?', [$orphanId]);
 
     $conversation = $im->createConversation($a, 'direct', null, [$b]);
     $conversationId = (int)$conversation['id'];
@@ -151,6 +166,21 @@ namespace {
         imCheck($events !== [], 'Hub 推送会话消息');
     });
     imCheck($message['body'] === 'integration ping', '发送后持久化');
+
+    $unreadA = null;
+    $unreadB = null;
+    foreach ($im->conversations($a)['items'] as $item) {
+        if ((int)$item['id'] === $conversationId) {
+            $unreadA = (int)$item['unread_count'];
+        }
+    }
+    foreach ($im->conversations($b)['items'] as $item) {
+        if ((int)$item['id'] === $conversationId) {
+            $unreadB = (int)$item['unread_count'];
+        }
+    }
+    imCheck($unreadA === 0, '发送者未读数为 0');
+    imCheck($unreadB !== null && $unreadB >= 1, '接收者有未读消息');
 
     $history = $im->messages($conversationId, $a, 1);
     imCheck(count($history['items']) >= 1 && isset($history['items'][0]['sender_name']), '历史消息含发送者');

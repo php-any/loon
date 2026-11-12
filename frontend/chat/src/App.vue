@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ConversationDetail,
   type ConversationSummary,
+  formatApiError,
   type SessionUser,
 } from './api';
 
@@ -37,6 +38,11 @@ const addMemberIds = ref<number[]>([]);
 let socket: WebSocket | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: number | undefined;
+let allowSocketReconnect = false;
+
+function reportError(error: unknown) {
+  ElMessage.error(formatApiError(error));
+}
 
 const filteredConversations = computed(() => {
   const q = search.value.trim().toLowerCase();
@@ -75,38 +81,70 @@ async function bootstrap() {
 }
 
 async function doLogin() {
-  const result = await api.login(loginForm.email, loginForm.password);
-  setCsrf(result.csrf);
-  const session = await api.session();
-  user.value = session.user;
-  setCsrf(session.user.csrf);
-  await refreshConversations();
-  connectSocket();
+  try {
+    const result = await api.login(loginForm.email, loginForm.password);
+    setCsrf(result.csrf);
+    const session = await api.session();
+    user.value = session.user;
+    setCsrf(session.user.csrf);
+    await refreshConversations();
+    connectSocket();
+  } catch (error) {
+    reportError(error);
+  }
+}
+
+function teardownSocket() {
+  allowSocketReconnect = false;
+  if (reconnectTimer !== undefined) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
+  const current = socket;
+  socket = null;
+  if (current) {
+    current.onclose = null;
+    current.close();
+  }
 }
 
 async function doLogout() {
-  await api.logout();
+  try {
+    await api.logout();
+  } catch (error) {
+    reportError(error);
+  }
+  teardownSocket();
   user.value = null;
   conversations.value = [];
   activeId.value = null;
-  socket?.close();
+  activeDetail.value = null;
+  messages.value = [];
 }
 
 async function refreshConversations() {
-  const data = await api.conversations();
-  conversations.value = data.items;
+  try {
+    const data = await api.conversations();
+    conversations.value = data.items;
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function openConversation(id: number) {
-  activeId.value = id;
-  messagePage.value = 1;
-  messages.value = [];
-  activeDetail.value = await api.conversation(id);
-  await loadMessages();
-  joinedConversationId.value = null;
-  socketSend({ type: 'join', conversation_id: id });
-  const last = messages.value.at(-1);
-  if (last) await markRead(last.id);
+  try {
+    activeId.value = id;
+    messagePage.value = 1;
+    messages.value = [];
+    activeDetail.value = await api.conversation(id);
+    await loadMessages();
+    joinedConversationId.value = null;
+    socketSend({ type: 'join', conversation_id: id });
+    const last = messages.value.at(-1);
+    if (last) await markRead(last.id);
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function loadMessages() {
@@ -138,7 +176,12 @@ async function sendCurrent() {
   if (!activeId.value || !draft.value.trim()) return;
   const body = draft.value;
   draft.value = '';
-  await api.sendMessage(activeId.value, body);
+  try {
+    await api.sendMessage(activeId.value, body);
+  } catch (error) {
+    draft.value = body;
+    reportError(error);
+  }
 }
 
 async function markRead(messageId: number) {
@@ -149,8 +192,18 @@ async function markRead(messageId: number) {
 }
 
 function connectSocket() {
-  socket?.close();
-  if (reconnectTimer) window.clearTimeout(reconnectTimer);
+  if (!user.value) return;
+  if (reconnectTimer !== undefined) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
+  const previous = socket;
+  socket = null;
+  if (previous) {
+    previous.onclose = null;
+    previous.close();
+  }
+  allowSocketReconnect = true;
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
   socket = new WebSocket(`${scheme}://${window.location.host}/api/im/socket`);
   socket.onopen = () => {
@@ -185,10 +238,13 @@ function connectSocket() {
       }
     }
   };
-  socket.onclose = () => scheduleReconnect();
+  socket.onclose = () => {
+    if (allowSocketReconnect && user.value) scheduleReconnect();
+  };
 }
 
 function scheduleReconnect() {
+  if (!allowSocketReconnect || !user.value) return;
   reconnectAttempt += 1;
   const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempt, 5));
   reconnectTimer = window.setTimeout(connectSocket, delay);
@@ -199,44 +255,58 @@ function socketSend(data: unknown) {
 }
 
 async function searchContacts() {
-  const data = await api.contacts(contactQuery.value);
-  contactResults.value = data.items;
+  try {
+    const data = await api.contacts(contactQuery.value);
+    contactResults.value = data.items;
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function submitCreate() {
-  if (createType.value === 'direct') {
-    if (!directPeer.value) {
-      ElMessage.warning('请选择联系人');
+  try {
+    if (createType.value === 'direct') {
+      if (!directPeer.value) {
+        ElMessage.warning('请选择联系人');
+        return;
+      }
+      const created = await api.createConversation({ type: 'direct', member_ids: [directPeer.value] });
+      upsertConversation(created);
+      createVisible.value = false;
+      await openConversation(created.id);
       return;
     }
-    const created = await api.createConversation({ type: 'direct', member_ids: [directPeer.value] });
+    if (!createTitle.value.trim() || pickedMembers.value.length < 1) {
+      ElMessage.warning('请填写群名并选择成员');
+      return;
+    }
+    const created = await api.createConversation({
+      type: 'group',
+      title: createTitle.value.trim(),
+      member_ids: pickedMembers.value,
+    });
     upsertConversation(created);
     createVisible.value = false;
     await openConversation(created.id);
-    return;
+  } catch (error) {
+    reportError(error);
   }
-  if (!createTitle.value.trim() || pickedMembers.value.length < 1) {
-    ElMessage.warning('请填写群名并选择成员');
-    return;
-  }
-  const created = await api.createConversation({
-    type: 'group',
-    title: createTitle.value.trim(),
-    member_ids: pickedMembers.value,
-  });
-  upsertConversation(created);
-  createVisible.value = false;
-  await openConversation(created.id);
 }
 
 async function renameGroup() {
   if (!activeDetail.value || activeDetail.value.type !== 'group') return;
-  const { value } = await ElMessageBox.prompt('新的群名称', '重命名', {
-    inputValue: activeDetail.value.title ?? '',
-  });
-  if (!value?.trim()) return;
-  activeDetail.value = await api.rename(activeDetail.value.id, value.trim());
-  await refreshConversations();
+  try {
+    const { value } = await ElMessageBox.prompt('新的群名称', '重命名', {
+      inputValue: activeDetail.value.title ?? '',
+    });
+    if (!value?.trim()) return;
+    activeDetail.value = await api.rename(activeDetail.value.id, value.trim());
+    await refreshConversations();
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      reportError(error);
+    }
+  }
 }
 
 async function openAddMembers() {
@@ -248,30 +318,57 @@ async function openAddMembers() {
 
 async function confirmAddMembers() {
   if (!activeDetail.value || addMemberIds.value.length === 0) return;
-  activeDetail.value = await api.addMembers(activeDetail.value.id, addMemberIds.value);
-  addMemberVisible.value = false;
-  await refreshConversations();
+  try {
+    activeDetail.value = await api.addMembers(activeDetail.value.id, addMemberIds.value);
+    addMemberVisible.value = false;
+    await refreshConversations();
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function leaveGroup() {
   if (!activeDetail.value || !user.value) return;
-  await api.removeMember(activeDetail.value.id, user.value.id);
-  activeId.value = null;
-  await refreshConversations();
+  try {
+    await ElMessageBox.confirm('确定退出此群？', '退群');
+  } catch {
+    return;
+  }
+  try {
+    await api.removeMember(activeDetail.value.id, user.value.id);
+    activeId.value = null;
+    activeDetail.value = null;
+    await refreshConversations();
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function removeMember(memberId: number) {
   if (!activeDetail.value) return;
-  await api.removeMember(activeDetail.value.id, memberId);
-  activeDetail.value = await api.conversation(activeDetail.value.id);
+  try {
+    await api.removeMember(activeDetail.value.id, memberId);
+    activeDetail.value = await api.conversation(activeDetail.value.id);
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 async function dissolveGroup() {
   if (!activeDetail.value) return;
-  await ElMessageBox.confirm('确定解散此群？', '解散群聊');
-  await api.dissolve(activeDetail.value.id);
-  activeId.value = null;
-  await refreshConversations();
+  try {
+    await ElMessageBox.confirm('确定解散此群？', '解散群聊');
+  } catch {
+    return;
+  }
+  try {
+    await api.dissolve(activeDetail.value.id);
+    activeId.value = null;
+    activeDetail.value = null;
+    await refreshConversations();
+  } catch (error) {
+    reportError(error);
+  }
 }
 
 watch(createVisible, (open) => {
@@ -285,8 +382,7 @@ watch(createVisible, (open) => {
 
 onMounted(bootstrap);
 onUnmounted(() => {
-  socket?.close();
-  if (reconnectTimer) window.clearTimeout(reconnectTimer);
+  teardownSocket();
 });
 </script>
 

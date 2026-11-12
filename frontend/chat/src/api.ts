@@ -1,5 +1,17 @@
 export type SessionUser = { id: number; name: string; email: string; csrf: string };
 
+export function formatApiError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return '操作失败';
+  }
+  try {
+    const parsed = JSON.parse(error.message) as { detail?: string; title?: string };
+    return parsed.detail || parsed.title || error.message;
+  } catch {
+    return error.message || '操作失败';
+  }
+}
+
 let csrf = '';
 
 export function setCsrf(token: string) {
@@ -26,7 +38,7 @@ async function request<T>(
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new Error(text || `请求失败（HTTP ${response.status}）`);
   }
   if (response.status === 204) {
     return undefined as T;

@@ -50,9 +50,9 @@ final class ImMessaging
         $sql = <<<'SQL'
 SELECT u.id, u.name, u.email
 FROM loom_users u
-LEFT JOIN admin_accounts a ON a.user_id = u.id
+INNER JOIN admin_accounts a ON a.user_id = u.id
 WHERE u.id <> ?
-  AND (a.enabled IS NULL OR a.enabled = 1)
+  AND a.enabled = 1
 SQL;
         $params = [$actorId];
         if ($query !== '') {
@@ -120,13 +120,11 @@ SQL;
         ];
         $member = ConversationMember::whereConversationId($conversationId)->whereUserId($userId)->rows(['last_read_message_id']);
         $lastRead = $member === [] ? null : $member[0]['last_read_message_id'];
-        $unreadSql = 'SELECT COUNT(*) AS total FROM im_messages WHERE conversation_id=?';
-        $unreadParams = [$conversationId];
-        if ($lastRead !== null) {
-            $unreadSql .= ' AND id>?';
-            $unreadParams[] = (int)$lastRead;
-        }
-        $unread = (int)($this->database->query($unreadSql, $unreadParams)[0]['total'] ?? 0);
+        $lastReadId = (int)($lastRead ?? 0);
+        $unread = (int)($this->database->query(
+            'SELECT COUNT(*) AS total FROM im_messages WHERE conversation_id=? AND id>? AND user_id<>?',
+            [$conversationId, $lastReadId, $userId],
+        )[0]['total'] ?? 0);
         $type = (string)($base['type'] ?? '');
         $peer = null;
         $membersCount = null;
@@ -196,6 +194,9 @@ SQL;
         }
         if ($type === 'group' && ($title === null || trim($title) === '')) {
             throw new HttpError(422, '群聊需要名称');
+        }
+        foreach ($members as $memberId) {
+            $this->adminActiveOrFail($memberId);
         }
         return $this->database->transaction(function () use ($type, $title, $members, $actorId): array {
             if ($type === 'direct') {
@@ -362,6 +363,8 @@ SQL;
             'body' => $body,
         ]);
         Conversation::whereId($conversationId)->native()->update(['updated_at' => time()]);
+        ConversationMember::whereConversationId($conversationId)->whereUserId($userId)->native()
+            ->update(['last_read_message_id' => $message->id]);
         $senderName = (string)($this->database->query('SELECT name FROM loom_users WHERE id=?', [$userId])[0]['name'] ?? '');
         $payload = [
             'id' => $message->id,
@@ -415,8 +418,8 @@ SQL;
     private function adminActiveOrFail(int $userId): void
     {
         $account = \App\Models\Identity\Account::whereUserId($userId)->rows(['enabled']);
-        if ($account !== [] && (int)$account[0]['enabled'] !== 1) {
-            throw new HttpError(422, '不能添加已停用的账号');
+        if ($account === [] || (int)$account[0]['enabled'] !== 1) {
+            throw new HttpError(422, '只能使用已启用的身份账号');
         }
     }
 
