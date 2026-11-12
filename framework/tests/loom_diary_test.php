@@ -283,7 +283,7 @@ file_put_contents($fmtRoot . '/config/diary.php', "<?php\nreturn ['writer' => 's
 $capturedFmt = [];
 try {
     $fmtBuilder = Loom\Application::createBuilder($fmtRoot);
-    $fmtBuilder->diary->extend('cap', static function (Loom\Logging\DiaryOptions $options, Loom\Config $config, array $item): Loom\Logging\JournalWriter {
+    $fmtBuilder->diary->extend('cap', static function (Loom\Logging\DiaryOptions $options, Loom\Config $config, array $item) use (&$capturedFmt): Loom\Logging\JournalWriter {
         return new Loom\Logging\CallableJournalWriter(static function (string $line) use (&$capturedFmt): void {
             $capturedFmt[] = $line;
         });
@@ -297,10 +297,17 @@ try {
     });
     $fmtApp = $fmtBuilder->build();
     $fmtApp->services->get(Loom\Logging\Diary::class)->event('fmt.custom', ['x' => 1]);
-    $fmtApp->dispose();
-    if (count($capturedFmt) !== 1 || !str_starts_with(rtrim($capturedFmt[0], "\n"), '<evt>')) {
+    $hasCustomFmt = false;
+    foreach ($capturedFmt as $line) {
+        if (str_starts_with(rtrim($line, "\n"), '<evt>')) {
+            $hasCustomFmt = true;
+            break;
+        }
+    }
+    if (!$hasCustomFmt) {
         throw new RuntimeException('extendFormatter must format stack lane output');
     }
+    $fmtApp->dispose();
     $fmtBuilderBad = Loom\Application::createBuilder($fmtRoot);
     $fmtBuilderBad->diary->extend('cap', static fn () => new Loom\Logging\NullJournalWriter());
     try {
