@@ -18,7 +18,7 @@ final class DiaryComposer
         return match ($options->writer) {
             'stack' => self::stackSink($options, $registration, $config),
             default => new LaneJournalSink(
-                self::formatter($options->formatter),
+                self::formatter($options->formatter, $options, $registration, $config, []),
                 self::resolveWriter($options->writer, $options, $registration, $config, []),
             ),
         };
@@ -32,7 +32,7 @@ final class DiaryComposer
                 if (!is_array($item)) {
                     throw new \LogicException('Diary stack item must be an array');
                 }
-                $driver = (string)($item['driver'] ?? '');
+                $driver = (string) ($item['driver'] ?? '');
                 if ($driver === '') {
                     throw new \LogicException('Diary stack item requires driver');
                 }
@@ -57,13 +57,13 @@ final class DiaryComposer
             if (!is_array($item)) {
                 throw new \LogicException('Diary stack item must be an array');
             }
-            $driver = (string)($item['driver'] ?? '');
+            $driver = (string) ($item['driver'] ?? '');
             if ($driver === '') {
                 throw new \LogicException('Diary stack item requires driver');
             }
-            $formatterName = (string)($item['formatter'] ?? $globalFormatter);
+            $formatterName = (string) ($item['formatter'] ?? $globalFormatter);
             $lanes[] = new LaneJournalSink(
-                self::formatter($formatterName),
+                self::formatter($formatterName, $options, $registration, $config, $item),
                 self::resolveWriter($driver, $options, $registration, $config, $item),
             );
         }
@@ -83,7 +83,7 @@ final class DiaryComposer
         Config $config,
         array $item = [],
     ): JournalWriter {
-        $factory = $registration->factory($driver);
+        $factory = $registration->writerFactory($driver);
         if ($factory !== null) {
             $writer = $factory($options, $config, $item);
             if (!$writer instanceof JournalWriter) {
@@ -94,30 +94,63 @@ final class DiaryComposer
         return match ($driver) {
             'stderr' => new StderrJournalWriter(),
             'null' => new NullJournalWriter(),
-            'file' => new FileJournalWriter(
-                self::filePath($options, $config, $item),
-            ),
+            'file' => new FileJournalWriter(self::resolveNamer($options, $registration, $config, $item)),
             default => throw new \LogicException('Unsupported diary writer driver: ' . $driver),
         };
     }
 
   /**
    * @param array<string, mixed> $item
+   * @return callable(JournalEntry): string
    */
-    private static function filePath(DiaryOptions $options, Config $config, array $item = []): string
+    private static function resolveNamer(DiaryOptions $options, DiaryRegistration $registration, Config $config, array $item): callable
     {
-        $configured = (string)($item['file'] ?? $options->file);
-        if ($configured !== '') {
-            return $configured;
+        $namerName = (string) ($item['namer'] ?? $options->namer);
+        $factory = $registration->namerFactory($namerName);
+        if ($factory !== null) {
+            return static fn (JournalEntry $entry): string => $factory($entry, $item);
         }
-        return $config->path('storage/logs/diary.log');
+        if ($namerName === 'template') {
+            return TemplateJournalNamer::callable($options, $config, $item);
+        }
+        throw new \LogicException('Unsupported diary namer: ' . $namerName);
     }
 
-    public static function formatter(string $name): JournalFormatter
-    {
+    /**
+     * @param array<string, mixed> $item
+     */
+    public static function formatter(
+        string $name,
+        DiaryOptions $options,
+        DiaryRegistration $registration,
+        Config $config,
+        array $item = [],
+    ): JournalFormatter {
+        $factory = $registration->formatterFactory($name);
+        if ($factory !== null) {
+            $formatter = $factory($options, $config, $item);
+            if (!$formatter instanceof JournalFormatter) {
+                throw new \LogicException('Diary formatter factory must return JournalFormatter');
+            }
+            return $formatter;
+        }
         return match ($name) {
             'text', 'plain' => new PlainTextJournalFormatter(),
-            default => new JsonLineJournalFormatter(),
+            'pattern' => new PatternJournalFormatter(self::patternString($options, $item)),
+            'json' => new JsonLineJournalFormatter(),
+            default => throw new \LogicException('Unsupported diary formatter: ' . $name),
         };
+    }
+
+  /**
+   * @param array<string, mixed> $item
+   */
+    private static function patternString(DiaryOptions $options, array $item): string
+    {
+        $pattern = (string) ($item['pattern'] ?? $options->pattern);
+        if ($pattern === '') {
+            throw new \LogicException('Pattern diary formatter requires pattern');
+        }
+        return $pattern;
     }
 }

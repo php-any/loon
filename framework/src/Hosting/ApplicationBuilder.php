@@ -82,7 +82,13 @@ final class ApplicationBuilder
         });
         $services->tryAddSingleton(\Loom\Logging\JournalFormatter::class, static function (ServiceResolver $resolver): \Loom\Logging\JournalFormatter {
             $options = $resolver->get(\Loom\Logging\DiaryOptions::class);
-            return \Loom\Logging\DiaryComposer::formatter($options->formatter);
+            return \Loom\Logging\DiaryComposer::formatter(
+                $options->formatter,
+                $options,
+                $resolver->get(\Loom\Logging\DiaryRegistration::class),
+                $resolver->get(Config::class),
+                [],
+            );
         });
         $services->tryAddSingleton(\Loom\Logging\Diary::class, static function (ServiceResolver $resolver): \Loom\Logging\Diary {
             $options = $resolver->get(\Loom\Logging\DiaryOptions::class);

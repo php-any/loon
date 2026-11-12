@@ -73,6 +73,8 @@ foreach ([
     'Logging/CallableJournalWriter.php',
     'Logging/JsonLineJournalFormatter.php',
     'Logging/PlainTextJournalFormatter.php',
+    'Logging/PatternJournalFormatter.php',
+    'Logging/TemplateJournalNamer.php',
     'Logging/Diary.php',
     'Config/Config.php',
     'Config/Environment.php',

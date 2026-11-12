@@ -24,6 +24,28 @@ final class DiaryBuilder
         return $this;
     }
 
+    /**
+     * 在 build() 前登记自定义日记格式化器。
+     *
+     * @param callable(DiaryOptions, \Loom\Config, array<string, mixed>): JournalFormatter $factory
+     */
+    public function extendFormatter(string $name, callable $factory): self
+    {
+        $this->registration->extendFormatter($name, $factory);
+        return $this;
+    }
+
+    /**
+     * 在 build() 前登记自定义文件路径命名器；仍使用内置 file 写入器的追加与建目录逻辑。
+     *
+     * @param callable(JournalEntry, array<string, mixed>): string $factory
+     */
+    public function extendNamer(string $name, callable $factory): self
+    {
+        $this->registration->extendNamer($name, $factory);
+        return $this;
+    }
+
     public function registration(): DiaryRegistration
     {
         return $this->registration;

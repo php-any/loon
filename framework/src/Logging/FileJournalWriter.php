@@ -5,29 +5,31 @@ declare(strict_types=1);
 namespace Loom\Logging;
 
 /**
- * 以追加方式写入文件。路径不存在时尝试创建父目录。
- *
- * 构造参数：
- * - $path（string）：目标文件的绝对或相对路径。
+ * 按命名器解析路径后以追加方式写入文件；父目录不存在时尝试创建。
  */
 final class FileJournalWriter implements JournalWriter
 {
-    private string $path;
+    /** @var callable(JournalEntry): string */
+    private $namer;
 
-    public function __construct(string $path)
+    /**
+     * @param callable(JournalEntry): string $namer 由条目解析目标文件路径。
+     */
+    public function __construct(callable $namer)
     {
+        $this->namer = $namer;
+    }
+
+    public function write(string $line, JournalEntry $entry): void
+    {
+        $path = ($this->namer)($entry);
         if ($path === '') {
             throw new \InvalidArgumentException('Diary file path must not be empty');
         }
-        $this->path = $path;
-    }
-
-    public function write(string $line): void
-    {
-        $directory = dirname($this->path);
+        $directory = dirname($path);
         if ($directory !== '' && $directory !== '.' && !is_dir($directory)) {
             @mkdir($directory, 0775, true);
         }
-        @file_put_contents($this->path, $line, FILE_APPEND | LOCK_EX);
+        @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
     }
 }

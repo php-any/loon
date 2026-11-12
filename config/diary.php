@@ -13,7 +13,7 @@ return [
     'writer' => getenv('LOOM_DIARY_WRITER') ?: 'stack',
 
     /**
-     * writer 为 stack 时的子写入器；每项可含 driver、formatter（覆盖全局 file 等）。
+     * writer 为 stack 时的子写入器；每项可含 driver、formatter、namer、pattern、file、date、timezone。
      *
      * @var list<array<string, mixed>>
      */
@@ -23,14 +23,34 @@ return [
     ],
 
     /**
-     * 全局格式化器：json（默认，JSON 行）或 text（纯文本）；stack 子项未指定时使用此值。
+     * 全局格式化器：json、text 或 pattern；stack 子项未指定时使用此值。
      */
     'formatter' => getenv('LOOM_DIARY_FORMATTER') ?: 'json',
 
     /**
-     * writer 为 file 或 stack 中 file 子项未指定 file 时的路径。空则使用 storage/logs/diary.log。
+     * pattern 格式化器默认模板。
+     */
+    'pattern' => getenv('LOOM_DIARY_PATTERN') ?: '[{time}] {level} {event} {fields}',
+
+    /**
+     * file 驱动命名器：默认 template（路径模板）；stack 子项可覆盖。
+     */
+    'namer' => getenv('LOOM_DIARY_NAMER') ?: 'template',
+
+    /**
+     * file 驱动路径模板，支持 {date}、{level}。空则 storage/logs/diary-{date}.log（相对应用根）。
      */
     'file' => getenv('LOOM_DIARY_FILE') ?: '',
+
+    /**
+     * 文件名 {date} 的 PHP date() 格式。
+     */
+    'date' => getenv('LOOM_DIARY_DATE') ?: 'Y-m-d',
+
+    /**
+     * 文件名 {date} 使用的时区。
+     */
+    'timezone' => getenv('LOOM_DIARY_TIMEZONE') ?: 'Asia/Shanghai',
 
     /**
      * 最低日记级别；空表示不过滤。条目仍携带 level 字段。

@@ -16,11 +16,11 @@ final class StackJournalWriter implements JournalWriter
     {
     }
 
-    public function write(string $line): void
+    public function write(string $line, JournalEntry $entry): void
     {
         foreach ($this->writers as $writer) {
             try {
-                $writer->write($line);
+                $writer->write($line, $entry);
             } catch (\Throwable) {
                 // 单个写入目标失败不得中断其余目标或业务路径。
             }

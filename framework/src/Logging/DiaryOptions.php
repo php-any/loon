@@ -17,7 +17,7 @@ final class DiaryOptions
     public string $writer = 'stack';
 
     /**
-     * writer 为 stack 时的子写入器列表；每项可含 driver、formatter（覆盖全局）与 file。
+     * writer 为 stack 时的子写入器列表；每项可含 driver、formatter、namer、pattern、file、date、timezone。
      *
      * @var list<array<string, mixed>>
      */
@@ -27,14 +27,34 @@ final class DiaryOptions
     ];
 
     /**
-     * 格式化器：json（JSON 行）或 text（纯文本行）；stack 子项未指定时使用此默认。
+     * 格式化器：json、text、pattern；stack 子项未指定时使用此默认。
      */
     public string $formatter = 'json';
 
     /**
-     * file 写入器使用的路径。空字符串时回落到 storage/logs/diary.log。
+     * pattern 格式化器模板；含 {time}、{level}、{event}、{fields}、{field.xxx}。
+     */
+    public string $pattern = '[{time}] {level} {event} {fields}';
+
+    /**
+     * file 驱动使用的命名器：内置 template，或通过 diary.extendNamer 登记的名称。
+     */
+    public string $namer = 'template';
+
+    /**
+     * file 驱动路径模板，支持 {date}、{level}。空则 daily 文件 storage/logs/diary-{date}.log。
      */
     public string $file = '';
+
+    /**
+     * {date} 片段的 PHP date() 格式，默认按日分文件。
+     */
+    public string $date = 'Y-m-d';
+
+    /**
+     * 文件名中 {date} 使用的时区；条目 time 字段仍为 UTC。
+     */
+    public string $timezone = 'Asia/Shanghai';
 
     /**
      * 最低日记级别；空字符串表示不过滤。条目仍携带 level 字段。
