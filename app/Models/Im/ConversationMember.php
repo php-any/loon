@@ -21,4 +21,7 @@ final class ConversationMember extends \Loom\Model
 
     #[\Database\Annotation\Column('last_read_message_id', true)]
     public ?int $last_read_message_id = null;
+
+    #[\Database\Annotation\Column('role', false)]
+    public string $role = 'member';
 }
