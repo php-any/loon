@@ -6,21 +6,20 @@ namespace App\Http\Middleware;
 
 final class RequireImSocket implements \Loom\Middleware
 {
-    private \Loom\Auth $auth;
-    private \App\Services\Access\Admin $admin;
+    private \Loom\Auth $origin;
+    private \App\Services\Im\ImAuth $auth;
 
-    public function __construct(\Loom\Auth $auth, \App\Services\Access\Admin $admin)
+    public function __construct(\Loom\Auth $origin, \App\Services\Im\ImAuth $auth)
     {
+        $this->origin = $origin;
         $this->auth = $auth;
-        $this->admin = $admin;
     }
 
     public function handle(\Loom\Request $request, callable $next): \Loom\Response
     {
-        $this->auth->checkOrigin();
-        $user = $this->auth->guard();
-        $this->admin->assertActive($user['id']);
-        $this->admin->require($user['id'], 'workspace.use');
+        $this->origin->checkOrigin();
+        $user = $this->auth->user();
+        $this->auth->assertEnabledIdentity($user['id']);
         return $next($request->withAttribute('im_user_id', $user['id']));
     }
 }

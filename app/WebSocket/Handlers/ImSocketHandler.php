@@ -29,6 +29,10 @@ final class ImSocketHandler
     public function onOpen(\Loom\Request $request, \Net\Websocket\Conn $connection): void
     {
         $this->userId = (int)$request->attribute('im_user_id');
+        $userChannel = ImMessaging::userChannel($this->userId);
+        \Loom\Redis::using(function ($client) use ($userChannel): void {
+            $this->streamCursors[$userChannel] = $this->hub->tail($client, $userChannel);
+        });
         $connection->writeText(json_encode(['type' => 'heartbeat', 'user_id' => $this->userId], JSON_THROW_ON_ERROR));
     }
 
