@@ -14,9 +14,14 @@ final class Redis
 {
     private static ?RedisOptions $options = null;
 
-    public static function bindOptions(RedisOptions $options): void
+    /**
+     * @return ?RedisOptions 此前绑定的选项，供测试恢复。
+     */
+    public static function bindOptions(?RedisOptions $options): ?RedisOptions
     {
+        $previous = self::$options;
         self::$options = $options;
+        return $previous;
     }
 
     /**

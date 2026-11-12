@@ -67,7 +67,11 @@ final class StopSignal
         }
         $this->dispatched = true;
         foreach ($this->handlers as $handler) {
-            $handler();
+            try {
+                $handler();
+            } catch (\Throwable) {
+                // 单个回调失败不得阻止其余 onStop 或退出。
+            }
         }
         if ($exit) {
             exit(0);

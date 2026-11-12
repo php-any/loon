@@ -116,6 +116,7 @@ foreach ([
     'Cache/Redis.php',
     'Auth/Auth.php',
     'Queue/QueueOptions.php',
+    'Queue/QueueBackend.php',
     'Queue/QueueRegistration.php',
     'Queue/QueueBuilder.php',
     'Queue/RedisQueue.php',

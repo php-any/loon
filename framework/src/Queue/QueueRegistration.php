@@ -11,11 +11,11 @@ namespace Loom;
  */
 final class QueueRegistration
 {
-    /** @var array<string, callable(ServiceResolver): RedisQueue> */
+    /** @var array<string, callable(ServiceResolver): QueueBackend> */
     private array $extensions = [];
 
     /**
-     * @param callable(ServiceResolver): RedisQueue $factory
+     * @param callable(ServiceResolver): QueueBackend $factory
      */
     public function extend(string $driver, callable $factory): void
     {
@@ -23,7 +23,7 @@ final class QueueRegistration
     }
 
     /**
-     * @return ?callable(ServiceResolver): RedisQueue
+     * @return ?callable(ServiceResolver): QueueBackend
      */
     public function factory(string $driver): ?callable
     {

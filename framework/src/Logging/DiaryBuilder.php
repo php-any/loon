@@ -16,7 +16,7 @@ final class DiaryBuilder
     /**
      * 在 build() 前登记自定义日记写入器驱动。
      *
-     * @param callable(DiaryOptions, \Loom\Config): JournalWriter $factory
+     * @param callable(DiaryOptions, \Loom\Config, array<string, mixed>): JournalWriter $factory 第三参数为 stack 子项配置；单写入器时为空数组。
      */
     public function extend(string $driver, callable $factory): self
     {

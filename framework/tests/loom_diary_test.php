@@ -152,10 +152,11 @@ try {
     $extendBuilder->diary->extend('custom', static fn () => new Loom\Logging\NullJournalWriter());
     $extendApp = $extendBuilder->build();
     $extendApp->services->get(Loom\Logging\Diary::class)->event('custom.writer', []);
+    $extendApp->dispose();
     $extendBuilderUnknown = Loom\Application::createBuilder($extendRoot);
     try {
-        $extendBuilderUnknown->build()->services->get(Loom\Logging\Diary::class);
-        throw new RuntimeException('Unknown diary writer must be rejected at bind time');
+        $extendBuilderUnknown->build();
+        throw new RuntimeException('Unknown diary writer must be rejected at build time');
     } catch (LogicException) {
         // expected when extend not registered
     }
@@ -163,6 +164,34 @@ try {
     @unlink($extendRoot . '/config/diary.php');
     @rmdir($extendRoot . '/config');
     @rmdir($extendRoot);
+}
+
+// stack 内自定义驱动接收子项配置（如 file）。
+$stackItemFile = sys_get_temp_dir() . '/loom-diary-item-' . bin2hex(random_bytes(6)) . '.log';
+$stackItemRoot = sys_get_temp_dir() . '/loom-diary-item-root-' . bin2hex(random_bytes(6));
+mkdir($stackItemRoot . '/config', 0777, true);
+file_put_contents($stackItemRoot . '/config/diary.php', "<?php\nreturn ['writer' => 'stack', 'formatter' => 'json', 'file' => '', 'level' => '', 'stack' => [['driver' => 'itemfile', 'file' => " . var_export($stackItemFile, true) . "]]];\n");
+try {
+    $itemBuilder = Loom\Application::createBuilder($stackItemRoot);
+    $itemBuilder->diary->extend('itemfile', static function (Loom\Logging\DiaryOptions $options, Loom\Config $config, array $item): Loom\Logging\JournalWriter {
+        $path = (string)($item['file'] ?? '');
+        if ($path === '') {
+            throw new RuntimeException('Custom stack driver must receive item file');
+        }
+        return new Loom\Logging\FileJournalWriter($path);
+    });
+    $itemApp = $itemBuilder->build();
+    $itemApp->services->get(Loom\Logging\Diary::class)->event('item.file', ['ok' => true]);
+    $itemBody = file_get_contents($stackItemFile);
+    if ($itemBody === false || !str_contains($itemBody, 'item.file')) {
+        throw new RuntimeException('Stack item config must reach custom diary driver');
+    }
+    $itemApp->dispose();
+} finally {
+    @unlink($stackItemRoot . '/config/diary.php');
+    @rmdir($stackItemRoot . '/config');
+    @rmdir($stackItemRoot);
+    @unlink($stackItemFile);
 }
 
 // StackJournalWriter：同一行写入多个 writer，单个失败不影响其余。

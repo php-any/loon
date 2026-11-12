@@ -52,6 +52,17 @@ $chained->onStop(static function () use (&$second): void {
 $chained->dispatch(false);
 stopCheck($first && $second, 'Multiple onStop handlers run in registration order without overwriting');
 
+$resilient = new Loom\StopSignal();
+$ranAfterThrow = false;
+$resilient->onStop(static function (): void {
+    throw new RuntimeException('onStop probe failure');
+});
+$resilient->onStop(static function () use (&$ranAfterThrow): void {
+    $ranAfterThrow = true;
+});
+$resilient->dispatch(false);
+stopCheck($ranAfterThrow, 'Later onStop handlers run when an earlier handler throws');
+
 $repoRoot = dirname(__DIR__, 2);
 $probe = dirname(__DIR__) . '/tests/fixtures/stop_signal_probe.php';
 $loom = loomTestBinary($repoRoot);

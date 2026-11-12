@@ -14,9 +14,9 @@ final class QueueBuilder
     }
 
     /**
-     * 在 build() 前登记自定义队列驱动（须返回 RedisQueue 兼容实现）。
+     * 在 build() 前登记自定义队列驱动（须实现 QueueBackend）。
      *
-     * @param callable(ServiceResolver): RedisQueue $factory
+     * @param callable(ServiceResolver): QueueBackend $factory
      */
     public function extend(string $driver, callable $factory): self
     {

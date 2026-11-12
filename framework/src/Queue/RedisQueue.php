@@ -7,7 +7,7 @@ namespace Loom;
 /**
  * Redis Stream 作为队列投递源：主 Stream、延迟有序集与死信 Stream，均在同一哈希槽。
  */
-final class RedisQueue
+final class RedisQueue implements QueueBackend
 {
     private string $cursor = '0-0';
     private ?string $consumer = null;

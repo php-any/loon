@@ -19,7 +19,7 @@ final class DiaryComposer
             'stack' => self::stackSink($options, $registration, $config),
             default => new LaneJournalSink(
                 self::formatter($options->formatter),
-                self::resolveWriter($options->writer, $options, $registration, $config),
+                self::resolveWriter($options->writer, $options, $registration, $config, []),
             ),
         };
     }
@@ -43,7 +43,7 @@ final class DiaryComposer
             }
             return new StackJournalWriter($writers);
         }
-        return self::resolveWriter($options->writer, $options, $registration, $config);
+        return self::resolveWriter($options->writer, $options, $registration, $config, []);
     }
 
   /**
@@ -85,7 +85,7 @@ final class DiaryComposer
     ): JournalWriter {
         $factory = $registration->factory($driver);
         if ($factory !== null) {
-            $writer = $factory($options, $config);
+            $writer = $factory($options, $config, $item);
             if (!$writer instanceof JournalWriter) {
                 throw new \LogicException('Diary writer factory must return JournalWriter');
             }

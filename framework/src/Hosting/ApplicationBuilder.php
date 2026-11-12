@@ -107,14 +107,14 @@ final class ApplicationBuilder
             }
             return $bound;
         });
-        $services->tryAddSingleton(\Loom\RedisQueue::class, static function (ServiceResolver $resolver): \Loom\RedisQueue {
+        $services->tryAddSingleton(\Loom\QueueBackend::class, static function (ServiceResolver $resolver): \Loom\QueueBackend {
             $options = $resolver->get(\Loom\QueueOptions::class);
             $profile = $options->connectionProfile($options->default);
             $factory = $resolver->get(\Loom\QueueRegistration::class)->factory($profile['driver']);
             if ($factory !== null) {
                 $instance = $factory($resolver);
-                if (!$instance instanceof \Loom\RedisQueue) {
-                    throw new \LogicException('Queue driver factory must return RedisQueue');
+                if (!$instance instanceof \Loom\QueueBackend) {
+                    throw new \LogicException('Queue driver factory must return QueueBackend');
                 }
                 return $instance;
             }
@@ -126,6 +126,13 @@ final class ApplicationBuilder
                 (string)($profile['connection'] ?? ''),
                 (string)($profile['name'] ?? ''),
             );
+        });
+        $services->tryAddSingleton(\Loom\RedisQueue::class, static function (ServiceResolver $resolver): \Loom\RedisQueue {
+            $backend = $resolver->get(\Loom\QueueBackend::class);
+            if (!$backend instanceof \Loom\RedisQueue) {
+                throw new \LogicException('RedisQueue is only registered when the queue driver is redis');
+            }
+            return $backend;
         });
         $services->tryAddSingleton(\Loom\Mail\MailOptions::class, static function (ServiceResolver $resolver): \Loom\Mail\MailOptions {
             $bound = $resolver->get(Options::class)->bindOptional(\Loom\Mail\MailOptions::class, 'mail');
@@ -313,6 +320,7 @@ final class ApplicationBuilder
         }
         $provider = $services->build();
         \Loom\Redis::bindOptions($provider->get(\Loom\RedisOptions::class));
+        $provider->get(\Loom\Logging\Diary::class);
         $stopSignal = $provider->get(StopSignal::class);
         foreach ($this->onStopHandlers as $handler) {
             $stopSignal->onStop($handler);

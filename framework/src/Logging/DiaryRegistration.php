@@ -13,11 +13,11 @@ use Loom\Config;
  */
 final class DiaryRegistration
 {
-    /** @var array<string, callable(DiaryOptions, Config): JournalWriter> */
+    /** @var array<string, callable(DiaryOptions, Config, array<string, mixed>): JournalWriter> */
     private array $extensions = [];
 
     /**
-     * @param callable(DiaryOptions, Config): JournalWriter $factory
+     * @param callable(DiaryOptions, Config, array<string, mixed>): JournalWriter $factory
      */
     public function extend(string $driver, callable $factory): void
     {
@@ -25,7 +25,7 @@ final class DiaryRegistration
     }
 
     /**
-     * @return ?callable(DiaryOptions, Config): JournalWriter
+     * @return ?callable(DiaryOptions, Config, array<string, mixed>): JournalWriter
      */
     public function factory(string $driver): ?callable
     {
