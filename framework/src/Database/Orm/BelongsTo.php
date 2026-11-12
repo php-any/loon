@@ -14,7 +14,8 @@ final class BelongsTo extends Relation
         private ?string $ownerKey = null,
     ) {
         $this->foreignKey = $foreignKey ?? self::snakeShort($related) . '_id';
-        $parent::class::modelColumn($this->foreignKey);
+        $parentClass = $parent::class;
+        $parentClass::modelColumn($this->foreignKey);
         $this->ownerKey = self::singleKey($related, $this->ownerKey, 'owner');
         parent::__construct($parent, $related, $database);
     }
@@ -37,7 +38,8 @@ final class BelongsTo extends Relation
     public function existenceSql(string $parentTable, ?callable $constraint = null): array
     {
         $relatedTable = $this->relatedTable();
-        $fkColumn = SqlIdentifier::quote($this->parent::class::modelColumn($this->foreignKey));
+        $parentClass = $this->parent::class;
+        $fkColumn = SqlIdentifier::quote($parentClass::modelColumn($this->foreignKey));
         $ownerColumn = SqlIdentifier::quote($this->related::modelColumn($this->ownerKey));
         $parentQuoted = SqlIdentifier::quote($parentTable);
         $relatedQuoted = SqlIdentifier::quote($relatedTable);
