@@ -70,6 +70,7 @@ foreach ([
     'Logging/FileJournalWriter.php',
     'Logging/CallableJournalWriter.php',
     'Logging/JsonLineJournalFormatter.php',
+    'Logging/JournalFieldText.php',
     'Logging/PlainTextJournalFormatter.php',
     'Logging/PatternJournalFormatter.php',
     'Logging/TemplateJournalNamer.php',

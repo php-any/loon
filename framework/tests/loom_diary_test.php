@@ -24,6 +24,39 @@ if (!str_starts_with($plain->format($entry), $entry->time . ' warning test.event
     throw new RuntimeException('PlainTextJournalFormatter must render scalars');
 }
 
+$nestedEntry = new Loom\Logging\JournalEntry(
+    '2026-11-12T16:19:00Z',
+    'info',
+    'monitoring.session',
+    [
+        'channel' => 'console',
+        'correlation_id' => '46c6',
+        'duration_ms' => 17.386,
+        'tags' => ['command' => 'migrate:status'],
+        'entries' => [
+            ['event' => 'database.sql', 'duration_ms' => 8.345, 'sql' => 'CREATE TABLE IF NOT EXISTS loom_migrations(...)'],
+            ['event' => 'console.result', 'command' => 'migrate:status', 'exit_code' => 0],
+        ],
+    ],
+);
+$nestedText = $plain->format($nestedEntry);
+$nestedLines = explode("\n", rtrim($nestedText, "\n"));
+if (count($nestedLines) < 6) {
+    throw new RuntimeException('PlainTextJournalFormatter must expand nested fields across lines');
+}
+if ($nestedLines[0] !== '2026-11-12T16:19:00Z info monitoring.session channel=console correlation_id=46c6 duration_ms=17.386') {
+    throw new RuntimeException('PlainTextJournalFormatter nested header must keep scalars on first line');
+}
+if ($nestedLines[1] !== '  tags.command=migrate:status' || $nestedLines[2] !== '  entries[0].event=database.sql') {
+    throw new RuntimeException('PlainTextJournalFormatter nested lines must use dotted and indexed keys');
+}
+if (!str_contains($nestedText, 'entries[1].exit_code=0')) {
+    throw new RuntimeException('PlainTextJournalFormatter must expand list entries');
+}
+if (preg_match('/=\{|\=\[/', $nestedText) === 1) {
+    throw new RuntimeException('PlainTextJournalFormatter must not emit JSON blobs for nested fields');
+}
+
 // Writer 可插拔：内存、空实现与文件。
 $captured = [];
 $diary = new Loom\Logging\Diary(
@@ -220,6 +253,19 @@ $patternEntry = new Loom\Logging\JournalEntry('2026-01-02T03:04:05Z', 'info', 'o
 $patternLine = rtrim($patternFormatter->format($patternEntry), "\n");
 if (!str_contains($patternLine, 'id=9') || !str_contains($patternLine, 'shop=east') || !str_contains($patternLine, 'order.placed')) {
     throw new RuntimeException('PatternJournalFormatter must expand field placeholders');
+}
+
+$patternNested = new Loom\Logging\PatternJournalFormatter('[{time}] {level} {event} {fields}');
+$patternNestedEntry = new Loom\Logging\JournalEntry('2026-11-12T16:19:00Z', 'info', 'nested.probe', [
+    'ok' => 1,
+    'meta' => ['region' => 'east'],
+]);
+$patternNestedOut = $patternNested->format($patternNestedEntry);
+if (!str_contains($patternNestedOut, 'ok=1') || str_contains($patternNestedOut, '{"region"')) {
+    throw new RuntimeException('PatternJournalFormatter must expand nested maps without JSON blobs');
+}
+if (!str_contains($patternNestedOut, "  meta.region=east\n")) {
+    throw new RuntimeException('PatternJournalFormatter must append indented nested lines');
 }
 
 // {date} 路径按 Asia/Shanghai：UTC 16:00 对应 CST 次日 00:00。
