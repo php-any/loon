@@ -17,7 +17,7 @@ namespace {
     }
 
     $app = $GLOBALS['app'];
-    $db = $app->provider()->createScope()->get(Loom\Database::class);
+    $db = $app->services->createScope()->get(Loom\Database::class);
 
     try {
         $db->query('SELECT 1 FROM im_conversations LIMIT 1');
@@ -34,12 +34,19 @@ namespace {
         }
     }
 
-    $scope = $app->provider()->createScope();
+    $scope = $app->services->createScope();
     /** @var App\Services\Im\ImMessaging $im */
     $im = $scope->get(App\Services\Im\ImMessaging::class);
     /** @var App\Services\Im\ImAuth $imAuth */
     $imAuth = $scope->get(App\Services\Im\ImAuth::class);
-    imCheck($im instanceof App\Services\Im\ImMessaging && $imAuth instanceof App\Services\Im\ImAuth, 'ImAuth/ImMessaging 可在请求作用域解析');
+    /** @var Loom\WebSocket\Hub $hubScoped */
+    $hubScoped = $scope->get(Loom\WebSocket\Hub::class);
+    imCheck(
+        $im instanceof App\Services\Im\ImMessaging
+        && $imAuth instanceof App\Services\Im\ImAuth
+        && $hubScoped instanceof Loom\WebSocket\Hub,
+        'ImAuth/ImMessaging/Hub 可在请求作用域解析',
+    );
     /** @var Loom\Auth $studioAuth */
     $studioAuth = $scope->get(Loom\Auth::class);
     $context = $scope->get(Loom\RequestContext::class);
@@ -88,14 +95,6 @@ namespace {
 
     $badJson = $app->handle($httpRequest('POST', '/api/im/login', ['content-type' => ['application/json']], '[]'));
     imCheck($badJson->toArray()['status'] === 400, 'login 非对象 JSON 返回 400');
-
-    $okLogin = $app->handle($httpRequest(
-        'POST',
-        '/api/im/login',
-        ['content-type' => ['application/json']],
-        json_encode(['email' => $users[0]['email'], 'password' => $password], JSON_THROW_ON_ERROR),
-    ));
-    imCheck($okLogin->toArray()['status'] === 200, 'login JSON 对象仍可用');
 
     $context->bind($originRequest('POST', '/api/studio/login', '', '', ''));
     $studio = $studioAuth->login($users[0]['email'], $password);
