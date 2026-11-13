@@ -9,7 +9,6 @@ use Loom\Request;
 use Loom\Response;
 
 #[\Net\Annotation\Controller]
-#[\Net\Annotation\Middleware(\Loom\Http\Middleware\ParseJsonInput::class)]
 final class ImSessionController
 {
     private ImAuth $auth;
@@ -22,7 +21,7 @@ final class ImSessionController
     #[\Net\Annotation\PostMapping('/api/im/login')]
     public function login(Request $request): Response
     {
-        $input = $request->attribute('input');
+        $input = $request->json();
         $session = $this->auth->login($input->string('email', 3, 254), $input->string('password', 10, 72));
         return Response::json(['csrf' => $session['csrf'], 'user' => ['id' => $session['id']]])->withHeader('Set-Cookie', $session['cookie']);
     }

@@ -17,7 +17,7 @@ namespace {
     }
 
     $app = $GLOBALS['app'];
-    $db = $app->provider()->createScope()->get(Loom\Database::class);
+    $db = $app->services->createScope()->get(Loom\Database::class);
 
     try {
         $db->query('SELECT 1 FROM im_conversations LIMIT 1');
@@ -34,11 +34,19 @@ namespace {
         }
     }
 
-    $scope = $app->provider()->createScope();
+    $scope = $app->services->createScope();
     /** @var App\Services\Im\ImMessaging $im */
     $im = $scope->get(App\Services\Im\ImMessaging::class);
     /** @var App\Services\Im\ImAuth $imAuth */
     $imAuth = $scope->get(App\Services\Im\ImAuth::class);
+    /** @var Loom\WebSocket\Hub $hubScoped */
+    $hubScoped = $scope->get(Loom\WebSocket\Hub::class);
+    imCheck(
+        $im instanceof App\Services\Im\ImMessaging
+        && $imAuth instanceof App\Services\Im\ImAuth
+        && $hubScoped instanceof Loom\WebSocket\Hub,
+        'ImAuth/ImMessaging/Hub 可在请求作用域解析',
+    );
     /** @var Loom\Auth $studioAuth */
     $studioAuth = $scope->get(Loom\Auth::class);
     $context = $scope->get(Loom\RequestContext::class);
@@ -47,7 +55,7 @@ namespace {
     imCheck(count($users) >= 2, '需要至少两名用户');
     $a = (int)$users[0]['id'];
     $b = (int)$users[1]['id'];
-  $password = 'im integration password';
+    $password = 'im integration password';
     if (!password_verify($password, $users[0]['password'])) {
         $db->execute('UPDATE loom_users SET password=? WHERE id IN (?, ?)', [password_hash($password, PASSWORD_BCRYPT, ['cost' => 4]), $a, $b]);
     }
@@ -66,6 +74,27 @@ namespace {
         'query' => [],
         'body' => $body,
     ]);
+
+    $httpRequest = static fn (string $method, string $path, array $headers = [], string $body = ''): Loom\Request => new Loom\Request([
+        'origin' => 'http://localhost',
+        'method' => $method,
+        'path' => $path,
+        'headers' => array_merge([
+            'host' => ['localhost'],
+            'origin' => ['http://localhost'],
+        ], $headers),
+        'query' => [],
+        'body' => $body,
+    ]);
+
+    $unauthSession = $app->handle($httpRequest('GET', '/api/im/session'));
+    imCheck($unauthSession->toArray()['status'] === 401, '未登录 GET /api/im/session 不要求 JSON 正文');
+
+    $badType = $app->handle($httpRequest('POST', '/api/im/login', ['content-type' => ['text/plain']], '{}'));
+    imCheck($badType->toArray()['status'] === 415, 'login 错误 Content-Type 返回 415');
+
+    $badJson = $app->handle($httpRequest('POST', '/api/im/login', ['content-type' => ['application/json']], '[]'));
+    imCheck($badJson->toArray()['status'] === 400, 'login 非对象 JSON 返回 400');
 
     $context->bind($originRequest('POST', '/api/studio/login', '', '', ''));
     $studio = $studioAuth->login($users[0]['email'], $password);

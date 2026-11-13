@@ -10,7 +10,6 @@ use App\Models\Im\Message;
 use Loom\HttpError;
 use Loom\WebSocket\Hub;
 
-#[\Container\Annotation\Singleton]
 final class ImMessaging
 {
     private \Loom\Database $database;

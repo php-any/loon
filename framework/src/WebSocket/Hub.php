@@ -11,12 +11,10 @@ namespace Loom\WebSocket;
 final class Hub
 {
     private \Loom\Config $config;
-    private ?\Loom\Monitoring\Monitoring $monitoring;
 
-    public function __construct(\Loom\Config $config, ?\Loom\Monitoring\Monitoring $monitoring = null)
+    public function __construct(\Loom\Config $config)
     {
         $this->config = $config;
-        $this->monitoring = $monitoring;
     }
 
     public function channelKey(string $channel): string
@@ -36,7 +34,13 @@ final class Hub
             \Loom\Redis::execute($client, ['XADD', $key, 'MAXLEN', '~', '1000', '*', 'payload', $body]);
             \Loom\Redis::execute($client, ['EXPIRE', $key, '86400']);
         });
-        $this->monitoring?->recordEvent('websocket.broadcast', ['channel' => $channel]);
+        try {
+            $monitoring = \Loom\Monitoring\ActiveMonitoring::current();
+            if ($monitoring !== null && $monitoring->isActive()) {
+                $monitoring->recordEvent('websocket.broadcast', ['channel' => $channel]);
+            }
+        } catch (\Throwable) {
+        }
     }
 
     public function tail(\Redis $client, string $channel): string
