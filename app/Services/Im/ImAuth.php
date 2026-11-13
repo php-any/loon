@@ -9,7 +9,6 @@ use Loom\HttpError;
 use Loom\Models\AuthLimit;
 use Loom\Models\User;
 
-#[\Container\Annotation\Singleton]
 final class ImAuth
 {
     private const COOKIE = 'loom_im_session';
